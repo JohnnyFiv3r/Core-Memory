@@ -15,10 +15,18 @@ while it moves from legacy files, feature-specific state machines, and
 deterministic semantic fallbacks to the Observation Ledger. It is enforced by
 the existing architecture guard; it does not create a second policy engine.
 
-The guard is a ratchet. Existing debt is explicit, exact, owned, fingerprinted,
-and assigned to a deletion PR. Removing debt is always allowed. Adding a new
-authority, fallback, occurrence, wildcard exception, or unowned exception is a
-CI failure.
+The guard is a structural ratchet. Existing debt is explicit, exact, owned,
+fingerprinted, assigned to a deletion PR, and compared with the merge-base
+registry. Removing debt and lowering occurrence ceilings are allowed. Adding
+an exception, widening its metadata, raising its ceiling, adding a governed
+mutation call, using a wildcard, or leaving an expired exception is a CI
+failure.
+
+The static fallback detector is intentionally name-based in PR-00A. It catches
+named fallback functions and exact known semantic mutation APIs; it is an early
+warning, not behavioral proof that a disguised default cannot exist. Review and
+the Stage 0 adversarial evaluations remain responsible for that behavioral
+proof until the target no-fallback closure in PR-02D.
 
 ## Enforced invariants
 
@@ -90,6 +98,7 @@ The canonical registry is
 - a stable ID and invariant IDs;
 - one supported category;
 - an exact repo-relative path and symbol;
+- the exact governed semantic mutation calls, when applicable;
 - a content-derived fingerprint;
 - narrowly allowed and explicitly forbidden behavior;
 - justification and provenance requirements;
@@ -107,8 +116,9 @@ Supported categories are:
 - `benchmark_shortcut`
 
 Paths cannot be absolute, contain parent traversal, or contain glob syntax.
-Deletion targets must be later program phases. Exception occurrence ceilings
-may decrease but may not increase.
+Deletion targets must be later program phases. The registry records the current
+program phase, and rows fail once that phase reaches their mandatory deletion
+phase. Exception occurrence ceilings may decrease but may not increase.
 
 The registry records the source commit used to establish the debt snapshot.
 Changing exception metadata changes its fingerprint and requires explicit
@@ -117,10 +127,10 @@ separate file; it cannot overwrite or promote the canonical registry.
 
 ## Enforcement
 
-Read-only report:
+Read-only report (the default invocation):
 
 ```bash
-python scripts/check_architecture_guards.py --report
+python scripts/check_architecture_guards.py
 ```
 
 Required ratchet:
@@ -128,6 +138,7 @@ Required ratchet:
 ```bash
 python scripts/check_architecture_guards.py \
   --baseline scripts/architecture_guards_baseline.json \
+  --ratchet-ref origin/master \
   --fail-on-new
 ```
 

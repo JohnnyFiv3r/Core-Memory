@@ -789,7 +789,7 @@ three already-merged phases in that inclusive range.
 
 | PR phase | One complete PR outcome | Depends on | Primary proof | Workstream |
 |---|---|---|---|---|
-| `PR-00A` | Architecture contract, guard v2, fingerprinted expiring exceptions, parent register, and violation self-tests | — | required architecture check rejects new or increased authority/fallback debt | EP-00A |
+| `PR-00A` | Architecture contract, guard v2, fingerprinted expiring exceptions, parent register, and violation self-tests | — | required structural check rejects new/widened exceptions, known mutation drift, named fallbacks, and expired debt | EP-00A |
 | `PR-00B` | Observation Ledger benchmark package, CLI, schemas, user-selected author/judge model contracts, run states, and report contracts | 00A | provider-neutral fixture run and contamination self-tests are reproducible | EP-00B |
 | `PR-00C` | Read-only static code and filesystem authority inventory | 00B | classified paths, symbols, counts, hashes, and safety tests reconcile | EP-00C |
 | `PR-00D` | Read-only SQLite/PostgreSQL/hosted inventory and consolidated legacy manifest | 00C | every known authority is accessible and classified without mutation | EP-00C |

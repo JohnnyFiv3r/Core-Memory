@@ -72,22 +72,31 @@ PR-00A upgrades `scripts/check_architecture_guards.py` and its existing baseline
 in place. It does not create a parallel architecture checker.
 
 The v2 exception registry requires a stable ID, invariant IDs, category, exact
-path, symbol, fingerprint, allowed and forbidden behavior, justification,
-provenance, owner, deletion PR, and occurrence ceiling.
+path, symbol, exact governed mutation calls where applicable, fingerprint,
+allowed and forbidden behavior, justification, provenance, owner, deletion PR,
+and occurrence ceiling. The registry also records the current program phase.
 
 The guard must:
 
 - reject wildcard and absolute exception paths;
 - reject missing owners, provenance, or expiry phases;
 - reject stale and duplicate fingerprints;
-- allow debt occurrences to decrease;
-- reject occurrence increases and unregistered semantic fallbacks;
-- activate target-package import boundaries when target packages appear;
+- allow debt occurrences and ceilings to decrease;
+- reject new or widened exception rows against the merge-base registry;
+- reject occurrence increases, expired rows, named semantic fallbacks, and
+  unregistered known semantic mutation calls;
+- activate allowlisted target-package import boundaries when target packages
+  appear;
 - exclude comments, documentation, fixtures, and historical readers from
   runtime semantic-authoring judgments where appropriate;
 - produce a read-only report;
 - emit baseline candidates only to a separate review file;
 - refuse to overwrite the canonical baseline through its CLI.
+
+PR-00A's fallback scan is structurally exact for known mutation APIs and
+name-based for fallback functions. It does not claim behavioral proof against
+arbitrarily disguised defaults; review and benchmark evidence close that gap,
+with the target-path no-fallback gate delivered in PR-02D.
 
 PR-00A also adds this Stage 0 plan, the governing PRD and parent execution plan,
 the architecture contract, PRD index entries, required workflow coverage, and

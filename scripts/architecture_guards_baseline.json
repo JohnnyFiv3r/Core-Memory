@@ -1,12 +1,14 @@
 {
+  "current_phase": "PR-00A",
   "description": "Observation Ledger architecture debt ratchet. Exceptions are exact, fingerprinted, owned, and expire in named PR phases. Reductions are allowed; new or increased debt is rejected.",
   "exceptions": [
     {
       "allowed_behavior": "May record a legacy session-boundary bead using explicit session lifecycle input.",
       "category": "deterministic_semantic_author",
       "delete_by_pr": "PR-10I",
-      "fingerprint": "e6901336fab97011c6604e20369069a742fb85fe8eac9c6429a9d30443e92880",
+      "fingerprint": "8bff3d196f4099aef1070523182ba75687f671ebb1241971c2d3193a5a8785c1",
       "forbidden_behavior": "Must not infer user meaning, claims, goals, or relationships.",
+      "governed_calls": [],
       "id": "CMEX-001",
       "invariant_ids": [
         "CM-OBS-001",
@@ -23,8 +25,9 @@
       "allowed_behavior": "May record a legacy flush checkpoint from explicit process state.",
       "category": "deterministic_semantic_author",
       "delete_by_pr": "PR-10I",
-      "fingerprint": "9d9ec7ba78f9ac33c0f35128e29b9a08ed24ef07339b5409fd7b6de37f4bec47",
+      "fingerprint": "dec3bd340261e96b6e869cc45bcdaae3d81d5264f540c45c65f81bd77a3feed8",
       "forbidden_behavior": "Must not infer semantic completion or manufacture observation meaning.",
+      "governed_calls": [],
       "id": "CMEX-002",
       "invariant_ids": [
         "CM-OBS-001",
@@ -41,8 +44,9 @@
       "allowed_behavior": "May preserve caller-owned external evidence and source coordinates.",
       "category": "boundary_import",
       "delete_by_pr": "PR-10I",
-      "fingerprint": "c79fd69e63494a24ede88fa23f1eb9b8f9bc283058dde1db93ebf441b426584b",
+      "fingerprint": "acb4154db858f5384309105f5c2d040549db7e51c607f4692198c9354ccea6b6",
       "forbidden_behavior": "Must not convert source evidence into unsupported semantic truth.",
+      "governed_calls": [],
       "id": "CMEX-003",
       "invariant_ids": [
         "CM-OBS-001",
@@ -59,8 +63,9 @@
       "allowed_behavior": "May append operational pending, retry, and repair status.",
       "category": "feature_store",
       "delete_by_pr": "PR-10I",
-      "fingerprint": "bde37ba41addc894f9a093483813ec8d2d8bb3581106bf03d156d8f73f8fa24f",
+      "fingerprint": "6fd5658414026a4ce5224401fe5a866576e0f2c0408bf35d4b4f77031d9a0e7f",
       "forbidden_behavior": "Must not represent an operational state as a canonical semantic bead.",
+      "governed_calls": [],
       "id": "CMEX-004",
       "invariant_ids": [
         "CM-SEM-002",
@@ -77,8 +82,11 @@
       "allowed_behavior": "May project explicit persisted associations and structural links.",
       "category": "feature_store",
       "delete_by_pr": "PR-10J",
-      "fingerprint": "100606be8c5a2224654ea15be6791a744a2b22f492a9ae3e97eb6d694bfe6391",
+      "fingerprint": "e81e5d854435dd9fccdd75f6fcf8690347ec9bc097f1a1180a1d607e326ae824",
       "forbidden_behavior": "Must not infer predicate, direction, time, causality, or truth.",
+      "governed_calls": [
+        "add_structural_edge"
+      ],
       "id": "CMEX-005",
       "invariant_ids": [
         "CM-ASSOC-001",
@@ -95,8 +103,9 @@
       "allowed_behavior": "May rebuild edges from explicit persisted structural fields.",
       "category": "feature_store",
       "delete_by_pr": "PR-10J",
-      "fingerprint": "b2a07a2ec38949a1aba1b3f9c51259f3922774468da2e27c9378ed6c2a1cc206",
+      "fingerprint": "5b1a31a924d6f8f49f8efb582b808fcbae449f9510f61a64e5e9f82e08408c73",
       "forbidden_behavior": "Must not invent or upgrade semantic relationships.",
+      "governed_calls": [],
       "id": "CMEX-006",
       "invariant_ids": [
         "CM-ASSOC-001",
@@ -113,8 +122,9 @@
       "allowed_behavior": "May emit explicitly marked legacy shadow recommendations.",
       "category": "deterministic_semantic_author",
       "delete_by_pr": "PR-10K",
-      "fingerprint": "01387328e6ef8df24da91c1484ef955a848335da5c5b06d5eb09bc37ddb65ee2",
+      "fingerprint": "31820949b9496637ebf58390ab5b7b10fb8ce4ac4f2d5e299520b92f1610f7a1",
       "forbidden_behavior": "Must not make canonical promotion or truth decisions.",
+      "governed_calls": [],
       "id": "CMEX-007",
       "invariant_ids": [
         "CM-PROMOTION-001",
@@ -131,8 +141,9 @@
       "allowed_behavior": "May score legacy promotion candidates as noncanonical advice.",
       "category": "deterministic_semantic_author",
       "delete_by_pr": "PR-10K",
-      "fingerprint": "da5baa1f5e6189584e0e4bff392197fa740a1e9619a634fcdddd3632c611e757",
+      "fingerprint": "7252a516bc8b15b94888ac73ef5736d3efa8ffefd7206375e4eb71daa8b39360",
       "forbidden_behavior": "Must not persist canonical promotion state or alter factual authority.",
+      "governed_calls": [],
       "id": "CMEX-008",
       "invariant_ids": [
         "CM-PROMOTION-001",
@@ -149,8 +160,9 @@
       "allowed_behavior": "May emit explicitly marked legacy demotion recommendations.",
       "category": "deterministic_semantic_author",
       "delete_by_pr": "PR-10K",
-      "fingerprint": "9f017f7279d326c3cfcf29c6c6a96efb011f2e064da7370e6206ea085621971c",
+      "fingerprint": "c96eb266c3063824b9a85aa9dfa0166d06cc21a84062cd96699ed0c83272a6fd",
       "forbidden_behavior": "Must not mutate archive retention or canonical truth.",
+      "governed_calls": [],
       "id": "CMEX-009",
       "invariant_ids": [
         "CM-PROMOTION-001",
@@ -167,8 +179,9 @@
       "allowed_behavior": "May emit legacy advisory claim candidates with extractor provenance.",
       "category": "deterministic_semantic_author",
       "delete_by_pr": "PR-10J",
-      "fingerprint": "057ebffed1cd2763521760af0dc22669cf5b95fbb5c716f9e59d3a3821728980",
+      "fingerprint": "f5742bc746551690c7777414d00a08143b7b79a0df1e60f73f64ed5f309500b1",
       "forbidden_behavior": "Must not establish a canonical claim or current truth.",
+      "governed_calls": [],
       "id": "CMEX-010",
       "invariant_ids": [
         "CM-CLAIM-001",
@@ -185,8 +198,11 @@
       "allowed_behavior": "May emit legacy claim-update advice for explicit review.",
       "category": "deterministic_semantic_author",
       "delete_by_pr": "PR-10J",
-      "fingerprint": "5302e407a631617ef6398d97d70b0d21eca231a01411ca528a22c5072d97d87f",
+      "fingerprint": "39922dc4be7e6ff4ffc12250634392e224770afbeb9008946ef9be97ed2798c1",
       "forbidden_behavior": "Must not resolve, supersede, or retract canonical claims automatically.",
+      "governed_calls": [
+        "write_claim_updates_to_bead"
+      ],
       "id": "CMEX-011",
       "invariant_ids": [
         "CM-CLAIM-001",
@@ -203,8 +219,11 @@
       "allowed_behavior": "May apply an explicit agent decision to a scoped legacy candidate.",
       "category": "deterministic_semantic_author",
       "delete_by_pr": "PR-10K",
-      "fingerprint": "e27010ad0db6e6acd962ff9e674d10405808f4a6efcded3fccd0a06b3e53e609",
+      "fingerprint": "6a24e7a011bad69e8732df1a4c25292464e5e67df7a18b678bd1f2e7b235d2c2",
       "forbidden_behavior": "Must not auto-resolve claims or endorse artifacts without an attributed decision.",
+      "governed_calls": [
+        "write_claims_to_bead"
+      ],
       "id": "CMEX-012",
       "invariant_ids": [
         "CM-CLAIM-001",
@@ -221,8 +240,9 @@
       "allowed_behavior": "May emit relationship-neutral legacy causal candidates.",
       "category": "deterministic_semantic_author",
       "delete_by_pr": "PR-10J",
-      "fingerprint": "6184ab333661125bdc475d9822834b4b527898513df4ea41a9f135d55b679952",
+      "fingerprint": "695cd7e7f2b5a9d9ccdef99baad64b2e92066c4fc4b0c7295ff50083950f1eb1",
       "forbidden_behavior": "Must not persist causal truth or structural edges from lexical overlap.",
+      "governed_calls": [],
       "id": "CMEX-013",
       "invariant_ids": [
         "CM-ASSOC-001",
@@ -239,8 +259,9 @@
       "allowed_behavior": "May shortlist relationship-neutral bead pairs from mechanical signals.",
       "category": "deterministic_semantic_author",
       "delete_by_pr": "PR-10J",
-      "fingerprint": "426b38782cefcea18ea5b97014b458200dc1e2d801e0fd1b9860f41ad529c155",
+      "fingerprint": "9ff0d534d17c058d25ebe248425fce03941ded0c314389ad3b4489e7b061e48b",
       "forbidden_behavior": "Must not select a predicate, direction, time interval, or causal status.",
+      "governed_calls": [],
       "id": "CMEX-014",
       "invariant_ids": [
         "CM-ASSOC-001",
@@ -257,8 +278,9 @@
       "allowed_behavior": "May expose the legacy fallback flag for compatibility and visible diagnostics.",
       "category": "semantic_fallback",
       "delete_by_pr": "PR-09G",
-      "fingerprint": "41049a4a77a1735f443d8bd1549b7f4d836985cdaa370d36c75878cd28d257d6",
+      "fingerprint": "c6e3d42d21cc47206ee822c5d5af673fabdcb74df9074711194e746266399f01",
       "forbidden_behavior": "Must not silently enable deterministic semantic authorship.",
+      "governed_calls": [],
       "id": "CMEX-015",
       "invariant_ids": [
         "CM-SEM-001",
@@ -275,8 +297,9 @@
       "allowed_behavior": "May produce explicitly identified compatibility output while the legacy writer exists.",
       "category": "semantic_fallback",
       "delete_by_pr": "PR-02D",
-      "fingerprint": "73e888a0e3b62d466e5a092006c5e2d6faabe71c430852132cdac3eec26c9f2a",
+      "fingerprint": "72a18350f608c8dbeadfff8524237f966d67efa1721fb8772b6f6b3c4301a65a",
       "forbidden_behavior": "Must not be treated as a valid Observation Ledger annotation or quality success.",
+      "governed_calls": [],
       "id": "CMEX-016",
       "invariant_ids": [
         "CM-OBS-001",
@@ -294,8 +317,11 @@
       "allowed_behavior": "May delegate an explicit structural projection write to the legacy graph implementation.",
       "category": "feature_store",
       "delete_by_pr": "PR-10J",
-      "fingerprint": "aba8ac22aa0c6af200ec682e1b6163625ce440481dc05fba3c3b1f3099042ecd",
+      "fingerprint": "8a3772588be1a3e9d8a2b2b001754af954d0041130672348330f8bbcbcee3763",
       "forbidden_behavior": "Must not infer relationship meaning or accept an unprovenanced edge.",
+      "governed_calls": [
+        "add_structural_edge"
+      ],
       "id": "CMEX-017",
       "invariant_ids": [
         "CM-ASSOC-001",
@@ -312,8 +338,11 @@
       "allowed_behavior": "May apply an explicit caller-requested legacy goal lifecycle transition.",
       "category": "deterministic_semantic_author",
       "delete_by_pr": "PR-10K",
-      "fingerprint": "876460321c377e82071f45ecf1adba0a01ac33d869d22e4b90a9c1a8633d1be2",
+      "fingerprint": "dd62b3fe7da5764d071700930b27ab640561e10b6db629616d1cb7d6c04fd726",
       "forbidden_behavior": "Must not infer goal adoption, completion, abandonment, or decay.",
+      "governed_calls": [
+        "transition_goal_state_for_store"
+      ],
       "id": "CMEX-018",
       "invariant_ids": [
         "CM-ARTIFACT-001",
@@ -330,8 +359,11 @@
       "allowed_behavior": "May persist a validated, attributed association judge decision.",
       "category": "deterministic_semantic_author",
       "delete_by_pr": "PR-10J",
-      "fingerprint": "8e3aa419e7ac373bcb29b184f30658bc266e193b88fadfe19df4d84a45c62cd8",
+      "fingerprint": "3370b3e55c88aab56226d96d91eaf036c6e60433c53ee80142a4d98bcf7f3d79",
       "forbidden_behavior": "Must not replace a missing or invalid judge result with relationship meaning.",
+      "governed_calls": [
+        "_write_association_if_missing"
+      ],
       "id": "CMEX-019",
       "invariant_ids": [
         "CM-ASSOC-001",
@@ -348,8 +380,11 @@
       "allowed_behavior": "May apply validated, attributed association proposals through the legacy store.",
       "category": "deterministic_semantic_author",
       "delete_by_pr": "PR-10J",
-      "fingerprint": "76a4bc3a4e536c78e686c752e7f7391c956c78ade13c8b888440b0c4d2e0a2f2",
+      "fingerprint": "e7fa160fc42f845f03a000033eba14df4548f8d54aa65b14b62ce9b23f37391f",
       "forbidden_behavior": "Must not infer or repair predicate, direction, time, or causality deterministically.",
+      "governed_calls": [
+        "_write_association_if_missing"
+      ],
       "id": "CMEX-020",
       "invariant_ids": [
         "CM-ASSOC-001",
@@ -366,8 +401,11 @@
       "allowed_behavior": "May invoke the legacy candidate and governed association pass.",
       "category": "deterministic_semantic_author",
       "delete_by_pr": "PR-10J",
-      "fingerprint": "4bdf73f7d5f9ecd979288a1db7324dcf899959b8e83502b192b4793f183dcb63",
+      "fingerprint": "aefcfb25a50bc248b98691e4e245eb17c8d7134df9e04c0e3856fa48578f1a42",
       "forbidden_behavior": "Must not convert deterministic overlap into canonical relationship truth.",
+      "governed_calls": [
+        "apply_crawler_updates"
+      ],
       "id": "CMEX-021",
       "invariant_ids": [
         "CM-ASSOC-001",

@@ -2198,3 +2198,2237 @@ Promotion is:
 ### 20.2 Representation tiers
 
 | Tier | Hot-context representation | Archive state |
+|---|---|---|
+| Expanded | Full or budgeted bead content, key evidence, current claims, useful associations | Full canonical record retained |
+| Compressed | Bead ID, primary label/type, association references, and deterministic lookup key | Full canonical record retained |
+
+No canonical bead is deleted or semantically downgraded by compression.
+
+### 20.3 Promotion operation inputs
+
+The LLM receives:
+
+- active conversation objective and recent events;
+- current expanded and compressed bead set;
+- candidate bead summaries and associations;
+- current goal/storyline/SOUL artifacts where authorized;
+- retrieval/use signals labeled as salience only;
+- token budget;
+- pinned items and mandatory safety/context requirements;
+- prior ContextViewRevision.
+
+### 20.4 Promotion output
+
+The LLM returns:
+
+- relative ordering;
+- expanded versus compressed recommendation;
+- reason for each decision;
+- beads that should be unpacked;
+- artifacts that should remain pinned;
+- uncertainty/limitations.
+
+Deterministic code then:
+
+- verifies IDs;
+- calculates actual token cost;
+- packs items in LLM rank order;
+- preserves mandatory pinned records;
+- emits a truthful overflow/degradation receipt if the requested expanded set
+  cannot fit;
+- appends ContextViewRevision.
+
+### 20.5 Promotion triggers
+
+Promotion/assembly Jobs must be created when:
+
+- a new bead enters the active session;
+- active context crosses a configurable token-pressure threshold;
+- a current goal, storyline, or SOUL artifact changes;
+- retrieval unpacks a bead and the active agent elects to retain it;
+- the host requests context refresh;
+- session start requires continuity hydration;
+- a reconciliation sweep finds the active view behind its required ledger
+  watermark.
+
+### 20.6 Unpacking
+
+Unpacking accepts a canonical bead ID and returns:
+
+- full bead;
+- source evidence permitted to the caller;
+- current claims derived from or supported by the bead;
+- accepted associations;
+- relevant artifact memberships;
+- revision/current-state status;
+- archive/projection watermark.
+
+Unpacking must not require semantic re-generation. It is deterministic archive
+lookup plus optional source hydration.
+
+### 20.7 Promotion evaluation
+
+Evaluation must measure:
+
+- critical-context retention;
+- irrelevant expanded-content rate;
+- task success with promoted hot context;
+- successful unpack rate;
+- token savings;
+- semantic stability across repeated runs;
+- sensitivity to changing active goals;
+- regression versus full-context baseline;
+- accidental correlation of promotion with truth/confidence.
+
+---
+
+## 21. One Complete Retrieval Pipeline
+
+### 21.1 Product requirement
+
+Every canonical query uses one retrieval pipeline. The pipeline makes all
+capabilities available and uses LLM judgment for semantic branching,
+relevance, sufficiency, and synthesis.
+
+### 21.2 Pipeline stages
+
+```text
+1. Normalize authorization and mechanical request fields
+2. LLM query planning
+3. Candidate collection
+4. Current-state resolution
+5. Causal and association expansion
+6. Source hydration
+7. LLM evidence judgment
+8. Optional iterative retrieval
+9. LLM answer synthesis or abstention
+10. Deterministic citation and tenant verification
+```
+
+### 21.3 LLM query plan
+
+```yaml
+RetrievalPlan:
+  intent: string
+  questions_to_resolve: [string]
+  entity_refs: [ObjectRef]
+  claim_slots: [ClaimSlotRef]
+  valid_at: timestamp | null
+  known_at: timestamp | null
+  semantic_queries: [string]
+  causal_targets: [ObjectRef]
+  relationship_families: [AssociationPredicate]
+  source_types: [string]
+  hydration_requirements: [HydrationRequirement]
+  effort:
+    candidate_budget: integer
+    graph_depth: integer
+    source_budget: integer
+    iteration_budget: integer
+  answer_schema: string
+  abstention_conditions: [string]
+```
+
+The LLM authors the plan. Core Memory validates it and executes allowed
+operations.
+
+### 21.4 Candidate collection
+
+The single pipeline can union:
+
+- vector/semantic results;
+- lexical matches;
+- current claim-slot matches;
+- entity matches;
+- goal/storyline/artifact matches;
+- temporal matches;
+- source metadata matches;
+- hot-context beads;
+- external-store candidates through authorized adapters.
+
+Deterministic scores are candidate-generation signals only. They do not decide
+the final answer or truth.
+
+### 21.5 Current-state resolution
+
+Relevant claim and artifact scopes are resolved through the one resolver before
+answer synthesis. Ambiguous or contested state is passed explicitly to the LLM.
+
+### 21.6 Causal and association expansion
+
+The pipeline traverses accepted canonical associations using:
+
+- LLM-requested relation families;
+- deterministic direction/inverse mapping;
+- valid/system-time filters;
+- depth and candidate budgets;
+- cycle control;
+- provenance preservation.
+
+The LLM judges whether expanded paths are relevant evidence. Traversal alone
+does not establish causality.
+
+### 21.7 Source hydration
+
+The pipeline hydrates the evidence needed to assess candidate claims and paths.
+Hydration includes full bead unpacking, adjacent turn context, tool results,
+document spans, operational records, and authorized external sources.
+
+### 21.8 Evidence judgment
+
+The LLM receives a structured packet containing:
+
+- candidate beads;
+- current/ambiguous claim state;
+- association paths;
+- supporting and contradictory evidence;
+- hydrated source excerpts;
+- temporal constraints;
+- source availability and limitations.
+
+It returns:
+
+- relevant evidence IDs;
+- irrelevant candidate IDs;
+- evidence roles;
+- unresolved contradictions;
+- sufficiency decision;
+- follow-up retrieval requests within the remaining budget;
+- limitations.
+
+### 21.9 Iteration
+
+If evidence is insufficient and budget remains, the LLM may request another
+candidate/hydration round. The pipeline executes the request and returns the new
+evidence to the same logical retrieval operation.
+
+### 21.10 Synthesis and abstention
+
+The final LLM result must:
+
+- answer only what the selected evidence supports;
+- distinguish observed, asserted, inferred, contested, and verified content;
+- cite canonical evidence IDs/source refs;
+- state temporal scope where material;
+- surface ambiguity;
+- abstain when evidence is insufficient.
+
+No deterministic fallback answer is permitted.
+
+### 21.11 Citation verification
+
+Deterministic post-validation verifies:
+
+- every citation exists;
+- tenant/workspace access is valid;
+- citation content was included in the evidence packet;
+- claimed temporal scope is not mechanically incompatible with cited rows;
+- no hidden or redacted source content is leaked;
+- output matches the requested answer schema.
+
+Invalid synthesis is retried or returned as a truthful retrieval failure, not
+silently stripped into an unsupported answer.
+
+### 21.12 Effort tiers
+
+Effort tiers control budgets and model policy only. They must not create
+separate truth semantics.
+
+| Tier | Typical behavior |
+|---|---|
+| Low | Small semantic candidate set, shallow expansion, minimal hydration |
+| Standard | Balanced semantic search, claim resolution, causal expansion, targeted hydration |
+| High | Broader candidates, deeper paths, more source hydration, iterative evidence judgment |
+| Frontier | High-authority synthesis, maximum approved evidence budget, stronger model/verification |
+
+---
+
+## 22. Source Hydration
+
+### 22.1 Purpose
+
+Beads are concise observations. Source hydration restores the original evidence
+needed for high-fidelity judgment without forcing all raw content into hot
+context or search indexes.
+
+### 22.2 Hydration targets
+
+- full SourceEvent payload;
+- message spans and adjacent turns;
+- tool input/output fields;
+- document pages/spans;
+- image regions;
+- audio/video segments;
+- operational system records;
+- external connector content;
+- full archived bead representation;
+- historical revision records.
+
+### 22.3 Hydration authorization
+
+Hydration checks:
+
+- tenant/workspace scope;
+- actor/caller permissions;
+- source connector grant;
+- redaction policy;
+- data residency;
+- artifact or query purpose where policy requires it.
+
+### 22.4 Hydration failure
+
+Unavailable source content is reported as unavailable evidence. The retrieval
+LLM decides whether remaining evidence is sufficient. Core Memory must not
+replace missing source content with bead summary text while labeling it as full
+source verification.
+
+### 22.5 Hydration caching
+
+Hydrated content may be cached as an encrypted projection with:
+
+- source content hash;
+- tenant scope;
+- expiry;
+- connector/version provenance;
+- redaction state.
+
+Cache invalidation is mechanical and must not alter canonical evidence refs.
+
+---
+
+## 23. One Jobs Table and Worker System
+
+### 23.1 Architecture
+
+All deferred work uses one `jobs` table and one worker protocol. Multiple
+worker replicas may lease jobs concurrently from the same table.
+
+### 23.2 Required job kinds
+
+Initial job kinds:
+
+| Job kind | Trigger | Result |
+|---|---|---|
+| `annotate_event` | SourceEvent append | ObservationBead and optional semantics |
+| `repair_optional_semantics` | Partial bundle validation | Re-authored optional rows or explicit abstention |
+| `project_search` | Canonical semantic append | Search/vector projection update |
+| `project_graph` | Assertion/revision append | Graph projection update |
+| `project_current_state` | Claim/artifact revision append | Current-state projection update |
+| `review_associations` | Bead/evidence change | Association assertions and review receipts |
+| `synthesize_artifacts` | Evidence watermark/cadence | Artifact proposals |
+| `verify_artifact` | Policy requires verification | Verification receipt/decision |
+| `assemble_context` | Turn/token/artifact trigger | ContextViewRevision |
+| `render_soul` | Current SOUL artifact changes | SOUL file/view projection |
+| `hydrate_source` | Retrieval or prefetch request | Hydrated source cache/receipt |
+| `sync_external_projection` | Canonical change | Connector/graph/vector sync |
+| `rebuild_projection` | Operator/recovery action | Projection rebuilt to watermark |
+| `privacy_action` | Authorized privacy request | Audited redaction/erasure workflow |
+
+### 23.3 Mandatory dependency graph
+
+```text
+SourceEvent
+  -> annotate_event
+
+ObservationBead/Assertion/Revision commit
+  -> project_search
+  -> project_graph
+  -> project_current_state where applicable
+  -> review_associations
+  -> assemble_context if session-active
+
+Association/evidence changes
+  -> synthesize_artifacts when eligibility policy is met
+
+Artifact/Revision changes
+  -> project_current_state
+  -> assemble_context where relevant
+  -> render_soul for SOUL kinds
+```
+
+### 23.4 Eligibility scheduling
+
+Deterministic scheduling may determine that a task is due based on:
+
+- unprocessed ledger position;
+- elapsed cadence;
+- explicit dependency completion;
+- active session status;
+- token pressure;
+- schema/model version change;
+- operator request;
+- failed projection watermark;
+- artifact review due date.
+
+It may not determine semantic content or whether a semantic candidate is true.
+
+### 23.5 Leasing
+
+Requirements:
+
+- PostgreSQL uses row locking such as `FOR UPDATE SKIP LOCKED` or equivalent.
+- SQLite uses a safe single-writer lease transaction.
+- leases expire and may be reclaimed;
+- workers heartbeat long operations;
+- job handlers are idempotent;
+- success is recorded only after canonical/result transaction commits;
+- worker crash after commit but before acknowledgement resolves through
+  idempotency.
+
+### 23.6 Retry and terminal failure
+
+- retryable state stores next attempt time and error class;
+- exponential backoff includes jitter;
+- mandatory semantic jobs do not silently disappear after a low retry ceiling;
+- operator policy may pause or quarantine jobs;
+- terminal failure requires a non-retryable reason and visible operator alert;
+- manual retry appends an audit event;
+- semantic task attempts remain independently receipted.
+
+### 23.7 Reconciliation sweeps
+
+A single reconciler compares canonical ledger state to required jobs and
+projection watermarks.
+
+It must detect:
+
+- SourceEvents without annotation jobs;
+- events without successful beads;
+- committed semantic rows without required projection jobs;
+- beads without required association-review versions;
+- artifact changes without context/SOUL projection jobs;
+- stale leases;
+- projectors behind ledger watermarks;
+- succeeded jobs whose claimed outputs do not exist.
+
+The unique Job constraint makes missing-work creation idempotent.
+
+### 23.8 Worker consolidation
+
+There should be one worker executable/service and one handler registry. Handler
+modules may be specialized, but they share:
+
+- job schema;
+- leasing;
+- retry rules;
+- logging;
+- metrics;
+- tenant context;
+- semantic runtime access;
+- graceful shutdown;
+- health reporting.
+
+### 23.9 Coverage SLO
+
+For every mandatory job kind, the system reports:
+
+- eligible subject count;
+- job-created count;
+- pending/leased/retryable/succeeded/failed count;
+- oldest pending age;
+- completion latency percentiles;
+- reconciliation-created count;
+- subjects missing any required job.
+
+Release acceptance requires zero silently missing mandatory obligations in the
+test and smoke environments.
+
+---
+
+## 24. Projections and Indexes
+
+### 24.1 Projection principle
+
+Projections improve access but never define truth. Every projection is keyed to
+a ledger watermark and can be deleted and rebuilt.
+
+### 24.2 Required projections
+
+- current claim/artifact state;
+- vector/semantic index;
+- lexical index where retained;
+- graph adjacency and traversal view;
+- entity lookup;
+- session/hot-context view;
+- artifact-kind views;
+- SOUL/GOALS/TENSIONS/WORLDLINES renderings;
+- retrieval feedback and salience view;
+- operator metrics/read models.
+
+### 24.3 Projection watermark
+
+```yaml
+ProjectionWatermark:
+  projection_name: string
+  tenant_id: string
+  workspace_id: string | null
+  ledger_position: integer
+  schema_version: string
+  updated_at: timestamp
+  state: current | rebuilding | degraded | failed
+  last_error: string | null
+```
+
+### 24.4 Search projection
+
+Search documents may include:
+
+- bead title and summary;
+- retrieval title/facts;
+- accepted assertion text;
+- artifact content where policy permits;
+- source metadata;
+- current-state status;
+- temporal bounds;
+- tenant/workspace filtering fields.
+
+Search scores are relevance signals, not truth confidence.
+
+### 24.5 Graph projection
+
+Graph nodes and edges reference canonical IDs. The projection stores:
+
+- accepted AssociationAssertions;
+- computed inverse traversal metadata;
+- valid/system-time filters;
+- revision/current-state visibility;
+- provenance pointers.
+
+Graph backend loss must be recoverable from SQL without semantic re-authoring.
+
+### 24.6 Hot-context projection
+
+The active context view materializes the latest ContextViewRevision, expanded
+bead content, compressed references, and pinned artifacts. It may be cached by
+the host but remains reproducible.
+
+### 24.7 SOUL rendering
+
+SOUL files are generated from current accepted artifacts at a known ledger
+watermark. Rendered files include or link to a generation manifest containing:
+
+- artifact IDs;
+- revision IDs;
+- watermark;
+- renderer version;
+- content hash.
+
+### 24.8 Projection read degradation
+
+If a projection is stale or unavailable:
+
+- APIs report the condition;
+- critical current-state reads may query the ledger directly;
+- semantic search may be unavailable rather than returning stale results where
+  policy forbids staleness;
+- no projection is allowed to invent missing semantic content.
+
+---
+
+## 25. Public API and SDK Requirements
+
+### 25.1 API principles
+
+Public APIs expose domain concepts and truthful completion state. They must not
+expose internal queue-file paths, mutable index files, backend-specific IDs, or
+integration-specific semantic shortcuts.
+
+### 25.2 Observe event
+
+```http
+POST /v1/events
+```
+
+Request:
+
+```yaml
+tenant/workspace context: authenticated, not caller-spoofable
+session_id: string
+turn_id: string | null
+event_kind: enum
+actors: [ActorRef]
+observed_at: timestamp | null
+payload: object or content reference
+source_refs: [SourceRef]
+idempotency_key: string
+```
+
+Response:
+
+```yaml
+event_id: string
+capture_status: persisted | duplicate
+semantic_status: pending | succeeded | partial | retrying | terminal_failure
+bead_id: string | null
+annotation_job_id: string
+ledger_position: integer
+```
+
+### 25.3 Semantic completion
+
+```http
+GET /v1/events/{event_id}/memory-status
+```
+
+Returns event, bead, optional-row, task-attempt, job, and projection status
+without implying that durable capture equals semantic success.
+
+### 25.4 Bead read and unpack
+
+```http
+GET /v1/beads/{bead_id}
+POST /v1/beads/{bead_id}/unpack
+```
+
+Read returns the canonical bead and current visibility metadata. Unpack adds
+full authorized source hydration and related current-state context.
+
+### 25.5 Assertions and current state
+
+```http
+GET /v1/assertions/{assertion_id}
+GET /v1/state?subject=...&slot=...&valid_at=...&known_at=...
+GET /v1/state/ambiguities
+```
+
+Responses include:
+
+- current/ambiguous/contested state;
+- active terminals;
+- revision path;
+- valid and known time;
+- supporting evidence IDs;
+- ledger/projection watermark.
+
+### 25.6 Associations
+
+```http
+GET /v1/associations?object_id=...&direction=out|in|both
+GET /v1/association-coverage
+POST /v1/association-review-runs
+```
+
+Reverse-direction output must identify that it is a computed inverse view of a
+canonical forward assertion.
+
+### 25.7 Artifacts
+
+```http
+GET /v1/artifacts
+GET /v1/artifacts/{artifact_id}
+POST /v1/artifact-runs
+POST /v1/artifacts/{artifact_id}/review
+POST /v1/artifacts/{artifact_id}/revise
+```
+
+Review/revision endpoints create semantic operations or explicit human-authored
+events; they do not mutate Artifact rows in place.
+
+### 25.8 Context promotion
+
+```http
+GET /v1/context/{session_id}
+POST /v1/context/{session_id}/assemble
+GET /v1/context/{session_id}/revisions
+```
+
+The current-context response identifies expanded versus compressed beads and
+supports unpack links.
+
+### 25.9 Retrieval
+
+```http
+POST /v1/retrieve
+```
+
+Request:
+
+```yaml
+query: string
+session_id: string | null
+valid_at: timestamp | null
+known_at: timestamp | null
+effort: low | standard | high | frontier
+answer_schema: string | null
+source_policy: object
+```
+
+Response:
+
+```yaml
+status: answered | abstained | pending | failed
+answer: object | string | null
+citations: [Citation]
+current_state_refs: [ObjectRef]
+ambiguities: [object]
+limitations: [string]
+retrieval_receipt: object
+projection_watermarks: object
+```
+
+### 25.10 Jobs and operations
+
+```http
+GET /v1/jobs/{job_id}
+GET /v1/semantic-tasks/{task_id}
+POST /v1/jobs/{job_id}/retry
+POST /v1/admin/reconcile
+POST /v1/admin/projections/{name}/rebuild
+```
+
+Administrative mutations require scoped authority and append audit events.
+
+### 25.11 SDK surface
+
+The primary Python API should remain small:
+
+```python
+memory.observe(event)
+memory.status(event_id)
+memory.get_bead(bead_id, unpack=False)
+memory.resolve(subject, slot, valid_at=None, known_at=None)
+memory.retrieve(query, effort="standard", ...)
+memory.list_artifacts(...)
+memory.assemble_context(session_id, ...)
+```
+
+Framework adapters translate their events into this API. They must not call
+internal persistence modules.
+
+---
+
+## 26. Integration and Adapter Contract
+
+### 26.1 Adapter responsibilities
+
+Adapters own:
+
+- mapping host events to SourceEvent fields;
+- preserving actor, turn, trace, and tool provenance;
+- authentication and tenant/workspace context handoff;
+- delivery idempotency keys;
+- reporting capture versus semantic completion truthfully;
+- rendering current context into host-supported formats;
+- requesting unpack/retrieval through public APIs.
+
+### 26.2 Adapter prohibitions
+
+Adapters must not:
+
+- construct canonical bead IDs;
+- write SQL, graph, vector, or projection stores directly;
+- submit pre-authored deterministic semantic fallback beads;
+- default semantic labels;
+- bypass job creation;
+- treat HTTP acceptance as completed semantic memory;
+- alter revision chains;
+- carry caller-controlled tenant authority fields that override authentication.
+
+### 26.3 Inline host authorship
+
+A host agent may author the AnnotationBundle inline if it uses the same
+canonical schema, evidence boundary, task receipt, and validation path. Inline
+authorship must not become a second write pipeline.
+
+The host submits the result as completion of the existing `annotate_event` Job
+or through an equivalent task-completion API keyed to the SourceEvent and task
+ID.
+
+### 26.4 Hosted delegated authorship
+
+Hosted delegation forwards only allowlisted tenant/workspace/model-routing
+metadata. Provider credentials and authorization context remain controlled by
+the hosted service. A failed delegated task stays retryable; shared-key fallback
+must not silently cross tenant or quota policy.
+
+---
+
+## 27. Configuration
+
+### 27.1 Invariants are not flags
+
+The following cannot be disabled in canonical mode:
+
+- one logical bead lineage and one current bead version per SourceEvent;
+- optional assertions;
+- LLM semantic authorship;
+- no deterministic semantic fallback;
+- append-only revisions/artifacts;
+- one resolver;
+- tenant isolation;
+- truthful receipts;
+- transactional mandatory Job creation;
+- salience/truth separation.
+
+### 27.2 Typed configuration groups
+
+```yaml
+core_memory:
+  deployment: local | hosted | test
+  ledger:
+    backend: sqlite | postgres
+    dsn_or_path: secret/reference
+  semantic_runtime:
+    provider: string
+    endpoint: string | null
+    model_policies: object
+    retry_policy: object
+  jobs:
+    worker_concurrency: integer
+    lease_seconds: integer
+    reconciliation_interval_seconds: integer
+  projections:
+    vector: object
+    graph: object
+    lexical: object
+  retrieval:
+    default_effort: enum
+    budgets: object
+  context:
+    token_budget: integer
+    assembly_policy: object
+  artifacts:
+    review_policies: object
+  privacy:
+    encryption: object
+    redaction: object
+  integrations:
+    named adapter configuration
+```
+
+### 27.3 Environment variable policy
+
+Environment variables should be limited to:
+
+- config location;
+- secrets/credential references;
+- database/service endpoints;
+- deployment identity;
+- emergency operational overrides that cannot alter semantic invariants.
+
+Feature-specific environment flags should migrate into typed configuration or
+be deleted.
+
+### 27.4 Deployment presets
+
+**Local**
+
+- SQLite ledger;
+- local worker process or in-process worker loop;
+- optional local vector/graph projection;
+- filesystem renderings as projections;
+- one tenant boundary.
+
+**Hosted**
+
+- PostgreSQL ledger with row-level security;
+- shared jobs table with horizontally scaled workers;
+- managed vector/graph projections;
+- delegated semantic runtime;
+- tenant/workspace quotas and audit.
+
+**Test**
+
+- isolated temporary SQLite/PostgreSQL fixture;
+- deterministic fake transport only for mechanical tests;
+- recorded or live LLM outputs for semantic tests;
+- no production fallback semantics.
+
+---
+
+## 28. Security, Privacy, and Authority
+
+### 28.1 Tenant and workspace security
+
+- Every request resolves tenant/workspace from authenticated context.
+- Every ledger query includes enforced tenant/workspace scope.
+- Semantic-task evidence packets contain only authorized rows.
+- Job leasing and execution preserve tenant context.
+- Cross-tenant IDs are treated as not found, not as accessible references.
+
+### 28.2 Source-content minimization
+
+Semantic tasks receive the minimum evidence needed for the operation while
+preserving enough context for accurate judgment. Evidence selection itself may
+be LLM-planned but is bounded and authorized deterministically.
+
+### 28.3 Encryption
+
+- SQL at-rest encryption uses platform facilities or application-level
+  encryption for sensitive payloads.
+- Source payloads and hydrated caches may be encrypted separately from concise
+  bead metadata.
+- Provider credentials never enter semantic prompts or ledger metadata.
+- Backup encryption is required.
+
+### 28.4 Redaction and deletion
+
+Append-only semantic history must coexist with privacy obligations.
+
+The privacy workflow may:
+
+- cryptographically erase source payload encryption keys;
+- append tombstone/redaction records;
+- delete legally required rows under privileged audit;
+- rebuild projections to remove content;
+- preserve non-sensitive mechanical audit metadata where permitted.
+
+Normal semantic correction must not use destructive deletion.
+
+### 28.5 Prompt injection and untrusted sources
+
+Hydrated documents and external records are evidence, not instructions.
+Semantic prompts must clearly separate system policy, task instructions, and
+untrusted evidence. Tool execution is not permitted from a semantic reasoning
+task unless the operation contract explicitly provides controlled retrieval
+tools.
+
+### 28.6 Human authority
+
+Human review actions record:
+
+- actor identity;
+- authority scope;
+- decision;
+- reason;
+- target IDs;
+- timestamp;
+- optional evidence.
+
+Human endorsement may change review/epistemic status through an append-only
+event or Revision; it must not rewrite historical LLM output.
+
+---
+
+## 29. Observability and Audit
+
+### 29.1 End-to-end trace
+
+For any retrieval answer or current-state value, an operator must be able to
+trace:
+
+```text
+answer statement
+  -> cited assertion/artifact/bead
+  -> revision/current-state path
+  -> supporting associations/evidence set
+  -> ObservationBead
+  -> SourceEvent/EvidenceRef
+  -> semantic task receipt(s)
+```
+
+### 29.2 Required operational metrics
+
+**Capture and annotation**
+
+- SourceEvents captured;
+- duplicate captures;
+- pending annotation count;
+- annotation completion latency;
+- retry distribution;
+- invalid-output rate;
+- terminal semantic failures;
+- bead/source one-to-one violations.
+
+**Assertions and revisions**
+
+- assertions per bead distribution;
+- zero-assertion rate;
+- unsupported assertion evaluation rate;
+- ambiguous/contested slot count;
+- revision operations by type;
+- broken/cyclic chain count;
+- resolver consistency checks.
+
+**Associations**
+
+- eligible/reviewed bead coverage;
+- candidate/accepted/rejected counts;
+- oldest pending review;
+- relationship and direction distributions;
+- evidence-reference completeness;
+- valid-time completeness;
+- independent-source distribution.
+
+**Artifacts**
+
+- proposals by kind;
+- verification and acceptance rates;
+- time to review;
+- supersession frequency;
+- evidence-set completeness;
+- deterministic-fallback count, which must remain zero.
+
+**Promotion**
+
+- context assembly frequency and latency;
+- expanded/compressed counts;
+- token savings;
+- unpack requests/successes;
+- task success and critical-context retention;
+- promotion semantic failure/retry count.
+
+**Retrieval**
+
+- stage latency;
+- candidates per collector;
+- graph path counts/depth;
+- hydration attempts/successes;
+- evidence iteration count;
+- answered/abstained/failed rate;
+- citation verification failures;
+- contested-state surfacing;
+- projection staleness.
+
+**Jobs and projections**
+
+- state/age by job kind;
+- lease recovery;
+- reconciliation-created jobs;
+- missing obligation count;
+- projection lag/watermarks;
+- rebuild duration/failure.
+
+### 29.3 Audit views
+
+Operator tooling must support:
+
+- event-to-bead trace;
+- task attempt history;
+- invalid-output inspection;
+- current-state explanation;
+- relationship evidence inspection;
+- artifact evidence and revision history;
+- context-view revision diff;
+- retrieval plan/evidence/citation trace;
+- missing-job reconciliation report;
+- projection-health report;
+- migration provenance report.
+
+### 29.4 No false success
+
+Every API and metric must distinguish:
+
+- captured;
+- semantically authored;
+- semantically verified;
+- projected/indexed;
+- current-state resolved;
+- rendered/synchronized.
+
+No umbrella `ok=true` may imply all stages completed unless the response
+explicitly defines and proves those stages.
+
+---
+
+## 30. Semantic Quality and Evaluation Program
+
+### 30.1 Evaluation philosophy
+
+Mechanical unit tests are necessary but cannot validate semantic truth. Core
+Memory requires a versioned evaluation corpus containing raw SourceEvents,
+human- or independently-adjudicated gold annotations, expected ambiguity, and
+accepted answer evidence.
+
+### 30.2 Observation annotation benchmark
+
+Measure:
+
+- primary-label accuracy;
+- title faithfulness;
+- summary entailment;
+- unsupported statement rate;
+- source-span precision and recall;
+- observation coverage;
+- appropriate thin-bead rate;
+- retrieval-eligibility correctness;
+- optional assertion precision and recall;
+- appropriate assertion abstention.
+
+Mandatory adversarial case:
+
+```text
+SourceEvent: user says hello.
+Forbidden output: latent goal to become a pilot or any unrelated durable fact.
+Expected: thin greeting observation, zero assertions.
+```
+
+### 30.3 Claim and revision benchmark
+
+Measure:
+
+- atomic claim extraction precision/recall;
+- subject/slot/value accuracy;
+- scope accuracy;
+- valid-time extraction accuracy;
+- reaffirm/supersede/retract/contest/resolve decision accuracy;
+- ambiguity preservation;
+- current-state answer accuracy;
+- as-of valid-time accuracy;
+- as-of known-time accuracy.
+
+Mandatory adversarial case:
+
+```text
+Claim 1: self.database = Postgres
+Claim 2: self.database = SQLite
+No Revision present
+Expected current state: ambiguous
+Forbidden: implicit latest-wins selection
+```
+
+### 30.4 Association benchmark
+
+Measure separately:
+
+- relevant-pair candidate recall;
+- accepted-edge precision;
+- predicate accuracy;
+- direction accuracy;
+- evidence-reference correctness;
+- no-link accuracy;
+- valid-time extraction;
+- inverse-view correctness;
+- contradiction detection;
+- source-independence handling.
+
+### 30.5 Artifact benchmark
+
+For every artifact kind, measure:
+
+- evidence sufficiency;
+- unsupported synthesis rate;
+- contradiction disclosure;
+- alternative-explanation quality;
+- artifact-kind correctness;
+- title/content faithfulness;
+- valid-time scope;
+- revision recommendation accuracy;
+- abstention/no-artifact accuracy;
+- human/independent-judge agreement.
+
+Dreamer/goal adversarial cases must include repeated lexical tokens that do not
+constitute a meaningful goal.
+
+### 30.6 Promotion benchmark
+
+Use task-based evaluation:
+
+- compare full context, LLM-promoted context, and random/heuristic baselines;
+- measure downstream task success;
+- critical fact/goal retention;
+- irrelevant-content rate;
+- token reduction;
+- unpack effectiveness;
+- stability when context changes;
+- no correlation between compression and truth-state mutation.
+
+### 30.7 Retrieval benchmark
+
+Measure:
+
+- semantic evidence recall@k;
+- claim-current-state accuracy;
+- causal-path evidence recall;
+- source hydration completeness;
+- answer factuality;
+- citation precision/recall;
+- temporal accuracy;
+- ambiguity disclosure;
+- appropriate abstention;
+- end-to-end task success;
+- degradation truthfulness.
+
+The benchmark must exercise all retrieval stages and prove that causal
+expansion and hydration are available through the one pipeline.
+
+### 30.8 Live-model requirement
+
+At least one release-gate suite must exercise the real semantic runtime. Tests
+that inject deterministic prebuilt AnnotationBundles cannot demonstrate LLM
+semantic quality.
+
+Recorded-model fixtures may support deterministic regression tests, but they
+must retain the real evidence packet, prompt version, model output, and
+validation result.
+
+### 30.9 Independent evaluation
+
+Where feasible:
+
+- author model and evaluation model differ;
+- ambiguous cases receive human adjudication;
+- gold labels include disagreement/uncertainty;
+- evaluator prompts and rubrics are versioned;
+- score changes are reported by task/model/prompt/schema version.
+
+---
+
+## 31. Performance and Scalability Requirements
+
+### 31.1 Capture path
+
+Targets excluding network variability:
+
+- local SQLite SourceEvent capture p95: <= 100 ms;
+- hosted PostgreSQL capture p95: <= 250 ms;
+- SourceEvent and mandatory Job commit in one transaction;
+- capture remains available when semantic providers are unavailable.
+
+### 31.2 Semantic completion
+
+Semantic latency depends on model/provider. Core Memory must report separately:
+
+- queue wait;
+- provider latency;
+- validation/commit latency;
+- projection latency.
+
+Default operational targets:
+
+- standard event annotation p95 completion: <= 30 seconds when provider healthy;
+- oldest mandatory pending annotation: alert at 5 minutes;
+- projection currentness after semantic commit: p95 <= 60 seconds;
+- retries must not block unrelated tenants or jobs.
+
+### 31.3 Ledger lookup
+
+Targets at supported reference scale:
+
+- bead archive lookup p95 local: <= 100 ms;
+- bead archive lookup p95 hosted: <= 300 ms;
+- scoped current-state resolution p95: <= 200 ms excluding hydration;
+- as-of resolver performance must use indexed intervals and revision scope.
+
+### 31.4 Retrieval
+
+Infrastructure overhead excluding LLM and external connectors:
+
+- candidate collection p95: <= 750 ms at standard effort;
+- graph expansion p95: <= 500 ms within standard depth budget;
+- ledger source lookup p95: <= 300 ms;
+- full response reports stage timing.
+
+No stage target justifies deterministic semantic fallback.
+
+### 31.5 Job throughput
+
+- worker concurrency is configurable by deployment;
+- job leasing avoids global locks;
+- tenant fairness prevents one large backlog from starving others;
+- priority cannot permanently starve low-priority mandatory work;
+- reconciliation can process all active tenants incrementally;
+- job payloads reference large evidence rather than duplicating it.
+
+### 31.6 Projection scale
+
+Projectors consume ordered ledger positions in batches and resume from
+watermarks. Rebuilds support tenant-scoped and full-dataset modes. A projection
+rebuild must not block canonical capture.
+
+---
+
+## 32. Reliability, Failure, and Recovery
+
+### 32.1 Semantic provider unavailable
+
+- SourceEvent persists.
+- Annotation Job remains retryable.
+- API reports semantic pending/retrying.
+- No bead or fallback semantic output is created.
+- Alerting uses oldest-pending and provider-error rates.
+
+### 32.2 Invalid LLM output
+
+- Receipt stores raw-output hash and validation errors.
+- Retry supplies schema errors and unchanged evidence boundary.
+- No invalid semantic row becomes visible.
+- Repeated invalid output may route to a stronger model, not deterministic
+  meaning.
+
+### 32.3 Database failure
+
+- transaction rollback leaves neither partial canonical rows nor orphaned
+  mandatory Jobs;
+- retries use idempotency keys;
+- hosted failover preserves ledger ordering and tenant isolation;
+- backups and point-in-time recovery are required before cutover.
+
+### 32.4 Worker crash
+
+- expired lease returns Job to eligible state;
+- handler idempotency prevents duplicate semantic rows;
+- commit-before-acknowledgement is safe;
+- task receipts reveal multiple attempts.
+
+### 32.5 Projection failure
+
+- canonical write remains committed;
+- projection Job retries;
+- watermark reports degradation;
+- direct ledger reads remain available where designed;
+- projection can be deleted and rebuilt.
+
+### 32.6 Resolver corruption
+
+- resolver is pure and can be rerun against ledger rows;
+- projection consistency tests compare materialized and direct resolution;
+- broken chains return `invalid`, not guessed truth;
+- repair requires explicit maintenance or semantic Revision.
+
+### 32.7 Source unavailable
+
+- hydrated source is marked unavailable;
+- bead and source hash remain;
+- retrieval LLM reassesses sufficiency;
+- answer may abstain;
+- no summary is relabeled as verified source evidence.
+
+### 32.8 Model regression
+
+- prompt/model/schema versions allow bisecting quality;
+- evaluation gates block rollout;
+- tasks may be re-run against the same immutable evidence with a new version;
+- new output creates revisions or replacement objects as necessary;
+- historical authored results remain auditable.
+
+### 32.9 Disaster recovery
+
+Recovery order:
+
+1. Restore SQL ledger and operational Job table.
+2. Validate canonical row counts, constraints, and hashes.
+3. Reset/reconcile expired leases.
+4. Rebuild current-state projections.
+5. Rebuild search/vector indexes.
+6. Rebuild graph projection.
+7. Rebuild hot-context and SOUL renderings.
+8. Resume external projection sync.
+
+JSONL is not part of the recovery source of truth.
+
+---
+
+## 33. Migration From JSONL and Current Runtime
+
+### 33.1 Migration principles
+
+- Retire JSONL completely as live state.
+- Preserve every recoverable canonical object and provenance reference.
+- Do not upgrade heuristic/fallback semantics to LLM-authored authority.
+- Make migration repeatable in a staging copy and idempotent by legacy ID/hash.
+- Produce a complete migration ledger and discrepancy report.
+- Cut over once; do not maintain indefinite dual write.
+
+### 33.2 Inventory
+
+Migration tooling inventories:
+
+- `.beads/index.json`;
+- session/global bead JSONL;
+- turn/session archives;
+- claims and claim updates embedded in beads;
+- association records and lifecycle state;
+- archive snapshots/indexes;
+- semantic task receipts;
+- Dreamer candidates/projections;
+- SOUL revisions/files;
+- promotion decisions and heads;
+- myelination/retrieval feedback;
+- queue and projection manifests;
+- vector/graph IDs and source hashes.
+
+### 33.3 Classification
+
+Every legacy row is classified as:
+
+| Class | Treatment |
+|---|---|
+| Canonical source evidence available | Import SourceEvent and linked semantic row with original provenance |
+| Agent/LLM-authored with valid receipt | Import with attributed semantic origin |
+| Human-authored/approved | Import with human authority and audit fields |
+| Deterministic fallback/heuristic | Import as legacy artifact/observation metadata, excluded from current truth until re-authored |
+| Structurally incomplete | Quarantine with migration issue record |
+| Duplicate projection/cache | Do not import as canonical; rebuild from ledger |
+| Orphaned/unresolvable | Preserve in quarantine export and discrepancy report |
+
+### 33.4 SourceEvent reconstruction
+
+Where original turns/documents exist, construct SourceEvents with stable
+content hashes and source coordinates. Where source evidence is unavailable,
+do not pretend the bead itself is original evidence. Mark source limitation and
+require re-authoring policy before current-truth use.
+
+### 33.5 Bead migration
+
+- one legacy canonical bead maps to one logical ObservationBead lineage when an
+  attributable observed event can be identified;
+- derived companion beads map to Artifact proposals or quarantined legacy
+  semantics, not new ObservationBeads;
+- mixed source/semantic types are separated into SourceEvent source kind and
+  reduced observation label/facets;
+- unmappable type choices retain original values in migration metadata and
+  require LLM re-authoring rather than deterministic semantic conversion.
+
+### 33.6 Claims and revisions
+
+- import claims as assertions with preserved IDs where safe;
+- import explicit updates as Revisions;
+- do not default missing update decisions;
+- run the one resolver after import;
+- multiple unlinked incompatible terminals become ambiguous;
+- discrepancy report lists every slot whose pre-migration resolver output
+  differs from the new explicit-chain result.
+
+### 33.7 Associations
+
+- import canonical LLM/human-authored edges with provenance;
+- import deterministic preview edges only as legacy noncanonical records or
+  schedule re-review;
+- normalize direction through an LLM-assisted migration task when semantic
+  direction is ambiguous;
+- preserve original valid/system time where known;
+- rebuild graph projections from imported assertions.
+
+### 33.8 Artifacts and SOUL
+
+- Dreamer candidates, accepted goals, storylines, and SOUL revisions map into
+  Artifact and Revision rows;
+- deterministic/template-generated content remains proposal-only or requires
+  re-authoring;
+- SOUL files are regenerated from accepted current artifacts after cutover;
+- original files are retained as migration evidence, not live truth.
+
+### 33.9 Promotion and context
+
+Legacy promotion history may be imported as ContextViewRevision history where
+the selection and representation can be reconstructed. Promotion-derived truth
+confidence is discarded or retained only as legacy metadata. Full beads remain
+in the archive.
+
+### 33.10 Migration verification
+
+Required checks:
+
+- source event counts and content hashes;
+- bead counts and one-to-one mappings;
+- assertion and revision counts;
+- ambiguous slot inventory;
+- association counts by provenance;
+- artifact counts and current lineages;
+- archive lookup/unpack success;
+- tenant/workspace isolation;
+- projection rebuild success;
+- representative retrieval parity and quality improvement;
+- zero JSONL reads/writes in canonical runtime after cutover.
+
+### 33.11 Cutover
+
+1. Freeze semantic writes or capture a consistent database/import boundary.
+2. Back up all legacy data.
+3. Run import into staging SQL ledger.
+4. Run full verification and semantic re-authoring queues where required.
+5. Run user/tenant canary.
+6. Switch canonical APIs to SQL ledger.
+7. Reconcile Jobs and rebuild projections.
+8. Monitor release gates.
+9. Remove JSONL runtime code after rollback window closes.
+
+### 33.12 Rollback
+
+Rollback restores the pre-cutover application and legacy backup only during the
+bounded migration window. New SQL-ledger writes must be exported or replayed
+through an explicit rollback tool; silent dual-write is prohibited.
+
+---
+
+## 34. Implementation Program
+
+### Phase 0 — Specification, invariants, and evaluation baseline
+
+Deliverables:
+
+- approve this PRD;
+- freeze v1 schemas and reduced vocabularies;
+- build evaluation corpus and adversarial cases;
+- record current runtime quality/latency baseline;
+- inventory all canonical and projection state;
+- add architecture tests preventing new JSONL/index authority paths;
+- define legacy provenance classification.
+
+Exit gates:
+
+- product decisions resolved;
+- evaluation dataset versioned;
+- schema review complete;
+- migration inventory complete;
+- no unresolved definition of observation, assertion optionality, revision, or
+  promotion.
+
+### Phase 1 — SQL ledger and single jobs table
+
+Deliverables:
+
+- SQLite/PostgreSQL logical schema;
+- Ledger and JobStore ports;
+- transactional event+job append;
+- ledger positions and projection watermarks;
+- tenant enforcement;
+- backup/recovery tooling;
+- migration importer skeleton.
+
+Exit gates:
+
+- local and hosted contract tests pass;
+- atomicity/idempotency property tests pass;
+- one jobs table leases safely under concurrency;
+- canonical roles cannot update/delete semantic rows.
+
+### Phase 2 — Single semantic operation runtime
+
+Deliverables:
+
+- canonical request/result/receipt contracts;
+- provider and delegated adapters;
+- multi-step operation support;
+- retry/routing behavior;
+- invalid-output correction loop;
+- removal of semantic fallback modes in new path.
+
+Exit gates:
+
+- all operation attempts receipted;
+- provider-unavailable test leaves pending work and no semantic output;
+- live-model annotation smoke passes;
+- tenant routing canary passes.
+
+### Phase 3 — Observation write pipeline
+
+Deliverables:
+
+- SourceEvent API;
+- AnnotationBundle;
+- one event/one bead-lineage and one-current-version constraints;
+- EvidenceRef validation;
+- optional assertion handling;
+- truthful capture/semantic receipts;
+- adapter completion interface.
+
+Exit gates:
+
+- greeting adversarial test passes;
+- zero-assertion bead accepted;
+- unsupported derived bead rejected;
+- duplicate events do not duplicate beads;
+- all adapters use the same pipeline.
+
+### Phase 4 — Assertion/revision ledger and resolver
+
+Deliverables:
+
+- claim and association assertion tables;
+- Revision schema;
+- pure unified resolver;
+- bi-temporal as-of API;
+- ambiguity/contest state;
+- current-state projection.
+
+Exit gates:
+
+- duplicate resolver implementations removed from canonical path;
+- unlinked incompatible-claim test returns ambiguous;
+- explicit supersession resolves correctly;
+- valid/known-time matrix passes;
+- cyclic chains return invalid.
+
+### Phase 5 — Association coverage and evidence aggregation
+
+Deliverables:
+
+- neutral candidate collectors;
+- LLM association review operation;
+- canonical directional predicates;
+- inverse traversal;
+- EvidenceSet aggregation;
+- operational coverage projection;
+- re-review/versioning.
+
+Exit gates:
+
+- no deterministic relation writes;
+- direction and valid-time benchmark gates pass;
+- rejected candidates do not become edges;
+- source independence is preserved;
+- graph projection rebuild succeeds from SQL.
+
+### Phase 6 — Unified artifact system
+
+Deliverables:
+
+- Artifact persistence and review;
+- generic synthesis/revision operations;
+- Dreamer policies on top of artifacts;
+- goal/storyline/SOUL migrations;
+- current-artifact projections;
+- SOUL rendering.
+
+Exit gates:
+
+- deterministic Dreamer/goal/SOUL content generators removed from canonical
+  path;
+- artifact mutation produces replacement+Revision;
+- rendered SOUL can be rebuilt from ledger;
+- artifact evidence/verification gates pass.
+
+### Phase 7 — Promotion and hot context
+
+Deliverables:
+
+- LLM context assembly operation;
+- ContextViewRevision;
+- deterministic token packer;
+- expanded/compressed rendering;
+- unpack API;
+- context revision diff/audit.
+
+Exit gates:
+
+- full archive remains unchanged by promotion;
+- compressed references unpack successfully;
+- promotion does not affect truth/current-state fields;
+- downstream task benchmark meets quality/token targets.
+
+### Phase 8 — Unified retrieval pipeline
+
+Deliverables:
+
+- LLM RetrievalPlan;
+- unified candidate collectors;
+- resolver integration;
+- causal/association expansion;
+- source hydration;
+- iterative evidence judgment;
+- answer synthesis/abstention;
+- citation verification.
+
+Exit gates:
+
+- all public recall/search/causal answer paths route through one pipeline;
+- all retrieval capabilities are available;
+- no deterministic fallback answer exists;
+- benchmark gates pass;
+- ambiguity and source limitations surface correctly.
+
+### Phase 9 — Projection, worker, and configuration consolidation
+
+Deliverables:
+
+- one worker executable/registry;
+- all old queue types migrated;
+- projection runners and reconciliation;
+- typed configuration groups/presets;
+- removal of invariant-changing flags;
+- integration adapter boundary cleanup.
+
+Exit gates:
+
+- no legacy queue files are active;
+- missing-obligation reconciliation produces zero gaps;
+- projection delete/rebuild drills pass;
+- configuration compatibility audit complete.
+
+### Phase 10 — Legacy migration and deletion
+
+Deliverables:
+
+- production-grade migration tool;
+- tenant canary and reports;
+- cutover/rollback runbooks;
+- JSONL and mutable index removal;
+- removal of duplicate resolvers, pipelines, candidate stores, and fallbacks;
+- documentation/status truth update.
+
+Exit gates:
+
+- migration acceptance criteria pass;
+- zero canonical runtime JSONL access;
+- zero direct `.beads/index.json` access;
+- no active semantic fallback modes;
+- old runtime code deleted rather than left as default-off compatibility paths;
+- full release gates pass.
+
+---
+
+## 35. Target Module Boundaries
+
+An illustrative target package structure:
+
+```text
+core_memory/
+  domain/
+    events.py
+    beads.py
+    assertions.py
+    revisions.py
+    artifacts.py
+    context.py
+    vocabulary.py
+    resolver.py
+
+  ledger/
+    protocol.py
+    sqlite.py
+    postgres.py
+    schema/
+    migrations/
+
+  semantic/
+    contracts.py
+    runtime.py
+    receipts.py
+    operations/
+      annotate_event.py
+      associations.py
+      artifacts.py
+      context.py
+      retrieval.py
+      verification.py
+
+  jobs/
+    model.py
+    store.py
+    worker.py
+    handlers/
+    reconciliation.py
+
+  projections/
+    base.py
+    current_state.py
+    search.py
+    graph.py
+    context.py
+    soul.py
+
+  retrieval/
+    pipeline.py
+    collectors.py
+    expansion.py
+    hydration.py
+    citations.py
+
+  api/
+    service.py
+    receipts.py
+
+  integrations/
+    ... adapters only ...
+```
+
+### 35.1 Dependency direction
+
+```text
+domain
+  <- ledger interfaces
+  <- semantic/job/projection/retrieval services
+  <- API
+  <- integrations
+```
+
+Concrete providers are registered or injected through ports. Persistence must
+not import runtime/integration implementations to trigger side effects.
+
+### 35.2 Small public surface
+
+The top-level library should expose the small SDK described in Section 25.11.
+Administrative and projection APIs remain explicitly namespaced.
+
+### 35.3 Compatibility policy
+
+Compatibility adapters may translate legacy calls into SourceEvents during the
+migration window. They must not preserve old semantic mutation behavior. After
+the announced window, they are deleted.
+
+---
+
+## 36. Detailed Acceptance Criteria
+
+### 36.1 Observation capture
+
+- [ ] Every accepted SourceEvent atomically creates one `annotate_event` Job.
+- [ ] Replaying an idempotency key returns the same event/job.
+- [ ] Exactly one logical ObservationBead lineage can reference a SourceEvent,
+      with exactly one current immutable version.
+- [ ] Every bead label/title/summary is grounded by valid EvidenceRefs.
+- [ ] Invalid annotation output creates no fallback bead.
+- [ ] A zero-assertion AnnotationBundle succeeds.
+- [ ] Derived companion beads are not part of the canonical model.
+- [ ] Capture and semantic completion are distinct in every API receipt.
+
+### 36.2 Semantic runtime
+
+- [ ] Every LLM operation uses the common request/result/receipt contract.
+- [ ] No canonical semantic operation accepts a deterministic fallback mode.
+- [ ] Provider unavailability leaves work retryable and creates no semantics.
+- [ ] Invalid output retries with validation feedback.
+- [ ] Every attempt has immutable model/prompt/schema/evidence provenance.
+- [ ] Tenant/workspace routing is enforced and tested.
+
+### 36.3 Ledger
+
+- [ ] SQLite and PostgreSQL pass the same ledger contract suite.
+- [ ] Canonical semantic rows are append-only.
+- [ ] Revision/current-state changes do not mutate original semantic rows.
+- [ ] Mandatory downstream Jobs are created transactionally.
+- [ ] Canonical APIs perform no JSONL or `.beads/index.json` reads/writes.
+- [ ] Projection loss is recoverable entirely from SQL.
+- [ ] Tenant isolation is database-enforced in hosted mode.
+
+### 36.4 Assertions and revisions
+
+- [ ] Assertions are optional bead outputs.
+- [ ] Missing update decision is rejected, not defaulted.
+- [ ] Multiple incompatible unlinked terminals resolve to `ambiguous`.
+- [ ] Explicit supersede/retract/contest/resolve operations behave as specified.
+- [ ] Exactly one resolver powers all current-state consumers.
+- [ ] Valid-time and known-time queries return correct historical state.
+- [ ] Cyclic/broken chains return `invalid` and never guessed truth.
+
+### 36.5 Relationships
+
+- [ ] Relationship predicate and direction are LLM-authored.
+- [ ] Canonical associations are stored only once in forward direction.
+- [ ] Inverse traversal is computed correctly.
+- [ ] `valid_from`/`valid_to` remain unknown when evidence does not supply them.
+- [ ] System/recorded time is assigned mechanically.
+- [ ] No deterministic candidate signal becomes a relationship.
+- [ ] Association coverage and quality metrics are independently reported.
+- [ ] Aggregate evidence preserves source independence and contradiction.
+
+### 36.6 Artifacts
+
+- [ ] All required artifact kinds use one Artifact schema/lifecycle.
+- [ ] Artifact mutation creates replacement+Revision.
+- [ ] Dreamer/goal/storyline/SOUL semantic content has an LLM receipt.
+- [ ] Missing/blocked semantic output creates no artifact content.
+- [ ] EvidenceSet and limitations are present where required.
+- [ ] SOUL renderings rebuild from accepted current artifacts.
+- [ ] Human edits re-enter as SourceEvents.
+
+### 36.7 Promotion
+
+- [ ] Promotion ranking is LLM-authored.
+- [ ] Deterministic code only validates IDs and packs token budgets.
+- [ ] Full beads remain in the archive after compression.
+- [ ] Compressed representation contains ID, type/label, and associations.
+- [ ] Every compressed bead can be unpacked.
+- [ ] ContextViewRevisions are append-only and diffable.
+- [ ] Promotion cannot change current truth, evidence, or semantic authority.
+
+### 36.8 Retrieval
+
+- [ ] One public pipeline handles semantic, claim, causal, hydrated retrieval.
+- [ ] LLM authors query plan, evidence relevance, sufficiency, and synthesis.
+- [ ] Semantic search, causal expansion, association expansion, current-state
+      resolution, and source hydration are all available.
+- [ ] Deterministic keyword logic cannot disable a semantic capability.
+- [ ] Iterative retrieval is supported within bounded effort.
+- [ ] Unsupported answers abstain.
+- [ ] Every citation passes deterministic verification.
+- [ ] Ambiguity/contestation and source limitations surface to the caller.
+
+### 36.9 Jobs and projections
+
+- [ ] All background work uses one jobs table and worker protocol.
+- [ ] Multiple worker replicas lease without duplicate canonical output.
+- [ ] Reconciliation detects and repairs every missing mandatory obligation.
+- [ ] Job and projection coverage metrics exist by kind.
+- [ ] Every projection exposes a ledger watermark.
+- [ ] Delete/rebuild drills pass for vector, graph, current-state, hot-context,
+      and SOUL projections.
+
+### 36.10 Migration
+
+- [ ] Legacy state inventory and provenance classification complete.
+- [ ] Source and semantic object counts/hashes reconcile.
+- [ ] Deterministic legacy semantics are not upgraded to authored truth.
+- [ ] Unlinked claim conflicts become visible ambiguity.
+- [ ] Full bead archive lookup succeeds after import.
+- [ ] User/tenant canary passes.
+- [ ] JSONL runtime code is removed after rollback window.
+
+---
+
+## 37. Test Plan
+
+### 37.1 Domain unit tests
+
+- vocabulary validation;
+- EvidenceRef coordinate validation;
+- temporal interval rules;
+- inverse predicate mapping;
+- revision compatibility and cycle detection;
+- resolver terminal-state matrix;
+- ContextViewRevision constraints;
+- Artifact lineage;
+- canonical-ID and idempotency rules.
+
+### 37.2 Database contract tests
+
+Run identically against SQLite and PostgreSQL:
+
+- event+job atomicity;
+- annotation bundle atomicity;
+- tenant isolation;
+- append-only enforcement;
+- uniqueness/idempotency;
+- concurrent revision sequencing;
+- concurrent job leasing;
+- crash/retry behavior;
+- ledger-position ordering;
+- backup/restore and projection replay.
+
+### 37.3 Property tests
+
+- any revision graph either resolves to a defined state or returns invalid;
+- no resolver input order changes output;
+- inverse traversal never creates a second canonical assertion;
+- no projection-only mutation changes canonical query result;
+- replay of ledger rows produces identical projection state;
+- repeated job execution produces no duplicate canonical semantic row;
+- compressed context always retains unpackable IDs;
+- token packer never changes LLM rank order except mandatory pinned policy.
+
+### 37.4 Semantic contract tests
+
+Use recorded and live model runs:
+
+- observation faithfulness;
+- optional assertion abstention;
+- claim/revision decisions;
+- association no-link behavior;
+- directional and temporal extraction;
+- artifact support/limitations;
+- promotion relative value;
+- retrieval planning/evidence/synthesis;
+- verifier behavior.
+
+### 37.5 Adversarial tests
+
+- greeting cannot create an unrelated goal;
+- repeated keyword cannot become a latent goal without meaningful evidence;
+- chronology cannot become causal direction;
+- missing relation cannot become `similar_to` or generic association;
+- missing claim decision cannot become reaffirm;
+- competing unlinked claims cannot silently latest-win;
+- source hydration failure cannot become verified evidence;
+- provider failure cannot write deterministic SOUL text;
+- recall frequency cannot upgrade truth status;
+- compressed bead cannot become inaccessible;
+- cross-tenant evidence reference is rejected;
+- prompt-injected document cannot override semantic task instructions.
+
+### 37.6 Integration tests
+
+- host event through capture, annotation, projection, context, retrieval;
+- inline and delegated authorship converge on the same pipeline;
+- association review and graph projection;
+- claim revision and as-of resolution;
+- artifact synthesis/review/rendering;
+- promotion/compression/unpack;
+- job reconciliation after injected missing Jobs;
+- projection deletion and rebuild;
+- provider outage and recovery;
+- hosted tenant routing.
+
+### 37.7 Migration tests
+
+- representative legacy fixture classes;
+- duplicate IDs and partial rows;
+- derived companion bead conversion;
+- deterministic fallback quarantine;
+- claim conflict exposure;
+- association direction migration;
+- SOUL/artifact lineage;
+- count/hash reconciliation;
+- cutover/rollback rehearsal.
+
+### 37.8 End-to-end product tests
+
+Scenarios must include:
+
+- user preference changing over time;
+- time-bounded operational state;
+- goal adoption, progress, and abandonment;
+- contradictory evidence from independent sources;
+- multi-session storyline synthesis;
+- SOUL identity/value revision;
+- hot-context pressure and later unpack;
+- causal question requiring graph expansion and document hydration;
+- ambiguous question requiring abstention or qualification.
+
+---
+
+## 38. Metrics and Release Gates
+
+### 38.1 Semantic release gates
+
+Exact numeric thresholds must be set from the Phase 0 baseline, but release
+must require:
+
+- unsupported bead assertion rate below agreed maximum;
+- summary entailment above agreed minimum;
+- source-reference correctness above agreed minimum;
+- claim revision accuracy above agreed minimum;
+- zero implicit latest-wins outcomes in invariant tests;
+- association direction and evidence precision above agreed minimum;
+- artifact unsupported-synthesis rate below agreed maximum;
+- retrieval citation precision above agreed minimum;
+- appropriate abstention above agreed minimum;
+- promotion task success non-inferior to full-context baseline within agreed
+  margin while achieving material token reduction.
+
+### 38.2 Operational release gates
+
+- zero canonical JSONL/index runtime access;
+- zero deterministic semantic fallback outputs;
+- zero duplicate beads per SourceEvent;
+- zero unresolved missing mandatory Job obligations after reconciliation;
+- zero resolver inconsistencies;
+- zero cross-tenant access failures in security suite;
+- provider outage preserves capture and retryability;
+- projection rebuild drills succeed;
+- migration reconciliation passes for canary tenant;
+- backup/restore drill succeeds.
+
+### 38.3 Canary gates
+
+Before broad rollout, a canary tenant must demonstrate:
+
+1. live SourceEvent capture;
+2. real LLM annotation;
+3. zero-assertion case;
+4. claim supersession and ambiguity;
+5. directional/bi-temporal association;
+6. artifact proposal and supersession;
+7. promotion/compression/unpack;
+8. semantic+causal+hydrated retrieval;
+9. provider failure and retry recovery;
+10. projection rebuild from SQL;
+11. no JSONL/index dependency.
+
+### 38.4 Release reporting
+
+Release report includes:
+
+- commit/deployment/schema versions;
+- migrated tenant counts;
+- ledger/projection watermarks;
+- semantic quality scores and deltas;
+- operational SLOs;
+- known limitations;
+- retry backlog;
+- ambiguity/contest inventory;
+- rollback readiness.
+
+---
+
+## 39. Risks and Mitigations
+
+| Risk | Impact | Mitigation |
+|---|---|---|
+| LLM annotation latency delays usable memory | High | Durable capture first, async jobs, retries, model routing, truthful pending state |
+| LLM variability changes labels/assertions | High | Small ontology, grounded evidence, versioned prompts, independent eval, revision/re-authoring |
+| SQL migration loses legacy context | Critical | Full inventory, backups, hash/count reconciliation, quarantine, canary, bounded rollback |
+| Optional assertions reduce recall richness | Medium | Precision-first evaluation, later association/artifact synthesis, source hydration |
+| One pipeline becomes monolithic | High | Composable stage ports under one orchestrator and one truth policy |
+| One jobs table becomes bottleneck | Medium | Indexed leasing, batching, partitioning where needed, multiple worker replicas |
+| Artifact unification erases domain nuance | Medium | Typed content schemas/prompts while sharing lifecycle and persistence |
+| Reduced ontology loses query precision | Medium | Orthogonal facets/qualifiers, eval-driven vocabulary freeze, extensions with governance |
+| Bi-temporal schema becomes difficult to use | Medium | One temporal API, explicit field semantics, property tests, indexed interval helpers |
+| Direction migration corrupts edges | High | Preserve originals, LLM-assisted rejudgment when ambiguous, canary graph comparisons |
+| Promotion drops important hot context | High | LLM ranking, pinned requirements, task eval, immediate unpack, lossless archive |
+| Provider outage creates unbounded backlog | High | Capture remains durable, alerting, routing, scalable workers, operator prioritization |
+| Semantic retry cost runaway | Medium | Attempt/cost telemetry, stronger-model escalation policy, operator quarantine—not fallback |
+| Projection staleness misleads retrieval | High | Watermarks, direct ledger fallback for critical state, degradation reporting |
+| Append-only history conflicts with privacy deletion | Critical | Privileged audited erasure/redaction workflow and projection rebuild |
+| Integration adapters bypass canonical pipeline | High | Small public API, boundary tests, remove internal imports, review enforcement |
+| Legacy compatibility never gets deleted | High | Explicit migration window, deletion gates, architecture tests |
+
+---
+
+## 40. Rejected Alternatives
+
+### 40.1 Keep JSONL for local simplicity
+
+Rejected. JSONL inspired the original design but cannot provide the desired
+transactionality, concurrency, constraints, one-resolver guarantees, or
+projection discipline without rebuilding a database around files.
+
+### 40.2 Maintain SQL and JSONL dual write permanently
+
+Rejected. Permanent dual write creates two authorities and introduces the drift
+this redesign is intended to eliminate.
+
+### 40.3 Require claims/assertions on every bead
+
+Rejected. This creates incentive to fabricate semantic richness and violates
+the observation-note model.
+
+### 40.4 Use deterministic semantic fallback for availability
+
+Rejected. Availability of incorrect meaning is worse than truthful pending
+state. Retries and provider routing solve operational availability without
+manufacturing truth.
+
+### 40.5 Keep feature-specific artifact stores
+
+Rejected. Goals, storylines, Dreamer, and SOUL need different content schemas
+but not different evidence, revision, receipt, review, and persistence systems.
+
+### 40.6 Store inverse associations as duplicate edges
+
+Rejected. Duplicate edges can diverge in evidence, time, and lifecycle. Store
+one canonical direction and compute inverse traversal.
+
+### 40.7 Let latest claim always win
+
+Rejected. Ordering is not semantic supersession. Competing terminals without a
+Revision are ambiguous.
+
+### 40.8 Remove promotion
+
+Rejected. Promotion is a valuable relative-context function and is lossless
+when separated from archive retention and truth.
+
+### 40.9 Make every retrieval query maximum effort
+
+Rejected. All capabilities must be available, but the LLM planner should select
+appropriate budgets. Maximum work on every query is unnecessarily slow and
+expensive.
+
+### 40.10 Use separate workers for every feature
+
+Rejected. Specialized handlers and horizontal replicas are sufficient. One Job
+protocol is simpler to monitor, reconcile, and recover.
+
+### 40.11 Keep legacy runtime branches indefinitely
+
+Rejected. Legacy data is migrated. Permanent branches multiply semantic
+behavior and prevent the target architecture from becoming reliable.
+
+---
+
+## 41. Resolved Design Clarifications
+
+1. **Are assertions required?** No. Only the ObservationBead is required after
+   successful semantic annotation.
+2. **Does every event create a bead?** Every accepted observable event creates
+   exactly one logical bead lineage and one current immutable version once
+   annotation succeeds.
+3. **What happens while annotation is unavailable?** SourceEvent persists and
+   Job retries; no semantic bead is fabricated.
+4. **Can deterministic code make conditional decisions?** It may make
+   mechanical conditions; all meaning-bearing conditions belong to the LLM.
+5. **Is JSONL retained?** No, except optional explicit export. It is not a live
+   authority or recovery source.
+6. **How are mutations append-only?** A new record plus Revision is appended;
+   current/superseded flags are projections.
+7. **Are temporal and directional details semantic?** The LLM interprets
+   evidenced meaning; the schema and traversal mechanics are deterministic.
+8. **Is promotion removed?** No. It becomes LLM-authored lossless context
+   assembly.
+9. **Are compressed beads deleted?** No. They remain full in the archive and
+   are represented by unpackable references in hot context.
+10. **Does retrieval retain all features?** Yes. Semantic search, current state,
+    causal/association expansion, and source hydration are part of one pipeline.
+11. **How are all background tasks guaranteed?** Transactional Job creation,
+    dependency fan-out, idempotency, and reconciliation sweeps.
+12. **Can multiple worker processes run?** Yes. They share one table and
+    protocol.
+13. **Does myelination disappear?** Its navigation/salience capability remains;
+    it cannot change truth confidence.
+14. **Are SOUL files deleted?** No. They become rebuildable renderings of current
+    accepted artifacts.
+
+---
+
+## 42. Open Implementation Decisions
+
+These are implementation choices, not unresolved product invariants.
+
+1. Exact v1 observation labels after benchmark validation.
+2. Exact v1 association predicate/qualifier registry after migration analysis.
+3. SQL typed-child-table versus constrained JSON-column balance.
+4. Opaque ID format and tenant-scoped ledger-position implementation.
+5. Whether invalid optional bundle rows commit a partial bead or force full
+   bundle retry; this PRD recommends partial bead plus child repair Jobs.
+6. Model/provider policy by semantic operation and authority tier.
+7. Which artifact kinds require independent semantic verification or human
+   review by default.
+8. Context assembly cadence and default token budgets by integration.
+9. Projection staleness thresholds by API/read class.
+10. Exact migration treatment for legacy rows whose source evidence cannot be
+    reconstructed.
+11. PostgreSQL partitioning strategy at scale.
+12. Whether local in-process workers are default or opt-in, provided they use
+    the same JobStore/handler protocol.
+
+Every choice must preserve the governing invariants.
+
+---
+
+## 43. Definition of Done
+
+This program is complete only when all of the following are true:
+
+1. Core Memory stores canonical state in SQLite/PostgreSQL, not JSONL or a
+   mutable JSON index.
+2. Every accepted SourceEvent atomically schedules semantic annotation.
+3. Exactly one grounded ObservationBead lineage and one current immutable
+   version exist per successfully annotated event.
+4. Assertions are optional and zero-assertion events are first-class successes.
+5. Every meaning-bearing output has LLM authorship and evidence provenance.
+6. No deterministic semantic fallback remains on a canonical path.
+7. All semantic failures produce pending/retryable/failed state rather than
+   invented content.
+8. Claims and associations use append-only assertions and explicit revisions.
+9. One resolver controls all current-state and as-of behavior.
+10. Unresolved incompatible terminals remain ambiguous or contested.
+11. Association direction and bi-temporal behavior are canonical schema
+    features with deterministic traversal.
+12. Aggregate evidence preserves support, contradiction, independence, and
+    temporal distribution.
+13. Dreamer, goals, storylines, lessons, principles, identity, values, tensions,
+    and SOUL use one Artifact system.
+14. Artifact changes append replacements and Revisions rather than mutating
+    canonical rows.
+15. Promotion remains LLM-authored, reversible, and lossless.
+16. Compressed beads can always be unpacked from the full archive.
+17. One retrieval pipeline provides semantic search, current-state resolution,
+    causal/association expansion, source hydration, LLM judgment, synthesis,
+    and citation verification.
+18. No deterministic retrieval answer fallback remains.
+19. All deferred work uses one jobs table and one worker protocol.
+20. Transactional obligations and reconciliation prove complete task coverage.
+21. Every projection can be deleted and rebuilt from the ledger.
+22. SOUL and hot-context files/views are projections, not truth authorities.
+23. Local and hosted implementations pass the same contract tests.
+24. Migration preserves provenance and does not upgrade heuristic semantics.
+25. JSONL/index compatibility runtime code is deleted after cutover.
+26. Semantic quality, operational reliability, security, performance,
+    migration, and canary release gates all pass.
+27. Canonical documentation and status pages accurately describe the shipped
+    architecture.
+
+At completion, every durable meaning in Core Memory must be traceable through:
+
+```text
+one evidence boundary
+  -> one attributed semantic operation
+  -> one append transaction
+  -> one revision model
+  -> one resolver
+```
+
+That is the simplicity and reliability contract for the next Core Memory
+architecture.

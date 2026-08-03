@@ -37,13 +37,29 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
       - name: Run architecture guard
-        run: python scripts/check_architecture_guards.py --baseline scripts/architecture_guards_baseline.json --fail-on-new
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          if [ -n "$BASE_REF" ]; then
+            ratchet_ref="origin/$BASE_REF"
+          elif [ -n "$BEFORE_SHA" ] && [ "$BEFORE_SHA" != "0000000000000000000000000000000000000000" ]; then
+            ratchet_ref="$BEFORE_SHA"
+          else
+            ratchet_ref="HEAD^"
+          fi
+          python scripts/check_architecture_guards.py \
+            --baseline scripts/architecture_guards_baseline.json \
+            --ratchet-ref "$ratchet_ref" \
+            --fail-on-new
 
       - name: Run compatibility surface usage guard
         run: python scripts/check_architecture_guards.py --compat-baseline scripts/compat_surface_usage_baseline.json --fail-on-new-compat
