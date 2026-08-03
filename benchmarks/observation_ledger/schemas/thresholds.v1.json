@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "observation_ledger.thresholds.v1",
+  "type": "object",
+  "required": ["schema_version", "approval", "metrics"],
+  "properties": {
+    "schema_version": {"const": "observation_ledger.thresholds.v1"},
+    "approval": {
+      "type": "object",
+      "required": ["status", "approved_by"],
+      "properties": {
+        "status": {"enum": ["pending", "approved"]},
+        "approved_by": {"type": "string"}
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["absolute_floor", "max_regression"],
+        "properties": {
+          "absolute_floor": {"type": "number", "minimum": 0, "maximum": 1},
+          "max_regression": {"type": "number", "minimum": 0},
+          "reference": {"type": "number"},
+          "reference_interval": {
+            "type": "object",
+            "required": ["lower", "upper"],
+            "properties": {
+              "lower": {"type": "number", "minimum": 0, "maximum": 1},
+              "upper": {"type": "number", "minimum": 0, "maximum": 1}
+            },
+            "additionalProperties": false
+          }
+        }
+      }
+    }
+  },
+  "additionalProperties": true
+}

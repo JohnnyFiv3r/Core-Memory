@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "observation_ledger.pack.v1",
+  "type": "object",
+  "required": ["schema_version", "pack_id", "visibility", "prompt_version", "schema_versions", "cases", "gold", "adjudications", "checksums"],
+  "properties": {
+    "schema_version": {"const": "observation_ledger.pack.v1"},
+    "pack_id": {"type": "string", "minLength": 1},
+    "visibility": {"enum": ["public", "private"]},
+    "prompt_version": {"type": "string", "minLength": 1},
+    "schema_versions": {"type": "array", "items": {"type": "string"}},
+    "cases": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+    "gold": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+    "adjudications": {"type": "array", "items": {"type": "string"}},
+    "checksums": {"type": "object", "additionalProperties": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}
+  },
+  "additionalProperties": false
+}

@@ -1,5 +1,5 @@
 {
-  "current_phase": "PR-00A",
+  "current_phase": "PR-00B",
   "description": "Observation Ledger architecture debt ratchet. Exceptions are exact, fingerprinted, owned, and expire in named PR phases. Reductions are allowed; new or increased debt is rejected.",
   "exceptions": [
     {

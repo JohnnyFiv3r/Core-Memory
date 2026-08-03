@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "observation_ledger.baseline.v1",
+  "type": "object",
+  "required": ["schema_version", "status", "accepted", "gate_results", "public", "private", "thresholds_checksum"],
+  "properties": {
+    "schema_version": {"const": "observation_ledger.baseline.v1"},
+    "status": {"enum": ["completed", "blocked", "disqualified", "failed"]},
+    "accepted": {"type": "boolean"},
+    "gate_results": {"type": "object"},
+    "public": {"type": "object"},
+    "private": {"type": "object"},
+    "thresholds_checksum": {"type": "string"}
+  },
+  "additionalProperties": true
+}
