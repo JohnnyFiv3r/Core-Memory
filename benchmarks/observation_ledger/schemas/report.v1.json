@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "observation_ledger.report.v1",
+  "type": "object",
+  "required": ["schema_version", "source_commit", "pack", "runtime_configuration", "models", "versions", "shortcut_flags", "contaminated", "status", "hard_invariants", "semantic_metrics", "semantic_metric_intervals", "latency_ms", "tokens", "cost_usd", "warnings", "limitations"],
+  "properties": {
+    "schema_version": {"const": "observation_ledger.report.v1"},
+    "status": {"enum": ["completed", "blocked", "disqualified", "failed"]},
+    "contaminated": {"type": "boolean"},
+    "source_commit": {"type": "string"},
+    "pack": {"type": "object"},
+    "runtime_configuration": {"type": "object"},
+    "models": {"type": "object"},
+    "versions": {"type": "object"},
+    "shortcut_flags": {"type": "object"},
+    "hard_invariants": {"type": "object"},
+    "semantic_metrics": {"type": "object"},
+    "semantic_metric_intervals": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["method", "sample_size", "lower", "upper", "seed"],
+        "properties": {
+          "method": {"enum": ["wilson_95", "seeded_bootstrap_mean_95"]},
+          "sample_size": {"type": "integer", "minimum": 1},
+          "lower": {"type": "number", "minimum": 0, "maximum": 1},
+          "upper": {"type": "number", "minimum": 0, "maximum": 1},
+          "seed": {"type": "integer"}
+        },
+        "additionalProperties": false
+      }
+    },
+    "latency_ms": {"type": "object"},
+    "tokens": {"type": "object"},
+    "cost_usd": {"type": "number"},
+    "warnings": {"type": "array"},
+    "limitations": {"type": "array"},
+    "cases": {"type": "array"}
+  },
+  "additionalProperties": true
+}

@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "observation_ledger.adjudication.v1",
+  "type": "object",
+  "required": ["schema_version", "case_id", "judge_model", "judge_critique", "human_decision", "accepted_gold_checksum"],
+  "properties": {
+    "schema_version": {"const": "observation_ledger.adjudication.v1"},
+    "case_id": {"type": "string", "minLength": 1},
+    "judge_model": {"type": "string"},
+    "judge_critique": {},
+    "human_decision": {"enum": ["pending", "accepted", "revised", "rejected"]},
+    "accepted_gold_checksum": {"type": "string"},
+    "proposed_gold_checksum": {"type": "string"}
+  },
+  "additionalProperties": true
+}

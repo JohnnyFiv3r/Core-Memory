@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "observation_ledger.gold.v1",
+  "type": "object",
+  "required": ["schema_version", "case_id", "semantic_expectations"],
+  "properties": {
+    "schema_version": {"const": "observation_ledger.gold.v1"},
+    "case_id": {"type": "string", "minLength": 1},
+    "semantic_expectations": {"type": "object"},
+    "supported_propositions": {"type": "array", "items": {"type": "string"}},
+    "forbidden_propositions": {"type": "array", "items": {"type": "string"}},
+    "acceptable_labels": {"type": "array", "items": {"type": "string"}},
+    "evidence_spans": {"type": "array", "items": {"type": "object"}}
+  },
+  "additionalProperties": true
+}

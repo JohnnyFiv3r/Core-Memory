@@ -38,20 +38,31 @@ class BenchmarkConversation:
 @dataclass(frozen=True)
 class BenchmarkShortcutFlags:
     """Contamination guard — any True flag disqualifies faithful evaluation."""
+
     synthetic_crawler_updates: bool = False
     synthetic_temporal_edges: bool = False
     bead_direct_ingest: bool = False
     oracle_gold_used: bool = False
     benchmark_aware_answer_prompt: bool = False
+    gold_fields_in_runtime_input: bool = False
+    direct_semantic_preload: bool = False
+    runtime_semantic_bypass: bool = False
+    judge_wrote_engine_state: bool = False
 
     def is_faithful(self) -> bool:
-        return not any([
-            self.synthetic_crawler_updates,
-            self.synthetic_temporal_edges,
-            self.bead_direct_ingest,
-            self.oracle_gold_used,
-            self.benchmark_aware_answer_prompt,
-        ])
+        return not any(
+            [
+                self.synthetic_crawler_updates,
+                self.synthetic_temporal_edges,
+                self.bead_direct_ingest,
+                self.oracle_gold_used,
+                self.benchmark_aware_answer_prompt,
+                self.gold_fields_in_runtime_input,
+                self.direct_semantic_preload,
+                self.runtime_semantic_bypass,
+                self.judge_wrote_engine_state,
+            ]
+        )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -60,6 +71,10 @@ class BenchmarkShortcutFlags:
             "bead_direct_ingest": self.bead_direct_ingest,
             "oracle_gold_used": self.oracle_gold_used,
             "benchmark_aware_answer_prompt": self.benchmark_aware_answer_prompt,
+            "gold_fields_in_runtime_input": self.gold_fields_in_runtime_input,
+            "direct_semantic_preload": self.direct_semantic_preload,
+            "runtime_semantic_bypass": self.runtime_semantic_bypass,
+            "judge_wrote_engine_state": self.judge_wrote_engine_state,
             "is_faithful": self.is_faithful(),
         }
 

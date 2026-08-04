@@ -17,6 +17,9 @@ This package contains in-repo benchmark tooling for long-conversation memory qua
 - `longmemeval/` — LongMemEval adapter load/evaluation smoke harness for
   user-supplied JSON/JSONL corpora; validates the shared `BenchmarkAdapter`
   contract without vendoring the dataset or making leaderboard claims
+- `observation_ledger/` — versioned Stage 0 semantic-evaluation framework with
+  explicit author/judge model selection, pack validation, contamination
+  handling, judge isolation, private-report sanitization, and baseline gates
 
 ## Quick start
 

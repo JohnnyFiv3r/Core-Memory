@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "observation_ledger.case.v1",
+  "type": "object",
+  "required": ["schema_version", "case_id", "suite", "behavioral_buckets", "privacy_classification", "source_events", "admissible_evidence", "task_input", "expected_structural_behavior", "evidence_checksum"],
+  "properties": {
+    "schema_version": {"const": "observation_ledger.case.v1"},
+    "case_id": {"type": "string", "minLength": 1},
+    "suite": {"enum": ["observations", "claims", "associations", "artifacts", "promotion", "retrieval"]},
+    "behavioral_buckets": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+    "privacy_classification": {"enum": ["public", "private"]},
+    "source_events": {"type": "array", "items": {"type": "object"}},
+    "admissible_evidence": {"type": "array", "items": {"type": "object"}},
+    "task_input": {"type": "object"},
+    "expected_structural_behavior": {"type": "object"},
+    "evidence_checksum": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  },
+  "additionalProperties": false
+}
