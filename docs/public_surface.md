@@ -58,6 +58,8 @@ A surface is canonical only if it is both:
 - `core_memory.retrieval.tools.memory.search(request: dict, root='.', explain=False)` — low-level anchor retrieval.
 - `core_memory.retrieval.tools.memory.trace(query='', anchor_ids=[...], root='.', k=..., hydration=...)` — low-level causal traversal after anchor identification.
 - `core_memory.retrieval.tools.memory.execute(request: dict, root='.', explain=False)` — low-level unified request entrypoint.
+- `core_memory.segment_between(root, anchor_a, anchor_b, direction='upstream|downstream|any', ...)` — best bounded observed causal chain between two exact/junction anchors, normalized to cause-to-effect order. Returns `None` rather than fabricating a missing path.
+- `core_memory.segment_frontier_between(root, anchor_a, anchor_b, ...)` — bounded partition-aware causal alternatives with an explicit completeness and termination receipt. Incomplete frontiers are query-time evidence only and must not be cached as roadmap pairs.
 
 ## Projection read family (canonical)
 - `core_memory.derive_worldlines(root, kinds=['claim','entity','goal'], min_length=1)` —

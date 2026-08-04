@@ -1,5 +1,6 @@
 from core_memory.graph.core import STRUCTURAL_RELS, build_graph, graph_stats
 from core_memory.graph.junctions import derive_junction_projection, resolve_junction_matches
+from core_memory.graph.root_cause import segment_between, segment_frontier_between
 from core_memory.graph.semantic import (
     add_semantic_edge,
     deactivate_semantic_edge,
@@ -39,6 +40,8 @@ __all__ = [
     "infer_structural_edges",
     "reinforce_semantic_edges",
     "resolve_junction_matches",
+    "segment_between",
+    "segment_frontier_between",
     "sync_structural_pipeline",
     "update_semantic_edge",
 ]

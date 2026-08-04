@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+import hashlib
 import heapq
 import json
 import math
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
+from core_memory.graph.junctions import derive_junction_projection
 from core_memory.schema.normalization import normalize_relation_type, relation_family
 
 
@@ -323,6 +325,67 @@ def _upstream_edges(node: str, edges: list[dict[str, Any]]) -> list[tuple[dict[s
     return out
 
 
+def _downstream_edges(node: str, edges: list[dict[str, Any]]) -> list[tuple[dict[str, Any], str]]:
+    out: list[tuple[dict[str, Any], str]] = []
+    for edge in edges:
+        rel = normalize_relation_type(_text(edge.get("rel")))
+        src = _text(edge.get("src"))
+        dst = _text(edge.get("dst"))
+        if rel in UPSTREAM_FROM_SOURCE and dst == node and src:
+            out.append((edge, src))
+        elif rel in UPSTREAM_FROM_TARGET and src == node and dst:
+            out.append((edge, dst))
+        elif rel in BIDIRECTIONAL_WEAK or rel in CONFLICT_RELATIONS:
+            if src == node and dst:
+                out.append((edge, dst))
+            elif dst == node and src:
+                out.append((edge, src))
+    return out
+
+
+def _source_tokens(bead: Mapping[str, Any]) -> set[str]:
+    tokens: set[str] = set()
+    for key in (
+        "source_id",
+        "source_ref",
+        "source_event_id",
+        "source_artifact_uri",
+        "artifact_uri",
+        "raw_source_object_id",
+    ):
+        value = _text(bead.get(key))
+        if value:
+            tokens.add(value)
+    hydration = bead.get("hydration_ref") if isinstance(bead.get("hydration_ref"), dict) else {}
+    for key in ("store", "ref", "id", "uri", "url"):
+        value = _text(hydration.get(key))
+        if value:
+            tokens.add(value)
+    for source in _clean_list(bead.get("source_refs")):
+        if isinstance(source, dict):
+            for key in ("source_id", "source_ref", "ref", "id", "uri", "url"):
+                value = _text(source.get(key))
+                if value:
+                    tokens.add(value)
+        elif _text(source):
+            tokens.add(_text(source))
+    return tokens
+
+
+def _source_scope_allows(
+    bead: Mapping[str, Any],
+    *,
+    allowed_source_ids: set[str],
+    denied_source_ids: set[str],
+) -> bool:
+    tokens = _source_tokens(bead)
+    if denied_source_ids and tokens.intersection(denied_source_ids):
+        return False
+    if allowed_source_ids and not tokens.intersection(allowed_source_ids):
+        return False
+    return True
+
+
 def _edge_cost(
     edge: dict[str, Any],
     *,
@@ -333,13 +396,15 @@ def _edge_cost(
     hints: dict[str, Any],
     myelination_bonus: dict[str, float],
     temporal_frame: str,
+    drag_enabled: bool = True,
 ) -> tuple[float, dict[str, Any]]:
     rel = normalize_relation_type(_text(edge.get("rel")))
     family = _relation_family(rel)
     semantic_score = _semantic_relevance(query_tokens, hint_tokens, cause)
     semantic_floor = 0.35
-    semantic_penalty = 0.25 * max(0.0, semantic_floor - semantic_score)
+    semantic_penalty = 0.25 * max(0.0, semantic_floor - semantic_score) if drag_enabled else 0.0
     confidence = _coerce_confidence(edge.get("confidence"), 0.75)
+    confidence_penalty = -math.log(max(0.001, min(1.0, confidence)))
     temporal_cost, temporal = _temporal_penalty(effect, cause, rel)
     claim_cost, historical, current, claim_summary, claim_flags = _claim_state_cost(cause, temporal_frame)
     contradiction = 0.45 if rel in CONFLICT_RELATIONS else 0.0
@@ -359,7 +424,7 @@ def _edge_cost(
 
     raw_cost = (
         float(RELATION_PRIOR_COST.get(rel, 0.70))
-        + (1.0 - confidence)
+        + confidence_penalty
         + temporal_cost
         + claim_cost
         + contradiction
@@ -374,7 +439,7 @@ def _edge_cost(
     return cost, {
         "relation_prior_cost": round(float(RELATION_PRIOR_COST.get(rel, 0.70)), 6),
         "confidence": round(confidence, 6),
-        "confidence_penalty": round(1.0 - confidence, 6),
+        "confidence_penalty": round(confidence_penalty, 6),
         "temporal_penalty": round(temporal_cost, 6),
         "claim_state_penalty": round(claim_cost, 6),
         "contradiction_penalty": round(contradiction, 6),
@@ -382,6 +447,7 @@ def _edge_cost(
         "semantic_relevance_score": round(semantic_score, 6),
         "semantic_similarity_floor": semantic_floor,
         "semantic_mismatch_penalty": round(semantic_penalty, 6),
+        "semantic_drag_enabled": bool(drag_enabled),
         "myelination_bonus": round(edge_bonus, 6),
         "evidence_bonus": round(evidence_bonus, 6),
         "user_validation_bonus": round(user_bonus, 6),
@@ -455,6 +521,212 @@ def _path_record(path_id: str, anchor: str, nodes: list[str], hops: list[dict[st
         "conflict_flags": sorted(set(conflict_flags)),
         "myelination": round(myelination, 6),
         "max_depth_reached": False,
+    }
+
+
+def _normalized_hop(
+    edge: dict[str, Any],
+    *,
+    cause_id: str,
+    effect_id: str,
+    direction: str,
+    step_cost: float,
+    breakdown: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "from": cause_id,
+        "to": effect_id,
+        "raw_src": edge.get("src"),
+        "raw_dst": edge.get("dst"),
+        "edge_id": edge.get("edge_id"),
+        "relation": normalize_relation_type(_text(edge.get("rel"))),
+        "normalized_direction": direction,
+        "cost": round(step_cost, 6),
+        "confidence": breakdown.get("confidence"),
+        "candidate_bead_semantic_relevance_score": breakdown.get("semantic_relevance_score"),
+        "semantic_mismatch_penalty": breakdown.get("semantic_mismatch_penalty"),
+        "myelination_bonus": breakdown.get("myelination_bonus"),
+        "evidence_refs": breakdown.get("evidence_refs") or [],
+        "cost_breakdown": breakdown,
+    }
+
+
+def _parameterized_best_first_search(
+    *,
+    beads: dict[str, dict[str, Any]],
+    edges: list[dict[str, Any]],
+    anchors: list[str],
+    terminal_set: set[str] | None,
+    length_cap: int,
+    direction: str,
+    drag_enabled: bool,
+    result_mode: str,
+    query_tokens: set[str],
+    hint_tokens: set[str],
+    hints: dict[str, Any],
+    myelination_bonus: dict[str, float],
+    temporal_frame: str,
+    relation_families: set[str] | None = None,
+    allowed_source_ids: set[str] | None = None,
+    denied_source_ids: set[str] | None = None,
+    max_results: int = 20,
+    beam_width: int | None = None,
+    max_expansions: int = 5_000,
+    max_queue_states: int = 50_000,
+) -> dict[str, Any]:
+    """Run root-cause and bounded segment search through one heap engine."""
+
+    if direction not in {"upstream", "downstream"}:
+        raise ValueError("direction must be upstream or downstream")
+    if result_mode not in {"best", "frontier"}:
+        raise ValueError("result_mode must be best or frontier")
+
+    allowed = set(allowed_source_ids or set())
+    denied = set(denied_source_ids or set())
+    families = set(relation_families or set())
+    heap: list[tuple[float, int, str, str, list[str], list[dict[str, Any]]]] = []
+    counter = 0
+    for anchor in anchors:
+        bead = beads.get(anchor)
+        if not isinstance(bead, dict):
+            continue
+        if (allowed or denied) and not _source_scope_allows(
+            bead,
+            allowed_source_ids=allowed,
+            denied_source_ids=denied,
+        ):
+            continue
+        counter += 1
+        heapq.heappush(heap, (0.0, counter, anchor, anchor, [anchor], []))
+
+    results: list[dict[str, Any]] = []
+    seen_paths: set[tuple[str, ...]] = set()
+    warnings: list[dict[str, str]] = []
+    expansions = 0
+    termination_reason = "exhausted"
+    length_limit = max(1, int(length_cap))
+    result_limit = max(1, int(max_results))
+    expansion_limit = max(1, int(max_expansions))
+    queue_limit = max(1, int(max_queue_states))
+
+    while heap:
+        if expansions >= expansion_limit:
+            termination_reason = "expansion_cap"
+            break
+        if len(heap) > queue_limit:
+            termination_reason = "memory_pressure"
+            break
+
+        cost, _, anchor, node, nodes, hops = heapq.heappop(heap)
+        expansions += 1
+        reached_terminal = bool(hops and terminal_set is not None and node in terminal_set)
+
+        if terminal_set is None and hops:
+            signature = tuple(nodes)
+            if signature not in seen_paths:
+                seen_paths.add(signature)
+                results.append(
+                    {
+                        "anchor": anchor,
+                        "nodes": nodes,
+                        "hops": hops,
+                        "total_cost": cost,
+                        "max_depth_reached": len(hops) >= length_limit,
+                    }
+                )
+                if len(results) >= result_limit:
+                    termination_reason = "result_cap"
+                    break
+        elif reached_terminal:
+            signature = tuple(nodes)
+            if signature not in seen_paths:
+                seen_paths.add(signature)
+                results.append(
+                    {
+                        "anchor": anchor,
+                        "nodes": nodes,
+                        "hops": hops,
+                        "total_cost": cost,
+                        "max_depth_reached": len(hops) >= length_limit,
+                    }
+                )
+            if result_mode == "best":
+                termination_reason = "first_optimal_terminal"
+                break
+            # A segment ends at the terminal; do not grow paths through it.
+            continue
+
+        if len(hops) >= length_limit:
+            continue
+
+        candidates = _upstream_edges(node, edges) if direction == "upstream" else _downstream_edges(node, edges)
+        if not candidates and not hops and terminal_set is None:
+            warnings.append(
+                {
+                    "kind": f"no_{direction}_edges",
+                    "message": f"No {direction} causal edges found for anchor {node}.",
+                }
+            )
+            continue
+
+        ranked_next: list[tuple[float, str, list[str], list[dict[str, Any]]]] = []
+        for edge, adjacent in candidates:
+            if adjacent in nodes:
+                continue
+            rel = normalize_relation_type(_text(edge.get("rel")))
+            if families and _relation_family(rel) not in families:
+                continue
+            adjacent_bead = beads.get(adjacent)
+            node_bead = beads.get(node)
+            if not isinstance(adjacent_bead, dict) or not isinstance(node_bead, dict):
+                continue
+            if (allowed or denied) and not _source_scope_allows(
+                adjacent_bead,
+                allowed_source_ids=allowed,
+                denied_source_ids=denied,
+            ):
+                continue
+
+            if direction == "upstream":
+                cause_id, cause_bead = adjacent, adjacent_bead
+                effect_id, effect_bead = node, node_bead
+            else:
+                cause_id, cause_bead = node, node_bead
+                effect_id, effect_bead = adjacent, adjacent_bead
+            step_cost, breakdown = _edge_cost(
+                edge,
+                effect=effect_bead,
+                cause=cause_bead,
+                query_tokens=query_tokens,
+                hint_tokens=hint_tokens,
+                hints=hints,
+                myelination_bonus=myelination_bonus,
+                temporal_frame=temporal_frame,
+                drag_enabled=drag_enabled,
+            )
+            hop = _normalized_hop(
+                edge,
+                cause_id=cause_id,
+                effect_id=effect_id,
+                direction=direction,
+                step_cost=step_cost,
+                breakdown=breakdown,
+            )
+            ranked_next.append((cost + step_cost, adjacent, nodes + [adjacent], hops + [hop]))
+
+        ranked_next.sort(key=lambda row: (row[0], row[1]))
+        if beam_width is not None:
+            ranked_next = ranked_next[: max(1, int(beam_width))]
+        for next_cost, adjacent, next_nodes, next_hops in ranked_next:
+            counter += 1
+            heapq.heappush(heap, (next_cost, counter, anchor, adjacent, next_nodes, next_hops))
+
+    return {
+        "results": results,
+        "warnings": warnings,
+        "expansions": expansions,
+        "termination_reason": termination_reason,
+        "queue_exhausted": not heap,
     }
 
 
@@ -561,6 +833,447 @@ def _trace_package(paths: list[dict[str, Any]], beads: dict[str, dict[str, Any]]
     }
 
 
+def _junction_members(
+    anchor: str,
+    *,
+    projection: dict[str, Any],
+    beads: dict[str, dict[str, Any]],
+) -> set[str]:
+    anchor_id = _text(anchor)
+    members: set[str] = set()
+    if anchor_id in beads:
+        members.add(anchor_id)
+        bead_row = next(
+            (
+                row
+                for row in _clean_list(projection.get("beads"))
+                if isinstance(row, dict) and _text(row.get("bead_id")) == anchor_id
+            ),
+            None,
+        )
+        if isinstance(bead_row, dict):
+            members.update(
+                _text(bead_id)
+                for bead_id in _clean_list(bead_row.get("corroborating_bead_ids"))
+                if _text(bead_id) in beads
+            )
+        return members
+
+    for identity in _clean_list(projection.get("identities")):
+        if not isinstance(identity, dict):
+            continue
+        identity_tokens = {
+            _text(identity.get("id")),
+            _text(identity.get("key")),
+            _text(identity.get("label")),
+        }
+        if anchor_id not in identity_tokens:
+            continue
+        members.update(
+            _text(bead_id)
+            for bead_id in _clean_list(identity.get("bead_ids"))
+            if _text(bead_id) in beads
+        )
+    return members
+
+
+def _stable_reference(value: Any) -> str:
+    if isinstance(value, (dict, list, tuple)):
+        try:
+            return json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
+        except Exception:
+            pass
+    return _text(value)
+
+
+def _claim_refs(bead: Mapping[str, Any]) -> set[str]:
+    refs: set[str] = set()
+    for key in ("claim_id", "canonical_claim_id", "claim_ids", "claim_refs"):
+        for value in _clean_list(bead.get(key)):
+            ref = _stable_reference(value)
+            if ref:
+                refs.add(ref)
+    for key in ("claims", "claim_updates"):
+        for value in _clean_list(bead.get(key)):
+            if not isinstance(value, dict):
+                ref = _stable_reference(value)
+            else:
+                ref = _text(value.get("id") or value.get("claim_id"))
+                if not ref:
+                    subject = _text(value.get("subject_ref") or value.get("subject"))
+                    slot = _text(value.get("slot") or value.get("predicate"))
+                    ref = f"{subject}|{slot}" if subject or slot else _stable_reference(value)
+            if ref:
+                refs.add(ref)
+    return refs
+
+
+def _dynamic_cost_signature(
+    nodes: list[str],
+    hops: list[dict[str, Any]],
+    beads: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    claim_refs: set[str] = set()
+    temporal_coverage: set[str] = set()
+    source_footprint: set[str] = set()
+    contradiction_refs: set[str] = set()
+    evidence_refs: set[str] = set()
+    for bead_id in nodes:
+        bead = beads.get(bead_id) or {}
+        claim_refs.update(_claim_refs(bead))
+        timestamp, field = timestamp_for_bead(bead)
+        temporal_coverage.add(f"{field or 'unknown'}:{timestamp or 'unknown'}")
+        source_footprint.update(_source_tokens(bead))
+        for value in _clean_list(bead.get("evidence_refs")):
+            ref = _stable_reference(value)
+            if ref:
+                evidence_refs.add(ref)
+    for hop in hops:
+        breakdown = dict(hop.get("cost_breakdown") or {})
+        for value in _clean_list(breakdown.get("evidence_refs")):
+            ref = _stable_reference(value)
+            if ref:
+                evidence_refs.add(ref)
+        if normalize_relation_type(_text(hop.get("relation"))) in CONFLICT_RELATIONS or breakdown.get("conflict_flags"):
+            contradiction_refs.add(_text(hop.get("edge_id")) or _stable_reference(hop))
+    signature = {
+        "claim_refs": sorted(claim_refs),
+        "temporal_coverage": sorted(temporal_coverage),
+        "source_footprint": sorted(source_footprint),
+        "contradiction_refs": sorted(contradiction_refs),
+        "evidence_refs": sorted(evidence_refs),
+    }
+    encoded = json.dumps(signature, sort_keys=True, separators=(",", ":"))
+    signature["partition_key"] = hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:24]
+    return signature
+
+
+def _segment_from_search_result(
+    result: dict[str, Any],
+    *,
+    direction: str,
+    start_set: set[str],
+    terminal_set: set[str],
+    beads: dict[str, dict[str, Any]],
+) -> dict[str, Any] | None:
+    traversal_nodes = [_text(value) for value in result.get("nodes") or [] if _text(value)]
+    traversal_hops = [dict(value) for value in result.get("hops") or [] if isinstance(value, dict)]
+    if direction == "upstream":
+        bead_ids = list(reversed(traversal_nodes))
+        hops = list(reversed(traversal_hops))
+        expected_start, expected_end = terminal_set, start_set
+    else:
+        bead_ids = traversal_nodes
+        hops = traversal_hops
+        expected_start, expected_end = start_set, terminal_set
+    if len(bead_ids) < 2 or bead_ids[0] not in expected_start or bead_ids[-1] not in expected_end:
+        return None
+    segment_seed = json.dumps(
+        {
+            "direction": direction,
+            "bead_ids": bead_ids,
+            "edge_ids": [_text(hop.get("edge_id")) for hop in hops],
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    # The heap ranks with full precision; the public receipt reconciles exactly
+    # to its emitted per-edge ledger.
+    total_cost = sum(float(hop.get("cost") or 0.0) for hop in hops)
+    signature = _dynamic_cost_signature(bead_ids, hops, beads)
+    return {
+        "schema_version": "core_memory.causal_segment.v1",
+        "segment_id": f"segment:{hashlib.sha256(segment_seed.encode('utf-8')).hexdigest()[:24]}",
+        "direction": direction,
+        "bead_ids": bead_ids,
+        "edges": hops,
+        "length": len(hops),
+        "total_cost": round(total_cost, 6),
+        "confidence": round(_confidence_from_cost(total_cost), 6),
+        "dynamic_cost_signature": signature,
+    }
+
+
+def _frontier_metrics(segment: dict[str, Any]) -> tuple[float, int, float]:
+    evidence_count = len((segment.get("dynamic_cost_signature") or {}).get("evidence_refs") or [])
+    validation_quality = sum(
+        float((edge.get("cost_breakdown") or {}).get("user_validation_bonus") or 0.0)
+        + float((edge.get("cost_breakdown") or {}).get("evidence_bonus") or 0.0)
+        for edge in segment.get("edges") or []
+        if isinstance(edge, dict)
+    )
+    return float(segment.get("total_cost") or 0.0), evidence_count, validation_quality
+
+
+def _dominates(left: dict[str, Any], right: dict[str, Any]) -> bool:
+    left_cost, left_evidence, left_validation = _frontier_metrics(left)
+    right_cost, right_evidence, right_validation = _frontier_metrics(right)
+    weakly_better = (
+        left_cost <= right_cost
+        and left_evidence >= right_evidence
+        and left_validation >= right_validation
+    )
+    strictly_better = (
+        left_cost < right_cost
+        or left_evidence > right_evidence
+        or left_validation > right_validation
+    )
+    return weakly_better and strictly_better
+
+
+def _insert_partition_frontier(
+    current: list[dict[str, Any]],
+    candidate: dict[str, Any],
+    *,
+    max_results: int,
+) -> tuple[list[dict[str, Any]], bool]:
+    if any(_dominates(existing, candidate) for existing in current):
+        return current, False
+    retained = [existing for existing in current if not _dominates(candidate, existing)]
+    if not any(existing.get("segment_id") == candidate.get("segment_id") for existing in retained):
+        retained.append(candidate)
+    retained.sort(
+        key=lambda row: (
+            _frontier_metrics(row)[0],
+            -_frontier_metrics(row)[1],
+            -_frontier_metrics(row)[2],
+            _text(row.get("segment_id")),
+        )
+    )
+    truncated = len(retained) > max_results
+    return retained[:max_results], truncated
+
+
+def _segment_search_context(
+    root: Path,
+    anchor_a: str,
+    anchor_b: str,
+    *,
+    projection: dict[str, Any] | None,
+) -> tuple[dict[str, dict[str, Any]], list[dict[str, Any]], dict[str, Any], set[str], set[str]]:
+    index = _read_index(root)
+    beads = {str(key): value for key, value in (index.get("beads") or {}).items() if isinstance(value, dict)}
+    derived = projection or derive_junction_projection(root, include_beads=True)
+    return (
+        beads,
+        _build_edges(root, index),
+        derived,
+        _junction_members(anchor_a, projection=derived, beads=beads),
+        _junction_members(anchor_b, projection=derived, beads=beads),
+    )
+
+
+def _run_segment_orientation(
+    *,
+    beads: dict[str, dict[str, Any]],
+    edges: list[dict[str, Any]],
+    anchor_a_set: set[str],
+    anchor_b_set: set[str],
+    direction: str,
+    temporal_frame: str,
+    relation_families: set[str],
+    allowed_source_ids: set[str],
+    denied_source_ids: set[str],
+    max_len: int,
+    result_mode: str,
+    max_expansions: int,
+) -> dict[str, Any]:
+    return _parameterized_best_first_search(
+        beads=beads,
+        edges=edges,
+        anchors=sorted(anchor_a_set),
+        terminal_set=set(anchor_b_set),
+        length_cap=max_len,
+        direction=direction,
+        drag_enabled=False,
+        result_mode=result_mode,
+        query_tokens=set(),
+        hint_tokens=set(),
+        hints=normalize_causal_hints(None),
+        myelination_bonus={},
+        temporal_frame=temporal_frame,
+        relation_families=relation_families,
+        allowed_source_ids=allowed_source_ids,
+        denied_source_ids=denied_source_ids,
+        max_results=1,
+        beam_width=None,
+        max_expansions=max_expansions,
+    )
+
+
+def segment_between(
+    root: Path,
+    anchor_a: str,
+    anchor_b: str,
+    *,
+    max_len: int = 6,
+    direction: str = "upstream",
+    temporal_frame: str = "auto",
+    relation_families: list[str] | None = None,
+    allowed_source_ids: list[str] | None = None,
+    denied_source_ids: list[str] | None = None,
+    projection: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    """Return the best real observed chain between two junction anchors."""
+
+    requested_direction = _text(direction).lower() or "upstream"
+    if requested_direction not in {"upstream", "downstream", "any"}:
+        raise ValueError("direction must be upstream, downstream, or any")
+    frame = "current_truth" if temporal_frame == "auto" else _text(temporal_frame)
+    root_path = Path(root)
+    beads, edges, _, anchor_a_set, anchor_b_set = _segment_search_context(
+        root_path,
+        anchor_a,
+        anchor_b,
+        projection=projection,
+    )
+    if not anchor_a_set or not anchor_b_set:
+        return None
+    families = {_text(value).lower() for value in relation_families or [] if _text(value)}
+    allowed = {_text(value) for value in allowed_source_ids or [] if _text(value)}
+    denied = {_text(value) for value in denied_source_ids or [] if _text(value)}
+    segments: list[dict[str, Any]] = []
+    orientations = ("upstream", "downstream") if requested_direction == "any" else (requested_direction,)
+    for orientation in orientations:
+        search = _run_segment_orientation(
+            beads=beads,
+            edges=edges,
+            anchor_a_set=anchor_a_set,
+            anchor_b_set=anchor_b_set,
+            direction=orientation,
+            temporal_frame=frame,
+            relation_families=families,
+            allowed_source_ids=allowed,
+            denied_source_ids=denied,
+            max_len=max_len,
+            result_mode="best",
+            max_expansions=5_000,
+        )
+        if not search["results"]:
+            continue
+        segment = _segment_from_search_result(
+            search["results"][0],
+            direction=orientation,
+            start_set=anchor_a_set,
+            terminal_set=anchor_b_set,
+            beads=beads,
+        )
+        if segment is not None:
+            segments.append(segment)
+    if not segments:
+        return None
+    return min(segments, key=lambda row: (float(row["total_cost"]), _text(row["segment_id"])))
+
+
+def segment_frontier_between(
+    root: Path,
+    anchor_a: str,
+    anchor_b: str,
+    *,
+    max_len: int = 6,
+    direction: str = "upstream",
+    temporal_frame: str = "current_truth",
+    relation_families: list[str] | None = None,
+    allowed_source_ids: list[str] | None = None,
+    denied_source_ids: list[str] | None = None,
+    max_expansions: int = 5_000,
+    max_partitions: int = 32,
+    max_results_per_partition: int = 2,
+    projection: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Return a bounded, partition-aware frontier of observed causal chains."""
+
+    requested_direction = _text(direction).lower() or "upstream"
+    if requested_direction not in {"upstream", "downstream", "any"}:
+        raise ValueError("direction must be upstream, downstream, or any")
+    frame = "current_truth" if temporal_frame == "auto" else _text(temporal_frame)
+    root_path = Path(root)
+    beads, edges, derived, anchor_a_set, anchor_b_set = _segment_search_context(
+        root_path,
+        anchor_a,
+        anchor_b,
+        projection=projection,
+    )
+    families = {_text(value).lower() for value in relation_families or [] if _text(value)}
+    allowed = {_text(value) for value in allowed_source_ids or [] if _text(value)}
+    denied = {_text(value) for value in denied_source_ids or [] if _text(value)}
+    orientations = ("upstream", "downstream") if requested_direction == "any" else (requested_direction,)
+    raw_segments: list[dict[str, Any]] = []
+    searches: list[dict[str, Any]] = []
+    remaining_expansions = max(1, int(max_expansions))
+    for orientation in orientations:
+        if remaining_expansions <= 0:
+            break
+        search = _run_segment_orientation(
+            beads=beads,
+            edges=edges,
+            anchor_a_set=anchor_a_set,
+            anchor_b_set=anchor_b_set,
+            direction=orientation,
+            temporal_frame=frame,
+            relation_families=families,
+            allowed_source_ids=allowed,
+            denied_source_ids=denied,
+            max_len=max_len,
+            result_mode="frontier",
+            max_expansions=remaining_expansions,
+        )
+        searches.append(search)
+        remaining_expansions -= int(search["expansions"])
+        for result in search["results"]:
+            segment = _segment_from_search_result(
+                result,
+                direction=orientation,
+                start_set=anchor_a_set,
+                terminal_set=anchor_b_set,
+                beads=beads,
+            )
+            if segment is not None:
+                raw_segments.append(segment)
+
+    partitions: dict[str, list[dict[str, Any]]] = {}
+    partition_keys_seen: set[str] = set()
+    incomplete_reason = ""
+    for segment in sorted(raw_segments, key=lambda row: (float(row["total_cost"]), _text(row["segment_id"]))):
+        partition_key = _text((segment.get("dynamic_cost_signature") or {}).get("partition_key"))
+        partition_keys_seen.add(partition_key)
+        if partition_key not in partitions and len(partitions) >= max(1, int(max_partitions)):
+            incomplete_reason = incomplete_reason or "partition_cap"
+            continue
+        retained, truncated = _insert_partition_frontier(
+            partitions.get(partition_key, []),
+            segment,
+            max_results=max(1, int(max_results_per_partition)),
+        )
+        partitions[partition_key] = retained
+        if truncated and not incomplete_reason:
+            incomplete_reason = "result_cap"
+
+    for search in searches:
+        if search["termination_reason"] in {"memory_pressure", "expansion_cap"}:
+            incomplete_reason = _text(search["termination_reason"])
+            break
+    if len(searches) < len(orientations) and not incomplete_reason:
+        incomplete_reason = "expansion_cap"
+    segments = sorted(
+        (segment for rows in partitions.values() for segment in rows),
+        key=lambda row: (float(row["total_cost"]), _text(row["segment_id"])),
+    )
+    complete = not incomplete_reason and len(searches) == len(orientations) and all(
+        bool(search["queue_exhausted"]) for search in searches
+    )
+    return {
+        "schema_version": "core_memory.causal_segment_frontier.v1",
+        "segments": segments,
+        "complete": complete,
+        "termination_reason": "exhausted" if complete else (incomplete_reason or "expansion_cap"),
+        "expansions": sum(int(search["expansions"]) for search in searches),
+        "partitions_seen": len(partition_keys_seen),
+        "direction": requested_direction,
+        "junction_density": dict(derived.get("density") or {}),
+    }
+
+
 def root_cause_trace(
     root: Path,
     anchor_ids: list[str],
@@ -590,73 +1303,39 @@ def root_cause_trace(
 
     anchors = [a for a in [*_clean_list(anchor_ids), *normalized_hints.get("anchor_ids", [])] if _text(a) in beads]
     anchors = list(dict.fromkeys(_text(a) for a in anchors if _text(a)))
-    heap: list[tuple[float, int, str, str, list[str], list[dict[str, Any]]]] = []
-    counter = 0
-    for anchor in anchors:
-        counter += 1
-        heapq.heappush(heap, (0.0, counter, anchor, anchor, [anchor], []))
-
-    paths: list[dict[str, Any]] = []
-    seen_path: set[tuple[str, ...]] = set()
-    warnings: list[dict[str, str]] = []
-    expansions = 0
     expansion_cap = max(64, max_paths * max(2, beam_width) * max(1, max_depth))
-
-    while heap and len(paths) < max(1, int(max_paths)) and expansions < expansion_cap:
-        cost, _, anchor, node, nodes, hops = heapq.heappop(heap)
-        expansions += 1
-        if hops:
-            sig = tuple(nodes)
-            if sig not in seen_path:
-                seen_path.add(sig)
-                paths.append(_path_record(f"path_{len(paths) + 1}", anchor, nodes, hops, beads, cost))
-        if len(hops) >= max(1, int(max_depth)):
-            if paths:
-                paths[-1]["max_depth_reached"] = True
-            continue
-        candidates = _upstream_edges(node, edges)
-        if not candidates and not hops:
-            warnings.append({"kind": "no_upstream_edges", "message": f"No upstream causal edges found for anchor {node}."})
-            continue
-        ranked_next = []
-        for edge, parent in candidates:
-            if parent in nodes:
-                continue
-            parent_bead = beads.get(parent)
-            node_bead = beads.get(node)
-            if not isinstance(parent_bead, dict) or not isinstance(node_bead, dict):
-                continue
-            step_cost, breakdown = _edge_cost(
-                edge,
-                effect=node_bead,
-                cause=parent_bead,
-                query_tokens=query_tokens,
-                hint_tokens=hint_tokens,
-                hints=normalized_hints,
-                myelination_bonus=myelination,
-                temporal_frame=temporal_frame,
-            )
-            hop = {
-                "from": parent,
-                "to": node,
-                "raw_src": edge.get("src"),
-                "raw_dst": edge.get("dst"),
-                "edge_id": edge.get("edge_id"),
-                "relation": normalize_relation_type(_text(edge.get("rel"))),
-                "normalized_direction": "upstream",
-                "cost": round(step_cost, 6),
-                "confidence": breakdown.get("confidence"),
-                "candidate_bead_semantic_relevance_score": breakdown.get("semantic_relevance_score"),
-                "semantic_mismatch_penalty": breakdown.get("semantic_mismatch_penalty"),
-                "myelination_bonus": breakdown.get("myelination_bonus"),
-                "evidence_refs": breakdown.get("evidence_refs") or [],
-                "cost_breakdown": breakdown,
-            }
-            ranked_next.append((cost + step_cost, parent, nodes + [parent], hops + [hop]))
-        ranked_next.sort(key=lambda row: (row[0], row[1]))
-        for next_cost, parent, next_nodes, next_hops in ranked_next[: max(1, int(beam_width))]:
-            counter += 1
-            heapq.heappush(heap, (next_cost, counter, anchor, parent, next_nodes, next_hops))
+    search = _parameterized_best_first_search(
+        beads=beads,
+        edges=edges,
+        anchors=anchors,
+        terminal_set=None,
+        length_cap=max_depth,
+        direction="upstream",
+        drag_enabled=True,
+        result_mode="best",
+        query_tokens=query_tokens,
+        hint_tokens=hint_tokens,
+        hints=normalized_hints,
+        myelination_bonus=myelination,
+        temporal_frame=temporal_frame,
+        max_results=max_paths,
+        beam_width=beam_width,
+        max_expansions=expansion_cap,
+    )
+    paths: list[dict[str, Any]] = []
+    for result in search["results"]:
+        path = _path_record(
+            f"path_{len(paths) + 1}",
+            result["anchor"],
+            result["nodes"],
+            result["hops"],
+            beads,
+            result["total_cost"],
+        )
+        path["max_depth_reached"] = bool(result["max_depth_reached"])
+        paths.append(path)
+    warnings = search["warnings"]
+    expansions = int(search["expansions"])
 
     paths = sorted(paths, key=lambda p: (float(p.get("total_cost") or 0.0), -float(p.get("current_truth_confidence") or 0.0), _text(p.get("path_id"))))[: max(1, int(max_paths))]
     root_causes, influence_breakdown = _rank_influence(paths, beads, max_causes=max_causes) if include_flow else ([], [])
