@@ -278,6 +278,7 @@ CANONICAL_RELATION_TYPES = {
     "reveals_bias",
     # observed additional canonicalized relations
     "supports",
+    "advances_goal",
     "derived_from",
     "part_of",
     "resolves",
@@ -329,12 +330,14 @@ CAUSAL_RELATION_TYPES = frozenset({
 })
 EVIDENTIAL_RELATION_TYPES = frozenset({
     "supports",
+    "advances_goal",
     "derived_from",
     "caused_by",
     "led_to",
     "resolves",
 })
 INFLUENCE_RELATION_TYPES = frozenset({
+    "advances_goal",
     "blocked_by",
     "unblocks",
     "blocks_unblocks",
@@ -371,6 +374,7 @@ INFERENCE_CANONICAL_RELATION_TYPES = {
     "generalizes",
     "reveals_bias",
     "supports",
+    "advances_goal",
     "derived_from",
     "part_of",
     "resolves",

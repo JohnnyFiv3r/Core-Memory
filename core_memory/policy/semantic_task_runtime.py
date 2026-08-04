@@ -23,6 +23,7 @@ from core_memory.schema.semantic_tasks import (
     TASK_BEAD_FIELD_JUDGE,
     TASK_BEAD_TYPE_CLASSIFIER,
     TASK_CAUSAL_RECALL_EXECUTE,
+    TASK_GOAL_PROGRESS,
     TASK_RATIONALE_EXTRACTOR,
     TASK_TURN_MEMORY_AUTHORING,
     ModelProfile,
@@ -86,7 +87,7 @@ def task_profile(
         output_schema=output_schema,
         authority_boundary=(
             "semantic_author"
-            if normalized in {TASK_TURN_MEMORY_AUTHORING, TASK_ASSOCIATION_DECISION}
+            if normalized in {TASK_TURN_MEMORY_AUTHORING, TASK_ASSOCIATION_DECISION, TASK_GOAL_PROGRESS}
             else "candidate_only"
             if normalized in {"dreamer_research", "soul_proposal"}
             else "advisory"

@@ -72,6 +72,13 @@ from core_memory.runtime.associations.coverage import (
 )
 from core_memory.runtime.dreamer.candidates import decide_dreamer_candidate, list_dreamer_candidates
 from core_memory.runtime.engine import process_flush, process_session_start, process_turn_finalized
+from core_memory.runtime.goals.progress import (
+    backfill_goal_progress,
+    enqueue_goal_progress_backfill,
+    enqueue_goal_progress_event,
+    goal_progress_status,
+    run_goal_progress_tasks,
+)
 from core_memory.runtime.ingest.chunk_turns import ingest_chunk_turns, list_chunk_turns
 from core_memory.runtime.ingest.external_evidence import (
     ingest_document_reference,
@@ -417,6 +424,24 @@ class AssociationProposalRequest(BaseModel):
     run_id: str = ""
     session_id: Optional[str] = None
     associations: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class GoalProgressRequest(BaseModel):
+    root: Optional[str] = None
+    evidence_bead_ids: list[str] = Field(default_factory=list)
+    goal_bead_ids: list[str] = Field(default_factory=list)
+    trigger: str = "operator"
+    evaluator_version: str = "goal_progress.v1"
+    max_pairs: int = 40
+    run_inline: bool = False
+
+
+class GoalProgressBackfillRequest(BaseModel):
+    root: Optional[str] = None
+    cursor: str = ""
+    limit: int = 25
+    evaluator_version: str = "goal_progress.v1"
+    run_inline: bool = False
 
 
 class AssociationCandidateDecisionRequest(BaseModel):
@@ -2030,6 +2055,72 @@ async def memory_association_proposals(
         session_id=(str(payload.session_id or "").strip() or None),
     )
     return out
+
+
+@app.post("/v1/memory/goal-progress")
+async def memory_goal_progress(
+    payload: GoalProgressRequest,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    _check_auth(authorization, x_memory_token)
+    root = _resolve_root(payload.root, x_tenant_id)
+    if payload.run_inline:
+        return run_goal_progress_tasks(
+            root,
+            evidence_bead_ids=list(payload.evidence_bead_ids or []),
+            goal_bead_ids=list(payload.goal_bead_ids or []),
+            trigger=str(payload.trigger or "operator"),
+            evaluator_version=str(payload.evaluator_version or "goal_progress.v1"),
+            max_pairs=max(1, int(payload.max_pairs)),
+        )
+    return enqueue_goal_progress_event(
+        root,
+        evidence_bead_ids=list(payload.evidence_bead_ids or []),
+        goal_bead_ids=list(payload.goal_bead_ids or []),
+        trigger=str(payload.trigger or "operator"),
+        evaluator_version=str(payload.evaluator_version or "goal_progress.v1"),
+        max_pairs=max(1, int(payload.max_pairs)),
+    )
+
+
+@app.post("/v1/memory/goal-progress/backfill")
+async def memory_goal_progress_backfill(
+    payload: GoalProgressBackfillRequest,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    _check_auth(authorization, x_memory_token)
+    root = _resolve_root(payload.root, x_tenant_id)
+    if payload.run_inline:
+        out = backfill_goal_progress(
+            root,
+            cursor=str(payload.cursor or ""),
+            limit=max(1, int(payload.limit)),
+            evaluator_version=str(payload.evaluator_version or "goal_progress.v1"),
+        )
+        if not out.get("ok"):
+            return JSONResponse(status_code=400, content=out)
+        return out
+    return enqueue_goal_progress_backfill(
+        root,
+        cursor=str(payload.cursor or ""),
+        limit=max(1, int(payload.limit)),
+        evaluator_version=str(payload.evaluator_version or "goal_progress.v1"),
+    )
+
+
+@app.get("/v1/memory/goal-progress/status")
+async def memory_goal_progress_status(
+    root: Optional[str] = None,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    _check_auth(authorization, x_memory_token)
+    return goal_progress_status(_resolve_root(root, x_tenant_id))
 
 
 @app.post("/v1/memory/classify-intent")

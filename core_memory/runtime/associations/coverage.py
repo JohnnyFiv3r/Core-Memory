@@ -39,6 +39,7 @@ POLICY_VERSION = "bead_association.v2"
 JUDGE_PROMPT_VERSION = "association_judge.v2"
 JUDGE_RUBRIC_VERSION = "association_truth.v2"
 CANDIDATE_GENERATION_VERSION = "association_candidates.v2"
+GOAL_PROGRESS_CANDIDATE_CLASS = "goal_progress"
 DEFAULT_MAX_CANDIDATES = 40
 DEFAULT_ASSOCIATION_JUDGE_MIN_OUTPUT_TOKENS = 1800
 DEFAULT_ASSOCIATION_JUDGE_MAX_OUTPUT_TOKENS = 6000
@@ -611,6 +612,120 @@ def list_association_candidates(
     }
 
 
+def enqueue_goal_progress_candidate(
+    root: str | Path,
+    *,
+    source_bead_id: str,
+    target_goal_bead_id: str,
+    rationale: str,
+    confidence: float,
+    evidence_refs: list[Any],
+    provenance_refs: list[Any],
+    temporal_bounds: Any,
+    evaluator_version: str,
+    idempotency_key: str,
+    run_id: str = "",
+    trigger: str = "goal_progress",
+) -> dict[str, Any]:
+    """Persist a model-authored goal-progress proposal for normal judge review."""
+
+    source_id = _clean_str(source_bead_id)
+    goal_id = _clean_str(target_goal_bead_id)
+    evaluator = _clean_str(evaluator_version)
+    idem = _clean_str(idempotency_key)
+    index = _load_index(root)
+    beads = index.get("beads") or {}
+    source = beads.get(source_id)
+    goal = beads.get(goal_id)
+    errors: list[str] = []
+    if not source_id or not isinstance(source, dict):
+        errors.append("source_bead_not_found")
+    if not goal_id or not isinstance(goal, dict):
+        errors.append("target_goal_bead_not_found")
+    if isinstance(source, dict) and _clean_str(source.get("type")).lower() == "goal":
+        errors.append("source_must_be_evidence")
+    if isinstance(goal, dict) and _clean_str(goal.get("type")).lower() != "goal":
+        errors.append("target_must_be_goal")
+    if not _clean_str(rationale):
+        errors.append("missing_rationale")
+    if not evaluator:
+        errors.append("missing_evaluator_version")
+    expected_idem = f"goal_advance:{goal_id}:{source_id}:{evaluator}"
+    if not idem or idem != expected_idem:
+        errors.append("invalid_idempotency_key")
+    if not isinstance(temporal_bounds, dict):
+        errors.append("missing_temporal_bounds")
+    if not list(evidence_refs or []):
+        errors.append("missing_evidence_refs")
+    if not list(provenance_refs or []):
+        errors.append("missing_provenance_refs")
+    try:
+        confidence_n = float(confidence)
+    except (TypeError, ValueError):
+        confidence_n = -1.0
+    if not 0.0 <= confidence_n <= 1.0:
+        errors.append("invalid_confidence")
+    if errors:
+        return {"ok": False, "error": "invalid_goal_progress_candidate", "validation_errors": errors}
+
+    candidate_id = "goal-cand-" + hashlib.sha256(idem.encode("utf-8")).hexdigest()[:16]
+    existing = next(
+        (
+            row
+            for row in _normalized_candidate_rows(root)[0]
+            if _clean_str(row.get("candidate_id")) == candidate_id
+        ),
+        None,
+    )
+    if existing is not None:
+        return {
+            "ok": True,
+            "deduped": True,
+            "candidate_id": candidate_id,
+            "status": _clean_str(existing.get("status")) or "pending_judge",
+        }
+
+    source_envelope_refs = _source_envelope_refs_for_bead_ids(index, [source_id, goal_id])
+    candidate = {
+        "candidate_id": candidate_id,
+        "candidate_class": GOAL_PROGRESS_CANDIDATE_CLASS,
+        "candidate_generation_version": "goal_progress.v1",
+        "source_bead": source_id,
+        "target_bead": goal_id,
+        "pair_bead_ids": [source_id, goal_id],
+        "coverage_bead_ids": [source_id],
+        "relationship_candidate": "advances_goal",
+        "direction_candidate": "source_to_target",
+        "system_rationale": _clean_str(rationale),
+        "shortlist_score": round(confidence_n, 4),
+        "reason_codes": ["model_authored_goal_progress"],
+        "signals": [{"kind": "semantic_goal_progress", "score": round(confidence_n, 4)}],
+        "evidence_bead_ids": [source_id],
+        "evidence_refs": list(evidence_refs or []),
+        "provenance_refs": list(provenance_refs or []),
+        "temporal_bounds": dict(temporal_bounds or {}),
+        "evaluator_version": evaluator,
+        "idempotency_key": idem,
+        "source_ingest_envelope_refs": source_envelope_refs,
+        "source_ingest_batch_ids": source_ingest_batch_ids(source_envelope_refs),
+        "requires_judge": True,
+        "status": "pending_judge",
+    }
+    _append_candidate_record(
+        root,
+        {
+            "run_id": _clean_str(run_id),
+            "trigger": _clean_str(trigger) or "goal_progress",
+            "policy_version": POLICY_VERSION,
+            "prompt_version": "goal_progress.v1",
+            "rubric_version": "goal_progress_truth.v1",
+            "graph_revision": _graph_revision(index),
+            **candidate,
+        },
+    )
+    return {"ok": True, "deduped": False, "candidate_id": candidate_id, "status": "pending_judge"}
+
+
 def association_coverage_summary(
     root: str | Path,
     *,
@@ -1175,6 +1290,10 @@ def _write_association_if_missing(
     association_run_id: str = "",
     association_policy_version: str = "",
     source_ingest_envelope_refs: list[dict[str, Any]] | None = None,
+    provenance_refs: list[Any] | None = None,
+    temporal_bounds: dict[str, Any] | None = None,
+    evaluator_version: str = "",
+    idempotency_key: str = "",
 ) -> dict[str, Any]:
     root_path = Path(root)
     source_id = _clean_str(source)
@@ -1217,6 +1336,10 @@ def _write_association_if_missing(
             "candidate_ids": list(candidate_ids or []),
             "association_run_id": _clean_str(association_run_id) or None,
             "association_policy_version": _clean_str(association_policy_version) or None,
+            "provenance_refs": list(provenance_refs or []),
+            "temporal_bounds": dict(temporal_bounds or {}),
+            "evaluator_version": _clean_str(evaluator_version) or None,
+            "idempotency_key": _clean_str(idempotency_key) or None,
             "source_ingest_envelope_refs": assoc_envelope_refs,
             "source_ingest_batch_ids": source_ingest_batch_ids(assoc_envelope_refs),
             "created_at": _now(),
@@ -1343,7 +1466,11 @@ class LLMAssociationJudge:
             "add a relationship for another pair only when both bead ids appear in "
             "bounded_visible_bead_ids. Do not use linked or no_supported_links as action values; "
             "those are reviewed_beads association_state values only. Do not approve unsupported "
-            "links and do not infer a relation from a shortlist signal alone.\n\n"
+            "links and do not infer a relation from a shortlist signal alone. Candidates whose "
+            "candidate_class is goal_progress are constrained proposals: either reject/no_link, "
+            "or accept the exact evidence source -> Goal Bead target with relationship "
+            "advances_goal. Never invert, relabel, or substitute either endpoint for those "
+            "candidates.\n\n"
             f"{json.dumps(context, ensure_ascii=False, sort_keys=True)}"
         )
 
@@ -1894,6 +2021,13 @@ def _apply_judge_result(
         } - {""}
         if candidate_pair and {src, tgt} != candidate_pair:
             quarantine_reasons.append("decision_pair_mismatch")
+        if _clean_str(candidate.get("candidate_class")) == GOAL_PROGRESS_CANDIDATE_CLASS:
+            if src != _clean_str(candidate.get("source_bead")):
+                quarantine_reasons.append("goal_progress_source_mismatch")
+            if tgt != _clean_str(candidate.get("target_bead")):
+                quarantine_reasons.append("goal_progress_target_mismatch")
+            if _clean_str(row.get("relationship")).lower() != "advances_goal":
+                quarantine_reasons.append("goal_progress_relationship_mismatch")
 
         if quarantine_reasons:
             quarantined += 1
@@ -1931,6 +2065,10 @@ def _apply_judge_result(
             association_run_id=run_id,
             association_policy_version=policy_version,
             source_ingest_envelope_refs=list(assoc_payload.get("source_ingest_envelope_refs") or []),
+            provenance_refs=list(candidate.get("provenance_refs") or []),
+            temporal_bounds=dict(candidate.get("temporal_bounds") or {}),
+            evaluator_version=_clean_str(candidate.get("evaluator_version")),
+            idempotency_key=_clean_str(candidate.get("idempotency_key")),
         )
         if out.get("ok") and out.get("deduped"):
             deduped += 1
@@ -2217,6 +2355,7 @@ def enqueue_association_coverage(
             "rubric_version": rubric_v,
             "graph_revision": graph_rev,
             "candidate_generation_version": CANDIDATE_GENERATION_VERSION,
+            "goal_progress": True,
             "source_ingest_envelope_refs": run_envelope_refs,
             "source_ingest_envelope": dict(source_ingest_envelope or {}),
             "sweep": bool((sweep_info or {}).get("sweep")),
@@ -2858,6 +2997,13 @@ def decide_association_candidate(
             validation_errors.append("missing_truth_basis")
         if not (list(evidence_refs or []) or list(evidence_bead_ids or [])):
             validation_errors.append("missing_agent_evidence")
+        if _clean_str(candidate.get("candidate_class")) == GOAL_PROGRESS_CANDIDATE_CLASS:
+            if source != candidate_source:
+                validation_errors.append("goal_progress_source_mismatch")
+            if target != candidate_target:
+                validation_errors.append("goal_progress_target_mismatch")
+            if rel.lower() != "advances_goal":
+                validation_errors.append("goal_progress_relationship_mismatch")
     else:
         source, target = candidate_source, candidate_target
         if not _clean_str(reason_text):
@@ -2988,6 +3134,139 @@ def decide_association_candidate(
     }
 
 
+def judge_association_candidates(
+    root: str | Path,
+    *,
+    candidate_ids: list[str],
+    run_id: str | None = None,
+    session_id: str | None = None,
+    trigger: str = "goal_progress",
+    judge: Any | None = None,
+) -> dict[str, Any]:
+    """Run pending candidates through the canonical association judge/write path."""
+
+    requested = list(dict.fromkeys(_clean_str(value) for value in candidate_ids if _clean_str(value)))
+    rows, _ = _normalized_candidate_rows(root)
+    candidates = [
+        row
+        for row in rows
+        if _clean_str(row.get("candidate_id")) in requested
+        and _clean_str(row.get("status")).lower() in {"pending_judge", "judge_failed"}
+    ]
+    if not candidates:
+        return {
+            "ok": True,
+            "contract": "memory.association_candidate_judge.v1",
+            "status": "completed",
+            "candidate_ids": requested,
+            "counts": {"candidates": 0},
+        }
+
+    index = _load_index(root)
+    run_id_final = _clean_str(run_id) or f"arun-goal-{uuid.uuid4().hex[:12]}"
+    source_ids = list(
+        dict.fromkeys(_clean_str(candidate.get("source_bead")) for candidate in candidates)
+    )
+    context = _build_judge_context(
+        index=index,
+        run_id=run_id_final,
+        trigger=_clean_str(trigger) or "goal_progress",
+        source_bead_ids=source_ids,
+        candidates=candidates,
+        policy_version=POLICY_VERSION,
+        prompt_version=JUDGE_PROMPT_VERSION,
+        rubric_version=JUDGE_RUBRIC_VERSION,
+    )
+    try:
+        result = _invoke_association_judge(context, judge=judge, root=root)
+    except Exception as exc:
+        transient = isinstance(exc, AssociationJudgeUnavailable) or _is_transient_association_judge_error(exc)
+        status = "pending_judge" if transient else "judge_failed"
+        for candidate in candidates:
+            _append_candidate_record(
+                root,
+                {
+                    "candidate_id": _clean_str(candidate.get("candidate_id")),
+                    "status": status,
+                    "run_id": run_id_final,
+                    "trigger": _clean_str(trigger) or "goal_progress",
+                    "error": _clean_str(exc),
+                },
+            )
+        return {
+            "ok": False,
+            "contract": "memory.association_candidate_judge.v1",
+            "run_id": run_id_final,
+            "status": status,
+            "retryable": transient,
+            "candidate_ids": [_clean_str(row.get("candidate_id")) for row in candidates],
+            "error": _clean_str(exc),
+        }
+
+    applied = _apply_judge_result(
+        root,
+        index=index,
+        run_id=run_id_final,
+        session_id=session_id,
+        source_bead_ids=source_ids,
+        candidates=candidates,
+        judge_context=context,
+        judge_result=result,
+        policy_version=POLICY_VERSION,
+        prompt_version=JUDGE_PROMPT_VERSION,
+        rubric_version=JUDGE_RUBRIC_VERSION,
+    )
+    state_by_bead = dict(applied.get("association_state_by_bead") or {})
+    candidate_states: dict[str, str] = {}
+    for candidate in candidates:
+        cid = _clean_str(candidate.get("candidate_id"))
+        source_id = _clean_str(candidate.get("source_bead"))
+        state = _clean_str(state_by_bead.get(source_id)) or "pending_judge"
+        candidate_states[cid] = state
+        _append_candidate_record(
+            root,
+            {
+                "candidate_id": cid,
+                "status": state,
+                "run_id": run_id_final,
+                "trigger": _clean_str(trigger) or "goal_progress",
+                "association_ids": list(applied.get("association_ids") or []),
+            },
+        )
+    pending = sum(1 for state in candidate_states.values() if state == "pending_judge")
+    failed = int(applied.get("failed") or 0)
+    quarantined = int(applied.get("quarantined") or 0)
+    status = "pending_judge" if pending else ("failed" if failed else ("quarantined" if quarantined else "completed"))
+    run_record = {
+        "contract": "memory.association_candidate_judge.v1",
+        "run_id": run_id_final,
+        "status": status,
+        "trigger": _clean_str(trigger) or "goal_progress",
+        "policy_version": POLICY_VERSION,
+        "bead_ids": source_ids,
+        "association_state_by_bead": state_by_bead,
+        "association_ids": list(applied.get("association_ids") or []),
+        "candidate_count": len(candidates),
+        "counts": {
+            "candidates": len(candidates),
+            "accepted": int(applied.get("accepted") or 0),
+            "rejected": int(applied.get("rejected") or 0),
+            "appended": int(applied.get("appended") or 0),
+            "deduped": int(applied.get("deduped") or 0),
+            "quarantined": quarantined,
+            "failed": failed,
+            "pending_judge": pending,
+        },
+        "errors": list(applied.get("errors") or []),
+    }
+    _append_run_record(root, run_record)
+    return {
+        "ok": pending == 0 and failed == 0,
+        **run_record,
+        "candidate_status_by_id": candidate_states,
+    }
+
+
 def apply_association_proposals(
     root: str | Path,
     *,
@@ -2998,6 +3277,7 @@ def apply_association_proposals(
     index = _load_index(root)
     beads = index.get("beads") or {}
     accepted = 0
+    pending_judge = 0
     appended = 0
     deduped = 0
     quarantined = 0
@@ -3016,7 +3296,7 @@ def apply_association_proposals(
         src = _clean_str(source_bead)
         if not src:
             return
-        priority = {"quarantined": 1, "failed": 2, "linked": 3}
+        priority = {"pending_judge": 1, "quarantined": 2, "failed": 3, "linked": 4}
         current = state_by_bead.get(src)
         if current is None or priority.get(state, 0) >= priority.get(current, 0):
             state_by_bead[src] = state
@@ -3053,6 +3333,49 @@ def apply_association_proposals(
                 session_id=_clean_str(session_id),
             )
             quarantined += 1
+            continue
+        if _clean_str(row.get("relationship")).lower() == "advances_goal":
+            candidate_out = enqueue_goal_progress_candidate(
+                root,
+                source_bead_id=src,
+                target_goal_bead_id=tgt,
+                rationale=_clean_str(row.get("reason_text")),
+                confidence=float(row.get("confidence") or 0.0),
+                evidence_refs=list(row.get("evidence_refs") or []),
+                provenance_refs=list(raw.get("provenance_refs") or []),
+                temporal_bounds=raw.get("temporal_bounds"),
+                evaluator_version=_clean_str(raw.get("evaluator_version")),
+                idempotency_key=_clean_str(raw.get("idempotency_key")),
+                run_id=_clean_str(run_id),
+                trigger="association_proposals",
+            )
+            if not candidate_out.get("ok"):
+                mark_state(src, "quarantined")
+                write_quarantine(
+                    Path(root),
+                    raw,
+                    reasons=list(candidate_out.get("validation_errors") or [candidate_out.get("error")]),
+                    warnings=[],
+                    original_payload=raw,
+                    session_id=_clean_str(session_id),
+                )
+                quarantined += 1
+                continue
+            accepted += 1
+            status = _clean_str(candidate_out.get("status")) or "pending_judge"
+            mark_state(src, status)
+            if status in {"pending_judge", "judge_failed"}:
+                pending_judge += 1
+                from core_memory.runtime.goals.progress import enqueue_goal_progress_judge
+
+                queued = enqueue_goal_progress_judge(
+                    root,
+                    candidate_ids=[_clean_str(candidate_out.get("candidate_id"))],
+                    run_id=_clean_str(run_id),
+                    trigger="association_proposals",
+                )
+                if not queued.get("ok"):
+                    errors.append({"candidate": candidate_out, "error": queued.get("error")})
             continue
         accepted += 1
         out = _write_association_if_missing(
@@ -3097,7 +3420,7 @@ def apply_association_proposals(
             root,
             {
                 "run_id": _clean_str(run_id),
-                "status": "completed" if not errors else "failed",
+                "status": "failed" if errors else ("pending_judge" if pending_judge else "completed"),
                 "trigger": "operator",
                 "policy_version": POLICY_VERSION,
                 "session_id": _clean_str(session_id),
@@ -3106,6 +3429,7 @@ def apply_association_proposals(
                 "association_ids": association_ids,
                 "counts": {
                     "accepted": accepted,
+                    "pending_judge": pending_judge,
                     "appended": appended,
                     "deduped": deduped,
                     "quarantined": quarantined,
@@ -3120,6 +3444,7 @@ def apply_association_proposals(
         "ok": len(errors) == 0,
         "contract": "memory.association_proposals.v1",
         "accepted": accepted,
+        "pending_judge": pending_judge,
         "appended": appended,
         "deduped": deduped,
         "quarantined": quarantined,
@@ -3140,9 +3465,11 @@ __all__ = [
     "association_judge_readiness",
     "decide_association_candidate",
     "enqueue_association_coverage",
+    "enqueue_goal_progress_candidate",
     "get_association_run",
     "latest_association_coverage",
     "list_association_candidates",
+    "judge_association_candidates",
     "on_bead_committed",
     "run_association_coverage",
 ]

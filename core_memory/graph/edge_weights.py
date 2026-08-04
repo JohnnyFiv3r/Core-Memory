@@ -20,7 +20,7 @@ RELATIONSHIP_HOP_WEIGHT: dict[str, float] = {
     "caused_by": 0.90, "causes": 0.90, "enables": 0.90, "results_in": 0.90,
     "led_to": 0.90, "resolves": 0.88, "diagnoses": 0.88,
     # Semantic — strong topical signal
-    "supports": 0.85, "refines": 0.85, "supersedes": 0.85, "derived_from": 0.80,
+    "supports": 0.85, "advances_goal": 0.90, "refines": 0.85, "supersedes": 0.85, "derived_from": 0.80,
     "contradicts": 0.82, "validates": 0.82, "informed_by": 0.80,
     # Weak / generic
     "associated_with": 0.60, "related_to": 0.60, "shared_entity": 0.55,
@@ -65,7 +65,7 @@ def resolve_provenance_factor(edge_class: str, provenance: str) -> float:
 # Reverse traversal is penalised but not blocked.
 DIRECTIONAL_RELS: frozenset[str] = frozenset({
     "caused_by", "causes", "enables", "results_in", "led_to",
-    "derived_from", "refines", "supersedes", "resolves", "diagnoses",
+    "derived_from", "advances_goal", "refines", "supersedes", "resolves", "diagnoses",
 })
 REVERSE_DIRECTION_FACTOR: float = 0.65
 
