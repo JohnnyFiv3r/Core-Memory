@@ -18,7 +18,7 @@
   ],
   "properties": {
     "schema_version": {"const": "core_memory.legacy_inventory.v1"},
-    "scanner": {"enum": ["static_code", "filesystem"]},
+    "scanner": {"enum": ["static_code", "filesystem", "sql"]},
     "source_label": {"type": "string", "minLength": 1},
     "tenant_workspace_classification": {"type": "string", "minLength": 1},
     "root_fingerprint": {"type": "string", "pattern": "^[0-9a-f]{64}$"},

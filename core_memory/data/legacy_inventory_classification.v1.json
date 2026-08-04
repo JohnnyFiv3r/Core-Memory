@@ -92,7 +92,7 @@
     },
     {
       "id": "observed_events",
-      "path_terms": ["source-event", "memory-events", "transcript", "turn-finalized"],
+      "path_terms": ["source-event", "memory-events", "transcript", "turn-finalized", ".turns/"],
       "authority_classification": "observed_event_store",
       "provenance_classification": "observed_source",
       "proposed_future_importer": "PR-10A SourceEvent transforms",
@@ -100,7 +100,7 @@
     },
     {
       "id": "bead_sessions",
-      "path_terms": ["session-", "bead"],
+      "path_terms": ["session-", "beads.jsonl", "bead-"],
       "authority_classification": "legacy_semantic_authority",
       "provenance_classification": "llm_authored_without_receipt",
       "proposed_future_importer": "PR-10A bead transforms",
@@ -132,7 +132,7 @@
     },
     {
       "id": "projections",
-      "path_terms": ["index.json", "vector", "graph", "lexical", "cache"],
+      "path_terms": ["index.json", "vector", "graph", "lexical", "cache", "qdrant", "kuzu", "semantic/rows", "semantic/manifest"],
       "authority_classification": "projection_store",
       "provenance_classification": "projection_only",
       "proposed_future_importer": "PR-09A through PR-09D projection rebuild",
@@ -152,6 +152,71 @@
     "authority_classification": "filesystem_artifact",
     "provenance_classification": "unknown",
     "proposed_future_importer": "PR-00D consolidated authority classification",
+    "planned_deletion_pr": "PR-10H"
+  },
+  "sql_rules": [
+    {
+      "id": "sql_semantic_receipts",
+      "terms": ["receipt", "semantic task run", "model run"],
+      "authority_classification": "semantic_receipt_store",
+      "provenance_classification": "llm_authored_with_receipt",
+      "proposed_future_importer": "PR-10A through PR-10C receipt-preserving transforms",
+      "planned_deletion_pr": "PR-10H"
+    },
+    {
+      "id": "sql_observed_events",
+      "terms": ["source event", "memory event", "transcript", "turn finalized", "turn event"],
+      "authority_classification": "observed_event_store",
+      "provenance_classification": "observed_source",
+      "proposed_future_importer": "PR-10A SourceEvent transforms",
+      "planned_deletion_pr": "PR-10H"
+    },
+    {
+      "id": "sql_beads",
+      "terms": ["bead", "memory object"],
+      "authority_classification": "legacy_semantic_authority",
+      "provenance_classification": "llm_authored_without_receipt",
+      "proposed_future_importer": "PR-10A bead transforms",
+      "planned_deletion_pr": "PR-10H"
+    },
+    {
+      "id": "sql_claims_associations",
+      "terms": ["claim", "assertion", "association", "causal", "relationship", "graph edge"],
+      "authority_classification": "legacy_claim_association_store",
+      "provenance_classification": "llm_authored_without_receipt",
+      "proposed_future_importer": "PR-10B claim, revision, and association transforms",
+      "planned_deletion_pr": "PR-10J"
+    },
+    {
+      "id": "sql_artifacts_context",
+      "terms": ["soul", "dream", "goal", "storyline", "artifact", "promotion", "context view"],
+      "authority_classification": "legacy_artifact_context_store",
+      "provenance_classification": "unknown",
+      "proposed_future_importer": "PR-10C artifact, SOUL, and context transforms",
+      "planned_deletion_pr": "PR-10K"
+    },
+    {
+      "id": "sql_queues_jobs",
+      "terms": ["queue", "job", "candidate", "checkpoint", "lease"],
+      "authority_classification": "legacy_queue",
+      "provenance_classification": "deterministic_derived",
+      "proposed_future_importer": "PR-10C outstanding-job transforms",
+      "planned_deletion_pr": "PR-10M"
+    },
+    {
+      "id": "sql_projections",
+      "terms": ["embedding", "vector", "index", "lexical", "cache", "projection"],
+      "authority_classification": "projection_store",
+      "provenance_classification": "projection_only",
+      "proposed_future_importer": "PR-09A through PR-09D projection rebuild",
+      "planned_deletion_pr": "PR-10H"
+    }
+  ],
+  "sql_default": {
+    "id": "sql_generic_authority",
+    "authority_classification": "database_table_authority",
+    "provenance_classification": "unknown",
+    "proposed_future_importer": "PR-10A through PR-10C classified SQL transforms",
     "planned_deletion_pr": "PR-10H"
   }
 }

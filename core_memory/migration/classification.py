@@ -8,7 +8,7 @@ import re
 from dataclasses import dataclass
 from importlib.resources import files
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Iterable, cast
 
 CLASSIFICATION_SCHEMA_VERSION = "core_memory.legacy_inventory_classification.v1"
 _DELETION_PR_RE = re.compile(r"^PR-[0-9]{2}[A-Z]$")
@@ -57,6 +57,17 @@ class ClassificationMap:
             if (terms and any(term in normalized for term in terms)) or (suffixes and suffix in suffixes):
                 return self._filesystem_classification(rule)
         return self._filesystem_classification(self.payload["filesystem_default"])
+
+    def classify_sql(self, schema: str, table: str, columns: Iterable[str]) -> Classification:
+        # Classification is table-authority based. Columns are intentionally not
+        # semantic signals: a claims table carrying ``receipt_id`` is still a
+        # claims authority, not a receipt authority.
+        normalized = " ".join([schema.replace("_", " ").lower(), table.replace("_", " ").lower()])
+        for rule in self.payload["sql_rules"]:
+            terms = [str(item).replace("_", " ").lower() for item in rule.get("terms") or []]
+            if terms and any(term in normalized for term in terms):
+                return self._filesystem_classification(rule)
+        return self._filesystem_classification(self.payload["sql_default"])
 
     def _code_domain(self, finding_kind: str, path: str, symbol: str) -> dict[str, Any]:
         if finding_kind == "environment_selector":
@@ -136,6 +147,17 @@ def _validate(payload: Any) -> dict[str, Any]:
             raise ValueError("classification_rule_id_duplicate")
         seen_ids.add(rule_id)
     _validate_disposition(payload.get("filesystem_default"), provenance_classes, filesystem=True)
+    seen_ids.clear()
+    sql_rules = payload.get("sql_rules")
+    if not isinstance(sql_rules, list) or not sql_rules:
+        raise ValueError("classification_sql_rules_invalid")
+    for row in sql_rules:
+        _validate_disposition(row, provenance_classes, filesystem=True)
+        rule_id = str(row["id"])
+        if rule_id in seen_ids:
+            raise ValueError("classification_rule_id_duplicate")
+        seen_ids.add(rule_id)
+    _validate_disposition(payload.get("sql_default"), provenance_classes, filesystem=True)
     return payload
 
 

@@ -1,0 +1,259 @@
+{
+  "schema_version": "core_memory.legacy_authority_registry.v1",
+  "scope_id": "core-memory-stage-0-current-authorities",
+  "authorities": [
+    {
+      "authority_id": "repository-static-authorities",
+      "kind": "repository",
+      "deployment_status": "active",
+      "source_label": "repository-static-authorities",
+      "tenant_workspace_classification": "all-workspaces-static",
+      "required_scanner": "static_code",
+      "visibility": "public",
+      "authority_classification": "legacy_authority_catalog",
+      "provenance_classification": "human_authored",
+      "proposed_future_importer": "PR-10A through PR-10M phased transforms",
+      "planned_deletion_pr": "PR-10N",
+      "evidence": {
+        "scope": ["core_memory", "scripts"],
+        "excluded_scanner": true
+      }
+    },
+    {
+      "authority_id": "local-primary-beads",
+      "kind": "filesystem",
+      "deployment_status": "active",
+      "source_label": "local-primary-beads",
+      "tenant_workspace_classification": "local-primary",
+      "required_scanner": "filesystem",
+      "visibility": "private",
+      "authority_classification": "legacy_filesystem_authority",
+      "provenance_classification": "unknown",
+      "proposed_future_importer": "PR-10A through PR-10C filesystem transforms",
+      "planned_deletion_pr": "PR-10H",
+      "evidence": {
+        "contained_authorities": ["beads", "events", "queues", "embedded_kuzu", "embedded_qdrant"]
+      }
+    },
+    {
+      "authority_id": "local-primary-turns",
+      "kind": "filesystem",
+      "deployment_status": "active",
+      "source_label": "local-primary-turns",
+      "tenant_workspace_classification": "local-primary",
+      "required_scanner": "filesystem",
+      "visibility": "private",
+      "authority_classification": "observed_event_store",
+      "provenance_classification": "observed_source",
+      "proposed_future_importer": "PR-10A SourceEvent transforms",
+      "planned_deletion_pr": "PR-10H",
+      "evidence": {
+        "contained_authorities": ["turn_transcripts", "turn_indexes"]
+      }
+    },
+    {
+      "authority_id": "local-user-default-store",
+      "kind": "filesystem",
+      "deployment_status": "active",
+      "source_label": "local-user-default-store",
+      "tenant_workspace_classification": "local-default",
+      "required_scanner": "filesystem",
+      "visibility": "private",
+      "authority_classification": "legacy_filesystem_authority",
+      "provenance_classification": "unknown",
+      "proposed_future_importer": "PR-10A through PR-10C filesystem transforms",
+      "planned_deletion_pr": "PR-10H",
+      "evidence": {
+        "locator": "redacted-user-default-store",
+        "scope": ["beads", "turns", "indexes", "projections"]
+      }
+    },
+    {
+      "authority_id": "local-tenant-01",
+      "kind": "filesystem",
+      "deployment_status": "active",
+      "source_label": "local-tenant-01",
+      "tenant_workspace_classification": "local-tenant-01",
+      "required_scanner": "filesystem",
+      "visibility": "private",
+      "authority_classification": "legacy_tenant_filesystem_authority",
+      "provenance_classification": "unknown",
+      "proposed_future_importer": "PR-10A through PR-10C tenant transforms",
+      "planned_deletion_pr": "PR-10H",
+      "evidence": {
+        "tenant_locator": "redacted",
+        "scope": ["beads", "turns", "events", "queues", "projections"]
+      }
+    },
+    {
+      "authority_id": "local-tenant-02",
+      "kind": "filesystem",
+      "deployment_status": "active",
+      "source_label": "local-tenant-02",
+      "tenant_workspace_classification": "local-tenant-02",
+      "required_scanner": "filesystem",
+      "visibility": "private",
+      "authority_classification": "legacy_tenant_filesystem_authority",
+      "provenance_classification": "unknown",
+      "proposed_future_importer": "PR-10A through PR-10C tenant transforms",
+      "planned_deletion_pr": "PR-10H",
+      "evidence": {
+        "tenant_locator": "redacted",
+        "scope": ["beads", "turns", "events", "queues", "projections"]
+      }
+    },
+    {
+      "authority_id": "local-tenant-03",
+      "kind": "filesystem",
+      "deployment_status": "active",
+      "source_label": "local-tenant-03",
+      "tenant_workspace_classification": "local-tenant-03",
+      "required_scanner": "filesystem",
+      "visibility": "private",
+      "authority_classification": "legacy_tenant_filesystem_authority",
+      "provenance_classification": "unknown",
+      "proposed_future_importer": "PR-10A through PR-10C tenant transforms",
+      "planned_deletion_pr": "PR-10H",
+      "evidence": {
+        "tenant_locator": "redacted",
+        "scope": ["beads", "turns", "events", "queues", "projections"]
+      }
+    },
+    {
+      "authority_id": "sqlite-runtime-capability",
+      "kind": "sql",
+      "deployment_status": "not_configured",
+      "source_label": "sqlite-runtime-capability",
+      "tenant_workspace_classification": "all-workspaces-static",
+      "required_scanner": "declaration",
+      "visibility": "public",
+      "authority_classification": "supported_sql_authority_surface",
+      "provenance_classification": "unknown",
+      "proposed_future_importer": "PR-10A through PR-10C SQL transforms",
+      "planned_deletion_pr": "PR-10H",
+      "evidence": {
+        "configured_target_count": 0,
+        "selector": "explicit_sqlite_path"
+      }
+    },
+    {
+      "authority_id": "postgresql-runtime-capability",
+      "kind": "sql",
+      "deployment_status": "not_configured",
+      "source_label": "postgresql-runtime-capability",
+      "tenant_workspace_classification": "all-workspaces-static",
+      "required_scanner": "declaration",
+      "visibility": "public",
+      "authority_classification": "supported_hosted_sql_surface",
+      "provenance_classification": "unknown",
+      "proposed_future_importer": "PR-10A through PR-10C SQL transforms",
+      "planned_deletion_pr": "PR-10H",
+      "evidence": {
+        "configured_target_count": 0,
+        "configuration_selectors": ["CORE_MEMORY_POSTGRES_DSN", "CORE_MEMORY_PIPEHOUSE_DB_URL"]
+      }
+    },
+    {
+      "authority_id": "qdrant-server-capability",
+      "kind": "hosted",
+      "deployment_status": "not_configured",
+      "source_label": "qdrant-server-capability",
+      "tenant_workspace_classification": "all-workspaces-static",
+      "required_scanner": "declaration",
+      "visibility": "public",
+      "authority_classification": "supported_vector_projection_surface",
+      "provenance_classification": "projection_only",
+      "proposed_future_importer": "PR-09A vector projection rebuild",
+      "planned_deletion_pr": "PR-10L",
+      "evidence": {
+        "configured_target_count": 0,
+        "configuration_selectors": ["CORE_MEMORY_QDRANT_URL"]
+      }
+    },
+    {
+      "authority_id": "chromadb-capability",
+      "kind": "filesystem",
+      "deployment_status": "not_configured",
+      "source_label": "chromadb-capability",
+      "tenant_workspace_classification": "all-workspaces-static",
+      "required_scanner": "declaration",
+      "visibility": "public",
+      "authority_classification": "supported_vector_projection_surface",
+      "provenance_classification": "projection_only",
+      "proposed_future_importer": "PR-09A vector projection rebuild",
+      "planned_deletion_pr": "PR-10L",
+      "evidence": {
+        "configured_target_count": 0,
+        "configuration_selectors": ["CORE_MEMORY_CHROMADB_PERSIST_DIR"]
+      }
+    },
+    {
+      "authority_id": "neo4j-graphiti-capability",
+      "kind": "hosted",
+      "deployment_status": "not_configured",
+      "source_label": "neo4j-graphiti-capability",
+      "tenant_workspace_classification": "all-workspaces-static",
+      "required_scanner": "declaration",
+      "visibility": "public",
+      "authority_classification": "supported_graph_projection_surface",
+      "provenance_classification": "projection_only",
+      "proposed_future_importer": "PR-09B graph projection rebuild",
+      "planned_deletion_pr": "PR-10J",
+      "evidence": {
+        "configured_target_count": 0,
+        "configuration_selectors": ["CORE_MEMORY_NEO4J_URI", "CORE_MEMORY_NEO4J_DATABASE", "CORE_MEMORY_NEO4J_DATASET"]
+      }
+    },
+    {
+      "authority_id": "zep-hosted-capability",
+      "kind": "hosted",
+      "deployment_status": "not_configured",
+      "source_label": "zep-hosted-capability",
+      "tenant_workspace_classification": "all-workspaces-static",
+      "required_scanner": "declaration",
+      "visibility": "public",
+      "authority_classification": "supported_graph_projection_surface",
+      "provenance_classification": "projection_only",
+      "proposed_future_importer": "PR-09B graph projection rebuild",
+      "planned_deletion_pr": "PR-10J",
+      "evidence": {
+        "configured_target_count": 0,
+        "configuration_selectors": ["CORE_MEMORY_GRAPHITI_DEPLOYMENT", "ZEP_API_KEY"]
+      }
+    },
+    {
+      "authority_id": "pipehouse-retrieval-capability",
+      "kind": "hosted",
+      "deployment_status": "not_configured",
+      "source_label": "pipehouse-retrieval-capability",
+      "tenant_workspace_classification": "all-workspaces-static",
+      "required_scanner": "declaration",
+      "visibility": "public",
+      "authority_classification": "supported_source_hydration_surface",
+      "provenance_classification": "observed_source",
+      "proposed_future_importer": "PR-08D source hydration adapters",
+      "planned_deletion_pr": "PR-10L",
+      "evidence": {
+        "configured_target_count": 0,
+        "configuration_selectors": ["CORE_MEMORY_PIPEHOUSE_URL"]
+      }
+    },
+    {
+      "authority_id": "openclaw-hosted-capture-capability",
+      "kind": "hosted",
+      "deployment_status": "not_configured",
+      "source_label": "openclaw-hosted-capture-capability",
+      "tenant_workspace_classification": "all-workspaces-static",
+      "required_scanner": "declaration",
+      "visibility": "public",
+      "authority_classification": "supported_hosted_capture_surface",
+      "provenance_classification": "observed_source",
+      "proposed_future_importer": "PR-03F OpenClaw adapter",
+      "planned_deletion_pr": "PR-10I",
+      "evidence": {
+        "configured_target_count": 0,
+        "configuration_selectors": ["CORE_MEMORY_HOSTED_TURN_FINALIZED_URL", "CORE_MEMORY_BRIDGE_ENABLE_HOSTED_CLONE"]
+      }
+    }
+  ]
+}

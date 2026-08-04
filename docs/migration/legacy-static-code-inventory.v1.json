@@ -1,5 +1,5 @@
 {
-  "classification_checksum": "6c1b336eb5838f0c96a33441c02783a6be4870f2d68f3479ecaf5506ebddcccf",
+  "classification_checksum": "dae769bb84dbe01116b53a7b26d159437dee5be4f1d74066f914d171a3fc5c28",
   "classification_schema_version": "core_memory.legacy_inventory_classification.v1",
   "complete": true,
   "read_only": true,
@@ -25842,7 +25842,7 @@
   ],
   "root_fingerprint": "e955ef98c241fc7167aafdb0c0acf9372e9a3be801bb5c1064b76c4a1b5e6183",
   "scanner": "static_code",
-  "scanner_version": "pr-00c.v1",
+  "scanner_version": "pr-00d.v1",
   "schema_version": "core_memory.legacy_inventory.v1",
   "source_label": "repository-static-authorities",
   "summary": {
