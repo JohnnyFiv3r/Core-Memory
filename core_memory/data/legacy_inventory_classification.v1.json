@@ -1,0 +1,157 @@
+{
+  "schema_version": "core_memory.legacy_inventory_classification.v1",
+  "provenance_classes": [
+    "observed_source",
+    "llm_authored_with_receipt",
+    "llm_authored_without_receipt",
+    "deterministic_derived",
+    "human_authored",
+    "projection_only",
+    "unknown"
+  ],
+  "finding_classes": {
+    "artifact_reference": "filesystem_artifact_reference",
+    "environment_selector": "configuration_selector",
+    "external_backend": "external_store_handle",
+    "file_reader": "filesystem_reader",
+    "file_writer": "filesystem_writer",
+    "governed_semantic_writer": "semantic_writer",
+    "queue_class": "legacy_queue",
+    "queue_operation": "legacy_queue",
+    "semantic_fallback": "semantic_fallback",
+    "semantic_resolver": "resolver_candidate",
+    "sql_reader": "database_reader",
+    "sql_operation": "database_operation",
+    "sql_writer": "database_writer",
+    "store_class": "state_store"
+  },
+  "domain_dispositions": [
+    {
+      "id": "configuration",
+      "path_terms": ["config", "feature_flag", "provider_config"],
+      "symbol_terms": ["environment", "env", "setting", "flag"],
+      "proposed_future_importer": "PR-09G typed configuration migration",
+      "planned_deletion_pr": "PR-10M"
+    },
+    {
+      "id": "queue_jobs",
+      "path_terms": ["queue", "job", "candidate_store"],
+      "symbol_terms": ["queue", "enqueue", "dequeue", "lease", "job", "candidate"],
+      "proposed_future_importer": "PR-10C artifact, context, and outstanding-job transforms",
+      "planned_deletion_pr": "PR-10M"
+    },
+    {
+      "id": "claims_associations",
+      "path_terms": ["claim", "association", "graph"],
+      "symbol_terms": ["claim", "association", "causal", "relationship", "edge"],
+      "proposed_future_importer": "PR-10B claim, revision, and association transforms",
+      "planned_deletion_pr": "PR-10J"
+    },
+    {
+      "id": "artifacts_context",
+      "path_terms": ["soul", "dream", "goal", "storyline", "promotion", "artifact"],
+      "symbol_terms": ["soul", "dream", "goal", "storyline", "promotion", "artifact"],
+      "proposed_future_importer": "PR-10C artifact, SOUL, and context transforms",
+      "planned_deletion_pr": "PR-10K"
+    },
+    {
+      "id": "retrieval",
+      "path_terms": ["retrieval", "recall", "search"],
+      "symbol_terms": ["retrieve", "retrieval", "recall", "search", "hydrate"],
+      "proposed_future_importer": "PR-08A through PR-08G unified RetrievalPipeline",
+      "planned_deletion_pr": "PR-10L"
+    },
+    {
+      "id": "capture_write_pipeline",
+      "path_terms": ["write_pipeline", "runtime/turn", "runtime/ingest", "capture"],
+      "symbol_terms": ["turn", "capture", "ingest", "author", "write_memory"],
+      "proposed_future_importer": "PR-10A SourceEvent and observation transforms",
+      "planned_deletion_pr": "PR-10I"
+    },
+    {
+      "id": "file_authority",
+      "path_terms": ["persistence", ".beads", "jsonl", "index.json"],
+      "symbol_terms": ["store", "json", "jsonl", "index"],
+      "proposed_future_importer": "PR-10A source and bead transforms",
+      "planned_deletion_pr": "PR-10H"
+    }
+  ],
+  "default_disposition": {
+    "id": "unscoped_legacy_state",
+    "proposed_future_importer": "PR-00D consolidated authority classification",
+    "planned_deletion_pr": "PR-10H"
+  },
+  "filesystem_rules": [
+    {
+      "id": "semantic_receipts",
+      "path_terms": ["semantic-task-runs", "receipt"],
+      "authority_classification": "semantic_receipt_store",
+      "provenance_classification": "llm_authored_with_receipt",
+      "proposed_future_importer": "PR-10A through PR-10C receipt-preserving transforms",
+      "planned_deletion_pr": "PR-10H"
+    },
+    {
+      "id": "observed_events",
+      "path_terms": ["source-event", "memory-events", "transcript", "turn-finalized"],
+      "authority_classification": "observed_event_store",
+      "provenance_classification": "observed_source",
+      "proposed_future_importer": "PR-10A SourceEvent transforms",
+      "planned_deletion_pr": "PR-10H"
+    },
+    {
+      "id": "bead_sessions",
+      "path_terms": ["session-", "bead"],
+      "authority_classification": "legacy_semantic_authority",
+      "provenance_classification": "llm_authored_without_receipt",
+      "proposed_future_importer": "PR-10A bead transforms",
+      "planned_deletion_pr": "PR-10H"
+    },
+    {
+      "id": "claims_associations",
+      "path_terms": ["claim", "association", "crawler-update", "graph-edge"],
+      "authority_classification": "legacy_claim_association_store",
+      "provenance_classification": "llm_authored_without_receipt",
+      "proposed_future_importer": "PR-10B claim, revision, and association transforms",
+      "planned_deletion_pr": "PR-10J"
+    },
+    {
+      "id": "artifacts_context",
+      "path_terms": ["soul", "dream", "goal", "storyline", "overlay", "promotion"],
+      "authority_classification": "legacy_artifact_context_store",
+      "provenance_classification": "unknown",
+      "proposed_future_importer": "PR-10C artifact, SOUL, and context transforms",
+      "planned_deletion_pr": "PR-10K"
+    },
+    {
+      "id": "queues_jobs",
+      "path_terms": ["queue", "job", "candidate", "checkpoint"],
+      "authority_classification": "legacy_queue",
+      "provenance_classification": "deterministic_derived",
+      "proposed_future_importer": "PR-10C outstanding-job transforms",
+      "planned_deletion_pr": "PR-10M"
+    },
+    {
+      "id": "projections",
+      "path_terms": ["index.json", "vector", "graph", "lexical", "cache"],
+      "authority_classification": "projection_store",
+      "provenance_classification": "projection_only",
+      "proposed_future_importer": "PR-09A through PR-09D projection rebuild",
+      "planned_deletion_pr": "PR-10H"
+    },
+    {
+      "id": "database_handle",
+      "suffixes": [".db", ".sqlite", ".sqlite3"],
+      "authority_classification": "database_handle",
+      "provenance_classification": "unknown",
+      "proposed_future_importer": "PR-00D read-only SQL inventory then PR-10A through PR-10C transforms",
+      "planned_deletion_pr": "PR-10H"
+    }
+  ],
+  "filesystem_default": {
+    "id": "generic_filesystem_artifact",
+    "authority_classification": "filesystem_artifact",
+    "provenance_classification": "unknown",
+    "proposed_future_importer": "PR-00D consolidated authority classification",
+    "planned_deletion_pr": "PR-10H"
+  }
+}
