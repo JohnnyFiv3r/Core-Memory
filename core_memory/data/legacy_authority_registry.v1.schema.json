@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "core_memory.legacy_authority_registry.v1",
+  "type": "object",
+  "required": ["schema_version", "scope_id", "authorities"],
+  "properties": {
+    "schema_version": {"const": "core_memory.legacy_authority_registry.v1"},
+    "scope_id": {"type": "string", "minLength": 1},
+    "authorities": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "authority_id",
+          "kind",
+          "deployment_status",
+          "source_label",
+          "tenant_workspace_classification",
+          "required_scanner",
+          "visibility",
+          "authority_classification",
+          "provenance_classification",
+          "proposed_future_importer",
+          "planned_deletion_pr",
+          "evidence"
+        ],
+        "properties": {
+          "authority_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{2,79}$"},
+          "kind": {"enum": ["repository", "filesystem", "sql", "hosted"]},
+          "deployment_status": {"enum": ["active", "not_configured", "retired"]},
+          "source_label": {"type": "string", "minLength": 1},
+          "tenant_workspace_classification": {"type": "string", "minLength": 1},
+          "required_scanner": {"enum": ["static_code", "filesystem", "sql", "declaration"]},
+          "visibility": {"enum": ["public", "private"]},
+          "authority_classification": {"type": "string", "minLength": 1, "not": {"const": "unknown"}},
+          "provenance_classification": {
+            "enum": [
+              "observed_source",
+              "llm_authored_with_receipt",
+              "llm_authored_without_receipt",
+              "deterministic_derived",
+              "human_authored",
+              "projection_only",
+              "unknown"
+            ]
+          },
+          "proposed_future_importer": {"type": "string", "minLength": 1},
+          "planned_deletion_pr": {"type": "string", "pattern": "^PR-[0-9]{2}[A-Z]$"},
+          "evidence": {"type": "object"}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

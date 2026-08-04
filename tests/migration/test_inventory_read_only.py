@@ -212,6 +212,26 @@ def test_filesystem_reports_are_deterministic_and_redact_sensitive_labels(tmp_pa
     assert first["source_label"].startswith("redacted-source_label-")
 
 
+def test_filesystem_locator_prefix_preserves_logical_authority_context(tmp_path: Path):
+    workspace = tmp_path / "workspace"
+    turns = tmp_path / "turns"
+    workspace.mkdir()
+    turns.mkdir()
+    _write(turns / "session-alpha.jsonl", json.dumps({"event_id": "evt-1"}) + "\n")
+
+    report = scan_filesystem(
+        turns.resolve(),
+        workspace_root=workspace.resolve(),
+        source_label="turn-authority",
+        tenant_workspace_classification="tenant-a",
+        locator_prefix=".turns",
+    )
+
+    assert report.records[0].locator == ".turns/session-alpha.jsonl"
+    assert report.records[0].authority_classification == "observed_event_store"
+    assert report.records[0].provenance_classification == "observed_source"
+
+
 @pytest.mark.parametrize("unsafe", [Path("/"), Path.home()])
 def test_filesystem_scan_rejects_root_and_home(unsafe: Path, tmp_path: Path):
     workspace = tmp_path / "workspace"

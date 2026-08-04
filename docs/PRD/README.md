@@ -28,7 +28,7 @@ Every current top-level `docs/PRD/*.md` file should appear in this index.
 |---|---|---|
 | `observation-ledger-architecture.md` | Evidence-bound Observation Ledger product and architecture contract | **Approved — Stage 0 implementation active** |
 | `execution-plan-observation-ledger-architecture.md` | Complete PR-scaled Observation Ledger migration plan | **Approved — 90 phases across stages 0–10** |
-| `execution-plan-observation-ledger-stage-0.md` | Stage 0 contract, evaluation, corpus, baseline, and inventory execution plan | **Approved — PR-00A–PR-00B implemented; PR-00C–PR-00T sequentially gated** |
+| `execution-plan-observation-ledger-stage-0.md` | Stage 0 contract, evaluation, corpus, baseline, and inventory execution plan | **Approved — PR-00A–PR-00C implemented; PR-00D–PR-00T sequentially gated** |
 | `external-data-bead-ingest.md` | External data bead ingest contract | Done |
 | `multi-store-recall-fanout.md` | Multi-store recall fan-out (PipeHouse retained; Ragie retired) | Done |
 | `ragie-fanout-removal.md` | Remove Ragie: retrieval fan-out (vendor sunset 2026-07-19) + `ragie_document_id` schema-field deprecation; PipeHouse retained | Implemented — live fan-out removed; schema field retained for legacy reads |

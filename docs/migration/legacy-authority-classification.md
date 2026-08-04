@@ -1,6 +1,6 @@
 # Legacy authority classification
 
-Status: PR-00C static inventory contract
+Status: PR-00C static inventory contract, extended by PR-00D consolidation
 
 This document defines the read-only code and filesystem inventory delivered by
 PR-00C. It inventories legacy authority; it does not approve, import, repair,
@@ -39,8 +39,8 @@ python scripts/inventory_legacy_memory.py scan-filesystem \
   --out /absolute/separate/path/filesystem-inventory.json
 ```
 
-`scan-sql`, `merge`, and `verify` belong to PR-00D. PR-00C does not expose
-placeholder commands for work that is not implemented.
+`scan-sql`, `merge`, and `verify` are implemented by PR-00D and documented in
+`docs/migration/legacy-consolidated-inventory.md`.
 
 ## Read-only boundary
 
@@ -56,8 +56,9 @@ placeholder commands for work that is not implemented.
 - Python is parsed with `ast`; scanned modules are never imported or executed.
 - Filesystem traversal does not follow symlinks. A symlink is recorded as an
   external reference using only a target fingerprint.
-- SQLite files are hashed and classified as handles but never opened in
-  PR-00C. Read-only database inspection is PR-00D scope.
+- Broad filesystem scans hash SQLite files as handles but never open them.
+  PR-00D opens a database only through a separately authorized `scan-sql`
+  command with read-only enforcement.
 - Malformed and duplicate records are counted without repair. Unsupported
   formats are hashed as opaque artifacts.
 - Absolute roots, credential values, DSNs, raw database URLs, and symlink
@@ -139,18 +140,18 @@ excluding the scanner itself.
 - 8 governed semantic writer call sites.
 - 228 statically recoverable filesystem authority references.
 
-No private filesystem content or live-store locator is committed. The
-filesystem scanner is exercised with public synthetic fixtures; representative
-local, database, hosted, and production manifests are consolidated in PR-00D.
+No private filesystem content or live-store locator is committed. PR-00D
+consolidates the public static report with private read-only local reports into
+a sanitized authority-level manifest.
 
 ## Known limits
 
 Static analysis cannot resolve arbitrary reflection, dynamically constructed
 module names, runtime-only path values, or opaque third-party state. Rather
 than guess, it records dynamic SQL as `database_operation`, records unresolved
-path variables in templates, and leaves data provenance `unknown`. PR-00D must
-reconcile these surfaces with read-only live-store evidence before it can
-merge.
+path variables in templates, and leaves data provenance `unknown`. PR-00D
+reconciles these surfaces through an explicit known-authority registry and
+complete read-only reports for every active authority.
 
 Rollback is a normal code revert. The scanners have no source-state rollback
 because they never mutate scanned state.

@@ -16,7 +16,7 @@ from typing import Any, Iterable
 from .classification import ClassificationMap, load_classification_map
 
 INVENTORY_SCHEMA_VERSION = "core_memory.legacy_inventory.v1"
-SCANNER_VERSION = "pr-00c.v1"
+SCANNER_VERSION = "pr-00d.v1"
 
 _SEMANTIC_TERMS = {
     "artifact",
@@ -878,8 +878,9 @@ def _filesystem_record(
     source_label: str,
     tenant_workspace: str,
     classification_map: ClassificationMap,
+    locator_prefix: str = "",
 ) -> tuple[InventoryRecord, dict[str, str] | None, bool]:
-    relative = path.relative_to(root).as_posix()
+    relative = _prefixed_locator(locator_prefix, path.relative_to(root).as_posix())
     classification = classification_map.classify_filesystem(relative)
     if path.is_symlink():
         target = os.readlink(path)
@@ -988,6 +989,7 @@ def scan_filesystem(
     source_label: str,
     tenant_workspace_classification: str,
     classification_path: Path | None = None,
+    locator_prefix: str = "",
 ) -> InventoryReport:
     resolved_root = _validate_absolute_directory(root)
     resolved_workspace = _validate_absolute_directory(workspace_root)
@@ -1008,6 +1010,7 @@ def scan_filesystem(
             source_label=safe_source,
             tenant_workspace=safe_tenant,
             classification_map=classification_map,
+            locator_prefix=locator_prefix,
         )
         records.append(record)
         if warning:
