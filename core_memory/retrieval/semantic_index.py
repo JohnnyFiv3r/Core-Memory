@@ -934,12 +934,90 @@ def _read_rows(rows_file: Path) -> list[dict[str, Any]]:
         if not ln:
             continue
         try:
-            r = json.loads(ln)
-            if isinstance(r, dict):
-                out.append(r)
+            row = json.loads(ln)
+            if isinstance(row, dict):
+                out.append(row)
         except Exception:
             continue
     return out
+
+
+def load_cached_bead_embeddings(
+    root: Path,
+    bead_ids: list[str] | None = None,
+) -> dict[str, list[float]]:
+    """Read existing bead vectors without invoking an embedding provider.
+
+    Junction calibration is a read-side projection. It may consume vectors that
+    the semantic index already owns, but it must never create provider traffic
+    or a second embedding authority merely to calculate a radius.
+    """
+
+    manifest_file, faiss_file, rows_file, _build_lock, _queue_file = _paths(Path(root))
+    manifest = _read_manifest(manifest_file)
+    if not bool(manifest.get("semantic_ready")):
+        return {}
+
+    rows = _read_rows(rows_file)
+    requested = {str(bead_id) for bead_id in (bead_ids or []) if str(bead_id)}
+    selected: list[tuple[int, str]] = []
+    seen: set[str] = set()
+    for position, row in enumerate(rows):
+        bead_id = str(row.get("bead_id") or "")
+        if not bead_id or bead_id in seen or str(row.get("unit") or "bead") != "bead":
+            continue
+        if requested and bead_id not in requested:
+            continue
+        seen.add(bead_id)
+        selected.append((position, bead_id))
+    if not selected:
+        return {}
+
+    backend = str(manifest.get("backend") or "").strip().lower()
+    if backend.startswith("faiss") and faiss_file.exists():
+        try:
+            import faiss  # type: ignore
+
+            index = faiss.read_index(str(faiss_file))
+            out: dict[str, list[float]] = {}
+            for position, bead_id in selected:
+                if position >= int(index.ntotal):
+                    continue
+                vector = index.reconstruct(position)
+                values = vector.tolist() if hasattr(vector, "tolist") else list(vector)
+                if values:
+                    out[bead_id] = [float(value) for value in values]
+            return out
+        except Exception:
+            return {}
+
+    vector_backend = _normalize_vector_backend(
+        str(manifest.get("vector_backend") or backend).strip().lower()
+    )
+    if vector_backend not in _EXTERNAL_VECTOR_BACKENDS:
+        return {}
+    try:
+        dimension = int(manifest.get("dimension") or 0)
+        if str(manifest.get("provider") or "").strip().lower() == "fastembed":
+            dimension = 0
+        external = _create_external_backend(
+            root=Path(root),
+            backend=vector_backend,
+            dimension=dimension,
+        )
+        getter = getattr(external, "get_embeddings", None)
+        if not callable(getter):
+            return {}
+        selected_ids = [bead_id for _position, bead_id in selected]
+        stored: dict[str, list[float]] = {}
+        for start in range(0, len(selected_ids), 256):
+            batch = selected_ids[start : start + 256]
+            for bead_id, vector in dict(getter(batch) or {}).items():
+                if bead_id and vector:
+                    stored[str(bead_id)] = [float(value) for value in vector]
+        return stored
+    except Exception:
+        return {}
 
 
 def _read_manifest(path: Path) -> dict[str, Any]:

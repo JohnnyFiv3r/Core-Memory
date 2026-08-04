@@ -14,6 +14,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from core_memory.entity.quality import is_meaningful_entity_label
 from core_memory.persistence.io_utils import store_lock
 
 SEED_BACKFILL_TAG = "seed_backfilled"
@@ -21,190 +22,6 @@ SEED_BACKFILL_APPLY_RETIRED = "seed_quality_backfill_apply_retired"
 SEED_BACKFILL_REPLACEMENT = "maintain(action='reauthor_memory')"
 _INACTIVE_STATUSES = {"superseded", "archived"}
 
-_GENERIC_ENTITY_STOPWORDS = {
-    "test",
-    "tests",
-    "testing",
-    "spec",
-    "specs",
-    "fixture",
-    "fixtures",
-    "doc",
-    "docs",
-    "documentation",
-    "readme",
-    "changelog",
-    "license",
-    "src",
-    "lib",
-    "libs",
-    "app",
-    "apps",
-    "api",
-    "apis",
-    "core",
-    "sdk",
-    "util",
-    "utils",
-    "helper",
-    "helpers",
-    "common",
-    "shared",
-    "misc",
-    "main",
-    "master",
-    "dev",
-    "develop",
-    "staging",
-    "prod",
-    "production",
-    "build",
-    "builds",
-    "config",
-    "configs",
-    "configuration",
-    "settings",
-    "setup",
-    "script",
-    "scripts",
-    "asset",
-    "assets",
-    "public",
-    "static",
-    "dist",
-    "package",
-    "packages",
-    "module",
-    "modules",
-    "index",
-    "temp",
-    "tmp",
-    "cache",
-    "backup",
-    "archive",
-    "log",
-    "logs",
-    "debug",
-    "data",
-    "file",
-    "files",
-    "folder",
-    "folders",
-    "directory",
-    "document",
-    "documents",
-    "item",
-    "items",
-    "record",
-    "records",
-    "event",
-    "events",
-    "message",
-    "messages",
-    "note",
-    "notes",
-    "info",
-    "information",
-    "content",
-    "text",
-    "detail",
-    "details",
-    "general",
-    "other",
-    "others",
-    "unknown",
-    "untitled",
-    "default",
-    "example",
-    "examples",
-    "sample",
-    "samples",
-    "demo",
-    "user",
-    "users",
-    "admin",
-    "account",
-    "accounts",
-    "name",
-    "title",
-    "label",
-    "value",
-    "type",
-    "status",
-    "session",
-    "memory",
-    "turn",
-    "context",
-    "summary",
-    "update",
-    "updates",
-    "reply",
-    "follow",
-    "follows",
-    "following",
-    "precede",
-    "precedes",
-    "supersede",
-    "supersedes",
-    "create",
-    "created",
-    "delete",
-    "deleted",
-    "add",
-    "added",
-    "remove",
-    "removed",
-    "fix",
-    "fixed",
-    "change",
-    "changes",
-    "changed",
-    "please",
-    "thanks",
-    "okay",
-    "yes",
-    "no",
-    "none",
-    "null",
-    "undefined",
-    "true",
-    "false",
-    "should",
-    "would",
-    "could",
-    "will",
-    "have",
-    "has",
-    "about",
-    "before",
-    "after",
-    "because",
-    "there",
-    "here",
-    "when",
-    "where",
-    "what",
-    "which",
-    "who",
-    "why",
-    "how",
-    "this",
-    "that",
-    "these",
-    "those",
-    "with",
-    "from",
-    "into",
-    "your",
-    "their",
-}
-
-_URL_RE = re.compile(r"^(https?://|www\.)", re.I)
-_EMAIL_RE = re.compile(r"\S+@\S+\.\S+")
-_UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
-_HEX_HASH_RE = re.compile(r"^[0-9a-f]{7,64}$", re.I)
-_NUMBER_VERSION_RE = re.compile(r"^v?\d+([._-]\d+)*$", re.I)
-_DATE_RE = re.compile(r"^\d{4}[-/]\d{1,2}([-/]\d{1,2})?")
 _FILE_NAME_RE = re.compile(r"^\S+\.[a-z0-9]{1,5}$", re.I)
 _STRUCTURAL_TITLE_RE = re.compile(r"^document section \d+", re.I)
 
@@ -212,28 +29,7 @@ _STRUCTURAL_TITLE_RE = re.compile(r"^document section \d+", re.I)
 def is_meaningful_entity(value: str) -> bool:
     """Return whether a legacy entity label is meaningful enough to review."""
 
-    label = " ".join(str(value or "").split())
-    if len(label) < 2 or len(label) > 96 or "/" in label or "\\" in label:
-        return False
-    if (
-        _URL_RE.match(label)
-        or _EMAIL_RE.search(label)
-        or _UUID_RE.match(label)
-        or _HEX_HASH_RE.match(label)
-        or _NUMBER_VERSION_RE.match(label)
-        or _DATE_RE.match(label)
-    ):
-        return False
-    if len(label.split(" ")) == 1:
-        lower = label.lower()
-        if lower in _GENERIC_ENTITY_STOPWORDS or _FILE_NAME_RE.match(label):
-            return False
-        if label == lower and label.isalpha():
-            return False
-        if label == lower and len(label) < 4 and not any(ch.isdigit() for ch in label):
-            return False
-    letters = len(re.findall(r"[^\W\d_]", label, re.UNICODE))
-    return letters / max(1, len(label.replace(" ", ""))) >= 0.5
+    return is_meaningful_entity_label(value)
 
 
 def clean_entity_list(values: list[Any], *, limit: int = 16) -> list[str]:

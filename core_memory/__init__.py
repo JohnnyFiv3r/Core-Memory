@@ -40,6 +40,7 @@ from .retrieval.contracts import (
     recall_result_from_memory_execute,
     validate_recall_effort,
 )
+from .retrieval.junctions import derive_junction_projection, resolve_junction_matches
 from .retrieval.tools.memory import execute as memory_execute
 from .retrieval.tools.memory import search as memory_search
 from .retrieval.tools.memory import trace as memory_trace
@@ -198,6 +199,8 @@ __all__ = [
     "SqliteBackend",
     "create_backend",
     "hydrate_bead_sources",
+    "derive_junction_projection",
+    "resolve_junction_matches",
     "derive_worldlines",
     "derive_storylines",
     "worldline_membership",

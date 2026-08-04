@@ -50,6 +50,34 @@ class VectorBackend(Protocol):
         """Return the number of indexed embeddings."""
         ...
 
+    def get_embeddings(self, bead_ids: list[str]) -> dict[str, list[float]]:
+        """Return stored embeddings keyed by the original bead ID."""
+        ...
+
+
+def _coerce_embedding(value: Any) -> list[float]:
+    """Normalize backend-specific vector values to one dense float vector."""
+
+    if hasattr(value, "tolist"):
+        value = value.tolist()
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return []
+    if isinstance(value, dict):
+        for candidate in value.values():
+            vector = _coerce_embedding(candidate)
+            if vector:
+                return vector
+        return []
+    if not isinstance(value, (list, tuple)):
+        return []
+    try:
+        return [float(item) for item in value]
+    except (TypeError, ValueError):
+        return []
+
 
 def _bead_id_to_qdrant_id(bead_id: str) -> str:
     """Map an arbitrary bead ID to a UUID5. Deterministic and collision-resistant.
@@ -212,6 +240,24 @@ class QdrantBackend:
         info = self._client.get_collection(self._collection)
         return info.points_count or 0
 
+    def get_embeddings(self, bead_ids: list[str]) -> dict[str, list[float]]:
+        if not bead_ids:
+            return {}
+        point_ids = [_bead_id_to_qdrant_id(bead_id) for bead_id in bead_ids]
+        points = self._client.retrieve(
+            collection_name=self._collection,
+            ids=point_ids,
+            with_payload=True,
+            with_vectors=True,
+        )
+        out: dict[str, list[float]] = {}
+        for point in points:
+            bead_id = str((point.payload or {}).get("bead_id") or point.id)
+            vector = _coerce_embedding(getattr(point, "vector", None))
+            if bead_id and vector:
+                out[bead_id] = vector
+        return out
+
     def hybrid_search(
         self,
         query: str,
@@ -334,6 +380,21 @@ class ChromaDBBackend:
 
     def count(self) -> int:
         return self._collection.count()
+
+    def get_embeddings(self, bead_ids: list[str]) -> dict[str, list[float]]:
+        if not bead_ids:
+            return {}
+        result = self._collection.get(ids=bead_ids, include=["embeddings"])
+        raw_ids = result.get("ids")
+        raw_embeddings = result.get("embeddings")
+        ids = list(raw_ids) if raw_ids is not None else []
+        embeddings = list(raw_embeddings) if raw_embeddings is not None else []
+        out: dict[str, list[float]] = {}
+        for bead_id, raw_vector in zip(ids, embeddings):
+            vector = _coerce_embedding(raw_vector)
+            if bead_id and vector:
+                out[str(bead_id)] = vector
+        return out
 
 
 class PgvectorBackend:
@@ -476,6 +537,20 @@ class PgvectorBackend:
     def count(self) -> int:
         cur = self._conn.execute(f"SELECT COUNT(*) FROM {self._table}")
         return cur.fetchone()[0]
+
+    def get_embeddings(self, bead_ids: list[str]) -> dict[str, list[float]]:
+        if not bead_ids:
+            return {}
+        cur = self._conn.execute(
+            f"SELECT bead_id, embedding FROM {self._table} WHERE bead_id = ANY(%s)",
+            (list(bead_ids),),
+        )
+        out: dict[str, list[float]] = {}
+        for bead_id, raw_vector in cur.fetchall():
+            vector = _coerce_embedding(raw_vector)
+            if bead_id and vector:
+                out[str(bead_id)] = vector
+        return out
 
 
 def create_vector_backend(backend_type: str = "qdrant", **kwargs: Any) -> VectorBackend:
