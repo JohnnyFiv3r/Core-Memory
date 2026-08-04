@@ -249,6 +249,16 @@
       "errors": ["400 seed_quality_backfill_apply_retired", "400 index_missing", "401 unauthorized", "400 invalid_tenant_id"]
     },
     {
+      "method": "GET",
+      "path": "/v1/memory/projection/junction-roadmap",
+      "authRequired": "conditional",
+      "requestSchema": "query params",
+      "requiredFields": [],
+      "notes": ["Reads the maintenance-built roadmap without rebuilding inline.", "include_graph=false returns metadata only; include_graph=true includes sampled vertices and nondominated segment alternatives."],
+      "response": {"ok": "bool", "present": "bool", "status": "string", "stale": "bool?", "current_input_revision": "string?", "roadmap_meta": "object", "vertices": "array?", "edges": "array?", "limitations": "array"},
+      "errors": ["401 unauthorized", "400 invalid_tenant_id"]
+    },
+    {
       "method": "POST",
       "path": "/v1/memory/maintain",
       "authRequired": "conditional",
@@ -273,7 +283,7 @@
       "authRequired": "conditional",
       "requestSchema": "AsyncJobsEnqueueRequest",
       "requiredFields": ["kind"],
-      "notes": ["kind supports: semantic-rebuild, compaction, dreamer-run, neo4j-sync, health-recompute, association-pass, myelination-update, data-insight-poll, bead-retraction"],
+      "notes": ["kind supports: semantic-rebuild, compaction, dreamer-run, neo4j-sync, health-recompute, association-pass, myelination-update, junction-roadmap-build, data-insight-poll, bead-retraction"],
       "response": {"ok": "bool", "schema_version": "core_memory.async_jobs.v1", "kind": "string", "queue": "object", "status": "object"},
       "errors": ["400 unknown_kind", "401 unauthorized", "400 invalid_tenant_id"]
     },

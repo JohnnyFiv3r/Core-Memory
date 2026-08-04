@@ -41,6 +41,7 @@ from .retrieval.contracts import (
     validate_recall_effort,
 )
 from .retrieval.junctions import derive_junction_projection, resolve_junction_matches
+from .retrieval.roadmap import junction_roadmap_status, refresh_junction_roadmap
 from .retrieval.segments import segment_between, segment_frontier_between
 from .retrieval.tools.memory import execute as memory_execute
 from .retrieval.tools.memory import search as memory_search
@@ -202,6 +203,8 @@ __all__ = [
     "hydrate_bead_sources",
     "derive_junction_projection",
     "resolve_junction_matches",
+    "junction_roadmap_status",
+    "refresh_junction_roadmap",
     "segment_between",
     "segment_frontier_between",
     "derive_worldlines",

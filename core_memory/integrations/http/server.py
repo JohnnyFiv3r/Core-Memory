@@ -2355,6 +2355,25 @@ async def memory_projection_junctions(
     )
 
 
+@app.get("/v1/memory/projection/junction-roadmap")
+async def memory_projection_junction_roadmap(
+    root: Optional[str] = None,
+    include_graph: bool = False,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    """Read the maintenance-built junction roadmap without rebuilding inline."""
+
+    _check_auth(authorization, x_memory_token)
+    from core_memory.retrieval.roadmap import junction_roadmap_status
+
+    return junction_roadmap_status(
+        _resolve_root(root, x_tenant_id),
+        include_graph=bool(include_graph),
+    )
+
+
 @app.get("/v1/memory/projection/storylines")
 async def memory_projection_storylines(
     root: Optional[str] = None,

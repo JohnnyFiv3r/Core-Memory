@@ -25,7 +25,8 @@ from core_memory.runtime.dreamer.candidates import enqueue_dreamer_candidates
 _SIDE_EFFECT_KINDS = {
     "dreamer-run", "neo4j-sync", "health-recompute",
     "turn-enrichment", "graphiti-episode-add", "myelination-update",
-    "data-insight-poll", "association-pass", "goal-progress", "bead-retraction",
+    "junction-roadmap-build", "data-insight-poll", "association-pass",
+    "goal-progress", "bead-retraction",
 }
 _CLAIM_LEASE_SECONDS = 120
 
@@ -499,9 +500,10 @@ def process_side_effect_event(*, root: str | Path, kind: str, payload: dict[str,
         return process_goal_progress_event(root, p)
 
     if k == "myelination-update":
+        from core_memory.graph.roadmap import roadmap_input_revision
         from core_memory.runtime.observability.myelination import (
-            compute_myelination_bonus_map,
             apply_contradiction_decay,
+            compute_myelination_bonus_map,
         )
         since = str(p.get("since") or "30d")
         limit = int(p.get("limit") or 1000)
@@ -511,12 +513,49 @@ def process_side_effect_event(*, root: str | Path, kind: str, payload: dict[str,
         manifest_path = Path(root) / ".beads" / "events" / "myelination-manifest.json"
         manifest_path.parent.mkdir(parents=True, exist_ok=True)
         write_side_effect_json(manifest_path, manifest)
+        roadmap_revision = roadmap_input_revision(root)
+        roadmap_queue = enqueue_side_effect_event(
+            root=root,
+            kind="junction-roadmap-build",
+            payload={"trigger": "myelination-update"},
+            idempotency_key=f"junction-roadmap:{roadmap_revision}",
+        )
         return {
-            "ok": True,
+            "ok": bool(roadmap_queue.get("ok")),
             "kind": k,
             "enabled": bool(manifest.get("enabled")),
             "stats": dict(manifest.get("stats") or {}),
             "manifest_path": str(manifest_path),
+            "junction_roadmap_queue": roadmap_queue,
+        }
+
+    if k == "junction-roadmap-build":
+        from core_memory.retrieval.roadmap import refresh_junction_roadmap
+
+        option_names = {
+            "max_vertices",
+            "radius",
+            "max_len",
+            "max_expansions_per_pair",
+            "max_partitions",
+            "max_results_per_partition",
+            "soft_alternatives_per_pair",
+            "hard_alternatives_per_pair",
+        }
+        options = {
+            name: int(p[name])
+            for name in option_names
+            if p.get(name) is not None
+        }
+        out = refresh_junction_roadmap(root, **options)
+        return {
+            "ok": bool(out.get("ok")),
+            "kind": k,
+            "status": out.get("status"),
+            "manifest_path": out.get("manifest_path"),
+            "roadmap_meta": dict(out.get("roadmap_meta") or {}),
+            "limitations": list(out.get("limitations") or []),
+            "error": out.get("error") if not bool(out.get("ok")) else None,
         }
 
     if k == "bead-retraction":

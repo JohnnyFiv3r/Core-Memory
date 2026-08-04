@@ -11,6 +11,7 @@ ASYNC_JOB_KIND_CHOICES = [
     "neo4j-sync",
     "health-recompute",
     "myelination-update",
+    "junction-roadmap-build",
     "data-insight-poll",
     "association-pass",
     "bead-retraction",

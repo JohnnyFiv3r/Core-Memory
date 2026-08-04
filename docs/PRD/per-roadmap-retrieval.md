@@ -977,13 +977,23 @@ id; an answer-level-only validation mints at reduced prior.
 - Stitch rate and PER hit rate rise over time as validated paths become stored
   structure — evidence the loop is closed rather than open.
 
-## Open Decisions
+## Follow-up Decisions
 
-1. **Roadmap rebuild cadence** — nightly cron versus dreamer session-flush
-   side-effect. Prefer reusing the existing myelination-update cadence.
-2. **Vertex budget** — `max_vertices` scaling with workspace size; PALMER's
+### Phase 4 implementation note
+
+The maintenance-built junction roadmap is implemented as a durable derived
+projection at `.beads/events/junction-roadmap.json`. The existing
+`myelination-update` side effect enqueues an idempotent
+`junction-roadmap-build` follow-up keyed by the current index and myelination
+revision. Operators may also enqueue or run the governed
+`refresh_junction_roadmap` maintenance action. The artifact retains bounded
+nondominated alternatives per directed junction pair, complete per-edge cached
+cost rows and dynamic references, omission receipts for incomplete frontiers,
+and `roadmap_meta` build inputs. Query-time line-graph planning remains Phase 5.
+
+1. **Vertex budget** — `max_vertices` scaling with workspace size; PALMER's
    roadmaps are dense, ours will be sparse and should stay small initially.
-3. **Junction cost weights** per tier (§1) — conservative constants first, tuned
+2. **Junction cost weights** per tier (§1) — conservative constants first, tuned
    once seam-crossing validation data exists.
-4. **Whether `plan` is a distinct endpoint or a mode on `trace_request`** — the
+3. **Whether `plan` is a distinct endpoint or a mode on `trace_request`** — the
    root-cause PRD favoured modes on existing surfaces; this PRD is agnostic.
