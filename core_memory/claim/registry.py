@@ -68,6 +68,7 @@ PROMOTION_STATE_DEFINITIONS: dict[str, str] = {
 
 _RELATION_OVERRIDES: dict[str, str] = {
     "supports": "Source provides positive support for target.",
+    "advances_goal": "Source is observed evidence of progress toward the target Goal Bead.",
     "caused_by": "Source is explained by the target cause/mechanism.",
     "led_to": "Source progressed or contributed forward into target.",
     "blocked_by": "Source is prevented by target.",

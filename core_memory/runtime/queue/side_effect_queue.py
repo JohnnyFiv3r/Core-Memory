@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-import json
-import os
-import tempfile
 import time
 import uuid
 from importlib import import_module
@@ -10,6 +7,15 @@ from pathlib import Path
 from typing import Any, Callable
 
 from core_memory.persistence.io_utils import store_lock
+from core_memory.persistence.side_effect_outbox import (
+    enqueue_persisted_side_effect,
+    load_side_effect_outbox_locked,
+    persist_side_effect_outbox_locked,
+    read_side_effect_json,
+    side_effect_queue_path,
+    side_effect_state_path,
+    write_side_effect_json,
+)
 from core_memory.persistence.store import MemoryStore
 from core_memory.retrieval.semantic_index import semantic_doctor
 from core_memory.runtime.dreamer import analysis as dreamer
@@ -19,72 +25,20 @@ from core_memory.runtime.dreamer.candidates import enqueue_dreamer_candidates
 _SIDE_EFFECT_KINDS = {
     "dreamer-run", "neo4j-sync", "health-recompute",
     "turn-enrichment", "graphiti-episode-add", "myelination-update",
-    "data-insight-poll", "association-pass", "bead-retraction",
+    "data-insight-poll", "association-pass", "goal-progress", "bead-retraction",
 }
 _CLAIM_LEASE_SECONDS = 120
 
 
-def _events_dir(root: str | Path) -> Path:
-    p = Path(root) / ".beads" / "events"
-    p.mkdir(parents=True, exist_ok=True)
-    return p
-
-
 def _queue_path(root: str | Path) -> Path:
-    return _events_dir(root) / "side-effects-queue.json"
+    """Compatibility alias for callers that inspect the runtime queue file."""
 
-
-def _state_path(root: str | Path) -> Path:
-    return _events_dir(root) / "side-effects-queue-state.json"
-
-
-def _read_json(path: Path, default: Any) -> Any:
-    if not path.exists():
-        return default
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return default
-
-
-def _write_json(path: Path, payload: Any) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent))
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp, path)
-    finally:
-        if os.path.exists(tmp):
-            os.unlink(tmp)
-
-
-def _default_state() -> dict[str, Any]:
-    return {"consecutive_failures": 0, "opened_until": 0, "last_error": ""}
+    return side_effect_queue_path(root)
 
 
 def _sync_to_neo4j_provider(**kwargs: Any) -> dict[str, Any]:
     sync_module = import_module("core_memory.integrations.neo4j.sync")
     return sync_module.sync_to_neo4j(**kwargs)
-
-
-def _load_queue_and_state_locked(root: str | Path) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    qpath = _queue_path(root)
-    spath = _state_path(root)
-    queue = _read_json(qpath, [])
-    state = _read_json(spath, _default_state())
-    if not isinstance(queue, list):
-        queue = []
-    if not isinstance(state, dict):
-        state = _default_state()
-    return [x for x in queue if isinstance(x, dict)], dict(state)
-
-
-def _persist_queue_and_state_locked(root: str | Path, queue: list[dict[str, Any]], state: dict[str, Any]) -> None:
-    _write_json(_queue_path(root), list(queue))
-    _write_json(_state_path(root), dict(state))
 
 
 def enqueue_side_effect_event(
@@ -101,49 +55,20 @@ def enqueue_side_effect_event(
             "error": {"code": "unknown_kind", "kind": k, "allowed": sorted(_SIDE_EFFECT_KINDS)},
         }
 
-    idem = str(idempotency_key or "").strip()
-    with store_lock(Path(root)):
-        queue, state = _load_queue_and_state_locked(root)
-
-        if idem:
-            for item in queue:
-                if str((item or {}).get("idempotency_key") or "") == idem:
-                    return {
-                        "ok": True,
-                        "duplicate": True,
-                        "id": item.get("id"),
-                        "queue_depth": len(queue),
-                        "kind": k,
-                    }
-
-        item = {
-            "id": f"se-{uuid.uuid4().hex[:12]}",
-            "kind": k,
-            "payload": dict(payload or {}),
-            "idempotency_key": idem or None,
-            "created_at": int(time.time()),
-            "attempts": 0,
-            "next_retry_at": 0,
-            "lease_until": 0,
-            "lease_token": None,
-        }
-        queue.append(item)
-        _persist_queue_and_state_locked(root, queue, state)
-        return {
-            "ok": True,
-            "duplicate": False,
-            "id": item["id"],
-            "queue_depth": len(queue),
-            "kind": k,
-        }
+    return enqueue_persisted_side_effect(
+        root=root,
+        kind=k,
+        payload=payload,
+        idempotency_key=idempotency_key,
+    )
 
 
 def side_effect_queue_status(root: str | Path, *, now_ts: int | None = None) -> dict[str, Any]:
     now = int(now_ts if now_ts is not None else time.time())
-    qpath = _queue_path(root)
-    spath = _state_path(root)
+    qpath = side_effect_queue_path(root)
+    spath = side_effect_state_path(root)
     with store_lock(Path(root)):
-        queue, state = _load_queue_and_state_locked(root)
+        queue, state = load_side_effect_outbox_locked(root)
 
     opened_until = int(state.get("opened_until") or 0)
     circuit_open = opened_until > now
@@ -425,7 +350,7 @@ def process_side_effect_event(*, root: str | Path, kind: str, payload: dict[str,
                 }
             if p.get("bulk_sync"):
                 index_path = Path(root) / ".beads" / "index.json"
-                index = _read_json(index_path, {"beads": {}, "associations": []})
+                index = read_side_effect_json(index_path, {"beads": {}, "associations": []})
                 beads = list(index.get("beads", {}).values())
                 assocs = index.get("associations", [])
                 result = gb.sync_from_storage(beads=beads, associations=assocs)
@@ -546,12 +471,32 @@ def process_side_effect_event(*, root: str | Path, kind: str, payload: dict[str,
                 "sweep_complete": p.get("sweep_complete"),
             } if p.get("sweep") else None,
         )
+        goal_progress: dict[str, Any] | None = None
+        if bool(out.get("ok")) and bool(p.get("goal_progress")):
+            from core_memory.runtime.goals.progress import enqueue_goal_progress_for_beads
+
+            goal_progress = enqueue_goal_progress_for_beads(
+                root,
+                bead_ids=[str(x) for x in (p.get("bead_ids") or []) if str(x).strip()],
+                trigger=str(p.get("trigger") or "association_pass"),
+                idempotency_key=f"goal-progress:association-run:{p.get('run_id') or 'unknown'}",
+            )
+        progress_ok = goal_progress is None or bool(goal_progress.get("ok"))
+        ok = bool(out.get("ok")) and progress_ok
         return {
-            "ok": bool(out.get("ok")),
+            "ok": ok,
             "kind": k,
             "result": out,
-            "error": out.get("error") if not bool(out.get("ok")) else None,
+            "goal_progress": goal_progress,
+            "error": out.get("error") if not bool(out.get("ok")) else (
+                goal_progress.get("error") if not progress_ok and goal_progress else None
+            ),
         }
+
+    if k == "goal-progress":
+        from core_memory.runtime.goals.progress import process_goal_progress_event
+
+        return process_goal_progress_event(root, p)
 
     if k == "myelination-update":
         from core_memory.runtime.observability.myelination import (
@@ -565,7 +510,7 @@ def process_side_effect_event(*, root: str | Path, kind: str, payload: dict[str,
             apply_contradiction_decay(root, manifest.get("bonus_by_bead_id") or {})
         manifest_path = Path(root) / ".beads" / "events" / "myelination-manifest.json"
         manifest_path.parent.mkdir(parents=True, exist_ok=True)
-        _write_json(manifest_path, manifest)
+        write_side_effect_json(manifest_path, manifest)
         return {
             "ok": True,
             "kind": k,
@@ -607,7 +552,7 @@ def drain_side_effect_queue(
     process_item = processor or process_side_effect_event
 
     with store_lock(Path(root)):
-        queue, state = _load_queue_and_state_locked(root)
+        queue, state = load_side_effect_outbox_locked(root)
         opened_until = int(state.get("opened_until") or 0)
         if opened_until > now:
             return {
@@ -633,7 +578,7 @@ def drain_side_effect_queue(
             item["lease_token"] = token
             claimed.append(dict(item))
 
-        _persist_queue_and_state_locked(root, queue, state)
+        persist_side_effect_outbox_locked(root, queue, state)
 
     processed = 0
     failed = 0
@@ -653,14 +598,14 @@ def drain_side_effect_queue(
             results.append(dict(out))
 
         with store_lock(Path(root)):
-            queue, state = _load_queue_and_state_locked(root)
+            queue, state = load_side_effect_outbox_locked(root)
             target = None
             for row in queue:
                 if str(row.get("id") or "") == item_id and str(row.get("lease_token") or "") == lease_token:
                     target = row
                     break
             if target is None:
-                _persist_queue_and_state_locked(root, queue, state)
+                persist_side_effect_outbox_locked(root, queue, state)
                 continue
 
             if bool(out.get("ok")):
@@ -672,7 +617,7 @@ def drain_side_effect_queue(
                 state["consecutive_failures"] = 0
                 state["opened_until"] = 0
                 state["last_error"] = ""
-                _persist_queue_and_state_locked(root, queue, state)
+                persist_side_effect_outbox_locked(root, queue, state)
                 continue
 
             failed += 1
@@ -688,10 +633,10 @@ def drain_side_effect_queue(
             if int(state.get("consecutive_failures") or 0) >= 3:
                 state["opened_until"] = now + 30
 
-            _persist_queue_and_state_locked(root, queue, state)
+            persist_side_effect_outbox_locked(root, queue, state)
 
     with store_lock(Path(root)):
-        queue, state = _load_queue_and_state_locked(root)
+        queue, state = load_side_effect_outbox_locked(root)
 
     return {
         "ok": True,

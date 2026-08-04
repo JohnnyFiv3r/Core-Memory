@@ -23,9 +23,10 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from ..schema.promotion_contract import current_promotion_state
 from ..persistence.semantic_lifecycle import mark_semantic_dirty
+from ..schema.promotion_contract import current_promotion_state
 from .io_utils import append_jsonl, store_lock
+from .side_effect_outbox import enqueue_persisted_side_effect_locked
 from .store_index_heads_ops import read_heads_for_store, write_heads_for_store
 
 # Canonical goal lifecycle states.
@@ -109,7 +110,29 @@ def transition_goal_state_for_store(
         if from_state in TERMINAL_GOAL_STATES:
             return {"ok": False, "error": "goal_terminal", "bead_id": gid, "from_state": from_state}
         if target == from_state:
-            return {"ok": True, "bead_id": gid, "from_state": from_state, "to_state": target, "noop": True}
+            goal_progress = None
+            if target in {"endorsed", "active"}:
+                changed_at = str(bead.get("goal_state_changed_at") or "existing").strip()
+                goal_progress = enqueue_persisted_side_effect_locked(
+                    root=store.root,
+                    kind="goal-progress",
+                    payload={
+                        "mode": "produce",
+                        "goal_bead_ids": [gid],
+                        "trigger": f"goal_{target}",
+                        "evaluator_version": "goal_progress.v1",
+                        "max_pairs": 40,
+                    },
+                    idempotency_key=f"goal-progress:goal-state:{gid}:{target}:{changed_at}",
+                )
+            return {
+                "ok": goal_progress is None or bool(goal_progress.get("ok")),
+                "bead_id": gid,
+                "from_state": from_state,
+                "to_state": target,
+                "noop": True,
+                "goal_progress": goal_progress,
+            }
         if target not in _ALLOWED_TRANSITIONS.get(from_state, frozenset()):
             return {
                 "ok": False,
@@ -168,7 +191,28 @@ def transition_goal_state_for_store(
         )
         mark_semantic_dirty(store.root, reason=f"goal_lifecycle_{target}")
 
-    return {"ok": True, "bead_id": gid, "from_state": from_state, "to_state": target}
+        goal_progress = None
+        if target in {"endorsed", "active"}:
+            goal_progress = enqueue_persisted_side_effect_locked(
+                root=store.root,
+                kind="goal-progress",
+                payload={
+                    "mode": "produce",
+                    "goal_bead_ids": [gid],
+                    "trigger": f"goal_{target}",
+                    "evaluator_version": "goal_progress.v1",
+                    "max_pairs": 40,
+                },
+                idempotency_key=f"goal-progress:goal-state:{gid}:{target}:{now}",
+            )
+
+    return {
+        "ok": goal_progress is None or bool(goal_progress.get("ok")),
+        "bead_id": gid,
+        "from_state": from_state,
+        "to_state": target,
+        "goal_progress": goal_progress,
+    }
 
 
 __all__ = [

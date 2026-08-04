@@ -175,6 +175,8 @@ def _normalize_job_kind(kind: str | None) -> str:
         "association": "association-pass",
         "association-pass": "association-pass",
         "association_pass": "association-pass",
+        "goal-progress": "goal-progress",
+        "goal_progress": "goal-progress",
         "bead-retraction": "bead-retraction",
         "bead_retraction": "bead-retraction",
         "projection-retraction": "bead-retraction",
@@ -233,7 +235,7 @@ def enqueue_async_job(
             "status": side_effect_queue_status(root_p),
         })
 
-    if k in {"dreamer-run", "neo4j-sync", "health-recompute", "myelination-update", "association-pass", "bead-retraction"}:
+    if k in {"dreamer-run", "neo4j-sync", "health-recompute", "myelination-update", "association-pass", "goal-progress", "bead-retraction"}:
         payload = dict(event or {})
         payload.update({k: v for k, v in dict(ctx or {}).items() if k not in payload})
         idem = str(payload.get("idempotency_key") or payload.get("idempotencyKey") or "").strip() or None
@@ -251,7 +253,7 @@ def enqueue_async_job(
             "unknown_kind",
             "Unknown async job kind",
             kind=str(kind),
-                allowed=["semantic-rebuild", "semantic-reconcile", "compaction", "dreamer-run", "neo4j-sync", "health-recompute", "myelination-update", "data-insight-poll", "association-pass", "bead-retraction"],
+                allowed=["semantic-rebuild", "semantic-reconcile", "compaction", "dreamer-run", "neo4j-sync", "health-recompute", "myelination-update", "data-insight-poll", "association-pass", "goal-progress", "bead-retraction"],
         ),
     })
 
