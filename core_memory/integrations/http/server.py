@@ -2241,6 +2241,29 @@ async def memory_projection_worldlines(
     return out
 
 
+@app.get("/v1/memory/projection/junctions")
+async def memory_projection_junctions(
+    root: Optional[str] = None,
+    include_beads: bool = True,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    """Claims-first junction identities and the PER density gate.
+
+    The projection reads canonical claims/worldlines plus vectors already owned
+    by the semantic index. It never invokes an embedding provider or writes
+    graph meaning.
+    """
+    _check_auth(authorization, x_memory_token)
+    from core_memory.retrieval.junctions import derive_junction_projection
+
+    return derive_junction_projection(
+        _resolve_root(root, x_tenant_id),
+        include_beads=bool(include_beads),
+    )
+
+
 @app.get("/v1/memory/projection/storylines")
 async def memory_projection_storylines(
     root: Optional[str] = None,
