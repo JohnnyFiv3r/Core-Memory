@@ -71,6 +71,7 @@ ACTION_POLICIES: dict[str, ActionPolicy] = {
     "submit_entity_merge_proposal": ActionPolicy(("submit_entity_merge_proposal", "admin_repair"), True, True),
     "apply_reviewed_proposal": ActionPolicy(("apply_reviewed_proposal", "user_confirmed", "admin_repair"), True, True),
     "refresh_myelination": ActionPolicy(("refresh_myelination", "queue_ops", "admin_repair"), True, True),
+    "refresh_junction_roadmap": ActionPolicy(("queue_ops", "admin_repair"), True, True),
     "propose_soul_update": ActionPolicy(("propose_soul_update", "admin_repair"), True, True),
     "approve_soul_update": ActionPolicy(("approve_soul_update", "user_confirmed", "admin_repair"), True, True),
     "reject_soul_update": ActionPolicy(("reject_soul_update", "user_confirmed", "admin_repair"), True, True),
@@ -109,6 +110,7 @@ READ_ACTIONS = {
     "association_coverage_summary",
     "list_association_candidates",
     "myelination_status",
+    "junction_roadmap_status",
     "inspect_soul",
     "soul_history",
     "semantic_backfill_report",
@@ -164,6 +166,9 @@ def _normalize_action(action: str) -> str:
         "decide_proposal": "apply_reviewed_proposal",
         "myelination": "myelination_status",
         "myelination_refresh": "refresh_myelination",
+        "junction_roadmap": "junction_roadmap_status",
+        "roadmap_status": "junction_roadmap_status",
+        "roadmap_refresh": "refresh_junction_roadmap",
         "soul": "inspect_soul",
         "inspect_soul_file": "inspect_soul",
         "soul_update": "propose_soul_update",
@@ -476,7 +481,7 @@ def _validate_action(
             errors.append(_validation_error("decision.candidate_id", "candidate_id_required"))
         if not _clean_str(decision.get("decision") or targets.get("decision")):
             errors.append(_validation_error("decision.decision", "decision_required"))
-    elif action == "refresh_myelination":
+    elif action in {"refresh_myelination", "refresh_junction_roadmap"}:
         pass
     elif action == "propose_soul_update":
         if not _clean_str(proposal.get("target_file") or targets.get("target_file")):
@@ -916,6 +921,17 @@ def maintain(
     if action_n == "myelination_status":
         return _myelination_status(root_final)
 
+    if action_n == "junction_roadmap_status":
+        from core_memory.retrieval.roadmap import junction_roadmap_status
+
+        out = junction_roadmap_status(
+            root_final,
+            include_graph=bool(targets_d.get("include_graph")),
+        )
+        out["contract"] = MAINTAIN_CONTRACT
+        out["action"] = action_n
+        return out
+
     if action_n == "inspect_soul":
         subject = _clean_str(targets_d.get("subject") or scope_d.get("soul_subject")) or "self"
         file_name = _clean_str(targets_d.get("file_name") or targets_d.get("target_file"))
@@ -1321,6 +1337,30 @@ def maintain(
             from core_memory.runtime.queue.jobs import enqueue_async_job
 
             out = enqueue_async_job(root=root_final, kind="myelination-update", event=payload, ctx={})
+        return _augment(out, action=action_n, authority=authority_d)
+
+    if action_n == "refresh_junction_roadmap":
+        payload = dict(proposal_d.get("event") or {})
+        option_names = {
+            "max_vertices",
+            "radius",
+            "max_len",
+            "max_expansions_per_pair",
+            "max_partitions",
+            "max_results_per_partition",
+            "soft_alternatives_per_pair",
+            "hard_alternatives_per_pair",
+        }
+        payload.update({key: value for key, value in targets_d.items() if key in option_names})
+        payload.setdefault("idempotency_key", _clean_str(idempotency_key) or "maintain:refresh_junction_roadmap")
+        if bool(targets_d.get("run_inline")):
+            from core_memory.runtime.queue.side_effect_queue import process_side_effect_event
+
+            out = process_side_effect_event(root=root_final, kind="junction-roadmap-build", payload=payload)
+        else:
+            from core_memory.runtime.queue.jobs import enqueue_async_job
+
+            out = enqueue_async_job(root=root_final, kind="junction-roadmap-build", event=payload, ctx={})
         return _augment(out, action=action_n, authority=authority_d)
 
     if action_n == "propose_soul_update":

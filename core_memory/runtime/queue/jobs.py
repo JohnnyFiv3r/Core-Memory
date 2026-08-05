@@ -169,6 +169,10 @@ def _normalize_job_kind(kind: str | None) -> str:
         "health-report": "health-recompute",
         "myelination": "myelination-update",
         "myelination-update": "myelination-update",
+        "junction-roadmap": "junction-roadmap-build",
+        "junction-roadmap-build": "junction-roadmap-build",
+        "junction_roadmap_build": "junction-roadmap-build",
+        "roadmap": "junction-roadmap-build",
         "data-insight-poll": "data-insight-poll",
         "data_insight_poll": "data-insight-poll",
         "pipehouse-poll": "data-insight-poll",
@@ -235,7 +239,16 @@ def enqueue_async_job(
             "status": side_effect_queue_status(root_p),
         })
 
-    if k in {"dreamer-run", "neo4j-sync", "health-recompute", "myelination-update", "association-pass", "goal-progress", "bead-retraction"}:
+    if k in {
+        "dreamer-run",
+        "neo4j-sync",
+        "health-recompute",
+        "myelination-update",
+        "junction-roadmap-build",
+        "association-pass",
+        "goal-progress",
+        "bead-retraction",
+    }:
         payload = dict(event or {})
         payload.update({k: v for k, v in dict(ctx or {}).items() if k not in payload})
         idem = str(payload.get("idempotency_key") or payload.get("idempotencyKey") or "").strip() or None
@@ -253,7 +266,20 @@ def enqueue_async_job(
             "unknown_kind",
             "Unknown async job kind",
             kind=str(kind),
-                allowed=["semantic-rebuild", "semantic-reconcile", "compaction", "dreamer-run", "neo4j-sync", "health-recompute", "myelination-update", "data-insight-poll", "association-pass", "goal-progress", "bead-retraction"],
+                allowed=[
+                    "semantic-rebuild",
+                    "semantic-reconcile",
+                    "compaction",
+                    "dreamer-run",
+                    "neo4j-sync",
+                    "health-recompute",
+                    "myelination-update",
+                    "junction-roadmap-build",
+                    "data-insight-poll",
+                    "association-pass",
+                    "goal-progress",
+                    "bead-retraction",
+                ],
         ),
     })
 

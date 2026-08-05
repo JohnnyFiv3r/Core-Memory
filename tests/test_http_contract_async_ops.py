@@ -9,7 +9,10 @@ class TestHttpContractAsyncOpsSlice52A(unittest.TestCase):
     def test_contract_declares_async_ops_endpoints(self):
         repo = Path(__file__).resolve().parents[1]
         contract = json.loads((repo / "docs" / "contracts" / "http_api.v1.json").read_text(encoding="utf-8"))
-        eps = {(str(e.get("method") or "").upper(), str(e.get("path") or "")) for e in (contract.get("endpoints") or [])}
+        eps = {
+            (str(e.get("method") or "").upper(), str(e.get("path") or ""))
+            for e in (contract.get("endpoints") or [])
+        }
 
         self.assertIn(("GET", "/v1/ops/async-jobs/status"), eps)
         self.assertIn(("POST", "/v1/ops/async-jobs/enqueue"), eps)
@@ -24,6 +27,7 @@ class TestHttpContractAsyncOpsSlice52A(unittest.TestCase):
         self.assertIn(("POST", "/v1/memory/association-runs"), eps)
         self.assertIn(("GET", "/v1/memory/association-runs/{run_id}"), eps)
         self.assertIn(("POST", "/v1/memory/association-proposals"), eps)
+        self.assertIn(("GET", "/v1/memory/projection/junction-roadmap"), eps)
 
     def test_contract_endpoints_exist_in_http_server_routes(self):
         try:
@@ -31,7 +35,12 @@ class TestHttpContractAsyncOpsSlice52A(unittest.TestCase):
         except Exception as exc:  # noqa: BLE001
             self.skipTest(f"fastapi stack unavailable: {exc}")
 
-        route_pairs = {(m.upper(), r.path) for r in app.routes for m in getattr(r, "methods", set()) if m in {"GET", "POST"}}
+        route_pairs = {
+            (method.upper(), route.path)
+            for route in app.routes
+            for method in getattr(route, "methods", set())
+            if method in {"GET", "POST"}
+        }
         self.assertIn(("GET", "/v1/ops/async-jobs/status"), route_pairs)
         self.assertIn(("POST", "/v1/ops/async-jobs/enqueue"), route_pairs)
         self.assertIn(("POST", "/v1/ops/async-jobs/run"), route_pairs)
@@ -45,6 +54,7 @@ class TestHttpContractAsyncOpsSlice52A(unittest.TestCase):
         self.assertIn(("POST", "/v1/memory/association-runs"), route_pairs)
         self.assertIn(("GET", "/v1/memory/association-runs/{run_id}"), route_pairs)
         self.assertIn(("POST", "/v1/memory/association-proposals"), route_pairs)
+        self.assertIn(("GET", "/v1/memory/projection/junction-roadmap"), route_pairs)
 
 
 if __name__ == "__main__":

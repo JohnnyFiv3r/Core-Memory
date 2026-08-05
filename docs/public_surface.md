@@ -83,10 +83,12 @@ Convenience package-root aliases are also exported:
 - `core_memory.memory_search`
 - `core_memory.memory_trace`
 - `core_memory.memory_execute`
+- `core_memory.junction_roadmap_status`
+- `core_memory.refresh_junction_roadmap`
 
 ## Async job/queue operations (canonical ops surface)
 - `core_memory.runtime.queue.jobs.async_jobs_status(root='...')`
-- `core_memory.runtime.queue.jobs.enqueue_async_job(root='...', kind='semantic-rebuild|semantic-reconcile|compaction|dreamer-run|neo4j-sync|health-recompute|myelination-update|data-insight-poll|association-pass|bead-retraction', ...)`
+- `core_memory.runtime.queue.jobs.enqueue_async_job(root='...', kind='semantic-rebuild|semantic-reconcile|compaction|dreamer-run|neo4j-sync|health-recompute|myelination-update|junction-roadmap-build|data-insight-poll|association-pass|bead-retraction', ...)`
 - `core_memory.runtime.queue.jobs.run_async_jobs(root='...', run_semantic=True, max_compaction=1, max_side_effects=2)`
 
 Dreamer candidate queue surfaces:
@@ -99,7 +101,7 @@ All async ops payloads include:
 
 CLI operators map to these runtime ops:
 - `core-memory ops jobs-status`
-- `core-memory ops jobs-enqueue --kind semantic-rebuild|semantic-reconcile|compaction|dreamer-run|neo4j-sync|health-recompute|myelination-update|data-insight-poll|association-pass|bead-retraction`
+- `core-memory ops jobs-enqueue --kind semantic-rebuild|semantic-reconcile|compaction|dreamer-run|neo4j-sync|health-recompute|myelination-update|junction-roadmap-build|data-insight-poll|association-pass|bead-retraction`
 - `core-memory ops jobs-run [--max-compaction N] [--max-side-effects N] [--no-semantic]`
 - `core-memory ops dreamer-candidates [--status pending|accepted|rejected] [--limit N]`
 - `core-memory ops dreamer-decide --id <candidate-id> --decision accept|reject [--apply]`
@@ -178,6 +180,7 @@ HTTP memory read surfaces:
 - `GET /v1/memory/projection/worldlines?kinds=&min_length=&include_membership=` — worldline projection
 - `GET /v1/memory/projection/storylines?kinds=&min_length=&include_superseded=` — storyline projection over worldline backbones plus accepted overlays
 - `GET /v1/memory/projection/junctions?include_beads=` — claims-first junction identities, corpus-calibrated embedding/entity thresholds, per-bead corroboration counts, and the PER stitching density gate. This read uses cached semantic vectors only and never invokes an embedding provider.
+- `GET /v1/memory/projection/junction-roadmap?include_graph=` — maintenance-built junction roadmap metadata and, when requested, sampled vertices plus bounded nondominated segment alternatives. This read never rebuilds the projection inline.
 - `GET /v1/soul/files?subject=` / `GET /v1/soul/files/{file_name}?subject=` / `GET /v1/soul/files/{file_name}/entries?subject=` — read-only SOUL projections and folded structured entry provenance for host self-model views.
 - `GET /v1/soul/summary?subject=` — read-only continuity measurement summary for light-cone breadth, observed-vs-endorsed divergence, and persistent tensions. Measurements are not evidence and never mutate SOUL, beads, claims, associations, myelination, or Dreamer state.
 - `GET /v1/memory/semantic-task-runs` / `GET /v1/memory/semantic-task-runs/summary` — semantic operator receipts and aggregate activity telemetry for task/status/model-tier observability. Receipts are audit metadata and never apply graph, SOUL, or bead changes.
