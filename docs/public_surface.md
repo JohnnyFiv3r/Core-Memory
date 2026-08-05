@@ -60,6 +60,7 @@ A surface is canonical only if it is both:
 - `core_memory.retrieval.tools.memory.execute(request: dict, root='.', explain=False)` — low-level unified request entrypoint.
 - `core_memory.segment_between(root, anchor_a, anchor_b, direction='upstream|downstream|any', ...)` — best bounded observed causal chain between two exact/junction anchors, normalized to cause-to-effect order. Returns `None` rather than fabricating a missing path.
 - `core_memory.segment_frontier_between(root, anchor_a, anchor_b, ...)` — bounded partition-aware causal alternatives with an explicit completeness and termination receipt. Incomplete frontiers are query-time evidence only and must not be cached as roadmap pairs.
+- `core_memory.plan_over_roadmap(root, query=..., anchor_ids=[...], ...)` — source-scoped, transition-aware planning over durable observed segments. Exact destinations and accepted `advances_goal` evidence are terminal beads; missing, stale, sparse, or disconnected roadmaps fall back to bounded causal expansion.
 
 ## Projection read family (canonical)
 - `core_memory.derive_worldlines(root, kinds=['claim','entity','goal'], min_length=1)` —
@@ -171,6 +172,7 @@ HTTP memory read surfaces:
   `hydration` request returns cited section source turns, including owned-ingestion
   chunks, under `RecallResult.hydration.data` even when `include_raw=false`.
 - `POST /v1/memory/search` / `POST /v1/memory/execute` / `POST /v1/memory/trace` — low-level reads
+- `POST /v1/memory/plan` — query-time stitched-plan read over the durable junction roadmap, with per-edge dynamic scoring, exact terminal receipts, seam reporting, and same-scope fallback
 - `GET /v1/memory/chunk-turns?core_memory_unifying_id=&chunk_set_version_lte=` — version-filtered chunk metadata for inspection and GC planning
 - Canonical semantic and hybrid reads index cited chunk turns as evidence-only
   vectors and resolve every chunk hit to its visible parent document-section

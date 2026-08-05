@@ -1287,6 +1287,8 @@ def root_cause_trace(
     beam_width: int = 8,
     temporal_frame: str = "auto",
     include_flow: bool = True,
+    allowed_source_ids: list[str] | None = None,
+    denied_source_ids: list[str] | None = None,
 ) -> dict:
     root = Path(root)
     index = _read_index(root)
@@ -1300,8 +1302,19 @@ def root_cause_trace(
     hint_tokens = _tokens(" ".join(normalized_hints.get("keywords") or []) + " " + " ".join(normalized_hints.get("entities") or []))
     edges = _build_edges(root, index)
     myelination = dict(myelination_bonus or {})
+    allowed = {_text(value) for value in allowed_source_ids or [] if _text(value)}
+    denied = {_text(value) for value in denied_source_ids or [] if _text(value)}
 
-    anchors = [a for a in [*_clean_list(anchor_ids), *normalized_hints.get("anchor_ids", [])] if _text(a) in beads]
+    anchors = [
+        a
+        for a in [*_clean_list(anchor_ids), *normalized_hints.get("anchor_ids", [])]
+        if _text(a) in beads
+        and _source_scope_allows(
+            beads[_text(a)],
+            allowed_source_ids=allowed,
+            denied_source_ids=denied,
+        )
+    ]
     anchors = list(dict.fromkeys(_text(a) for a in anchors if _text(a)))
     expansion_cap = max(64, max_paths * max(2, beam_width) * max(1, max_depth))
     search = _parameterized_best_first_search(
@@ -1321,6 +1334,8 @@ def root_cause_trace(
         max_results=max_paths,
         beam_width=beam_width,
         max_expansions=expansion_cap,
+        allowed_source_ids=allowed,
+        denied_source_ids=denied,
     )
     paths: list[dict[str, Any]] = []
     for result in search["results"]:
@@ -1360,5 +1375,6 @@ def root_cause_trace(
             "temporal_frame": temporal_frame,
             "semantic_drag": "lexical_token_overlap",
             "myelination_edges": int(len(myelination)),
+            "source_scope_applied": bool(allowed or denied),
         },
     }
