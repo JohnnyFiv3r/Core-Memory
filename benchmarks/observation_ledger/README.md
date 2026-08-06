@@ -48,3 +48,7 @@ them.
 - `packs/public/observations-statement-request-v1/` — 25 accepted PR-00E
   statement/request observation cases with separate inputs, semantic gold,
   exact evidence spans, frontier critique, human decisions, and checksums.
+- `packs/public/observations-goal-decision-v1/` — 25 accepted PR-00F
+  goal/decision observation cases covering attribution, conditionality,
+  provisionality, authority, completion boundaries, canonical facets, exact
+  evidence spans, frontier critique, human decisions, and checksums.

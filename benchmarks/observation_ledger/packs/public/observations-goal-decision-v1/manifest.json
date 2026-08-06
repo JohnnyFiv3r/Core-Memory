@@ -1,0 +1,25 @@
+{
+  "schema_version": "observation_ledger.pack.v1",
+  "pack_id": "public-observations-goal-decision-v1",
+  "visibility": "public",
+  "prompt_version": "observation.goal_decision.v1",
+  "schema_versions": [
+    "observation_ledger.case.v1",
+    "observation_ledger.gold.v1",
+    "observation_ledger.adjudication.v1"
+  ],
+  "cases": [
+    "inputs/cases.json"
+  ],
+  "gold": [
+    "gold/gold.json"
+  ],
+  "adjudications": [
+    "adjudications/adjudications.json"
+  ],
+  "checksums": {
+    "adjudications/adjudications.json": "d49102665061853593468068f64c2e2491133dcf9590df611a545e7f1e19c82a",
+    "inputs/cases.json": "d6f8ab8fb063ab4a7203a4e6abed598d7610186134de4d631f57cdb3e720a0c9",
+    "gold/gold.json": "0027d25d35dab7b8e574f3f6cbbd3681f50084d0e01cb474eb8ff47cac75b9d5"
+  }
+}
