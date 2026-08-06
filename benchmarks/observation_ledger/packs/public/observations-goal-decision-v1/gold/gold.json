@@ -1,0 +1,1968 @@
+[
+  {
+    "schema_version": "observation_ledger.gold.v1",
+    "case_id": "obs-gd-001",
+    "semantic_expectations": {
+      "preferred_primary_label": "goal",
+      "label_rationale": "The user explicitly states a bounded desired outcome and deadline; the agent preserves it as a goal rather than reporting completion.",
+      "acceptable_facets": [
+        {
+          "kind": "custom",
+          "value": {
+            "name": "goal_outcome",
+            "text": "launch the pilot to five clinics"
+          },
+          "evidence_refs": [
+            "ev-001-user"
+          ]
+        },
+        {
+          "kind": "custom",
+          "value": {
+            "name": "target_date",
+            "text": "October 1"
+          },
+          "evidence_refs": [
+            "ev-001-user"
+          ]
+        }
+      ],
+      "forbidden_facets": [],
+      "required_summary_meanings": [
+        "The user stated a goal to launch the pilot to five clinics by October 1.",
+        "The agent said the launch should not be treated as completed."
+      ],
+      "retrieval_eligible": true,
+      "assertion_expectation": {
+        "required": false,
+        "empty_is_valid": true,
+        "supported_if_authored": [
+          "The user has a stated goal to launch the pilot to five clinics by October 1."
+        ]
+      },
+      "associations_expected": [],
+      "revisions_expected": [],
+      "required_limitations": [
+        "The year and timezone for October 1 are not stated."
+      ]
+    },
+    "acceptable_labels": [
+      "goal"
+    ],
+    "supported_propositions": [
+      "The user stated a pilot-launch goal covering five clinics.",
+      "The goal has an October 1 deadline.",
+      "The agent did not claim the launch was complete."
+    ],
+    "forbidden_propositions": [
+      "The pilot launched to five clinics.",
+      "October 1 includes an unstated year or timezone.",
+      "Five clinics agreed to participate."
+    ],
+    "evidence_spans": [
+      {
+        "evidence_id": "ev-001-user",
+        "source_event_id": "event-gd-001",
+        "start": 6,
+        "end": 67,
+        "quote": "Our goal is to launch the pilot to five clinics by October 1."
+      },
+      {
+        "evidence_id": "ev-001-agent",
+        "source_event_id": "event-gd-001",
+        "start": 75,
+        "end": 146,
+        "quote": "I will record that as the stated pilot goal, not as a completed launch."
+      }
+    ]
+  },
+  {
+    "schema_version": "observation_ledger.gold.v1",
+    "case_id": "obs-gd-002",
+    "semantic_expectations": {
+      "preferred_primary_label": "goal",
+      "label_rationale": "The user supplies a desired measurable release outcome and test condition, while the agent explicitly distinguishes the target from achieved performance.",
+      "acceptable_facets": [
+        {
+          "kind": "custom",
+          "value": {
+            "name": "metric",
+            "text": "p95 latency below 200 milliseconds"
+          },
+          "evidence_refs": [
+            "ev-002-user"
+          ]
+        },
+        {
+          "kind": "custom",
+          "value": {
+            "name": "condition",
+            "text": "documented load test"
+          },
+          "evidence_refs": [
+            "ev-002-user"
+          ]
+        }
+      ],
+      "forbidden_facets": [],
+      "required_summary_meanings": [
+        "The user set a performance goal of p95 latency below 200 milliseconds under the documented load test.",
+        "The agent said the event does not establish that the target is already met."
+      ],
+      "retrieval_eligible": true,
+      "assertion_expectation": {
+        "required": false,
+        "empty_is_valid": true,
+        "supported_if_authored": [
+          "The next release has a stated p95 latency goal below 200 milliseconds under the documented load test."
+        ]
+      },
+      "associations_expected": [],
+      "revisions_expected": [],
+      "required_limitations": [
+        "No current measurement or load-test result is supplied."
+      ]
+    },
+    "acceptable_labels": [
+      "goal"
+    ],
+    "supported_propositions": [
+      "The user stated a measurable latency goal for the next release.",
+      "The goal applies under the documented load test."
+    ],
+    "forbidden_propositions": [
+      "Current p95 latency is below 200 milliseconds.",
+      "The release passed its load test.",
+      "The load-test procedure is supplied in this event."
+    ],
+    "evidence_spans": [
+      {
+        "evidence_id": "ev-002-user",
+        "source_event_id": "event-gd-002",
+        "start": 6,
+        "end": 104,
+        "quote": "I want the next release to keep p95 latency below 200 milliseconds under the documented load test."
+      },
+      {
+        "evidence_id": "ev-002-agent",
+        "source_event_id": "event-gd-002",
+        "start": 112,
+        "end": 207,
+        "quote": "That gives us a measurable performance goal; it does not show that the target is currently met."
+      }
+    ]
+  },
+  {
+    "schema_version": "observation_ledger.gold.v1",
+    "case_id": "obs-gd-003",
+    "semantic_expectations": {
+      "preferred_primary_label": "goal",
+      "label_rationale": "The participants explicitly distinguish an outcome-level goal from one candidate implementation task.",
+      "acceptable_facets": [
+        {
+          "kind": "custom",
+          "value": {
+            "name": "goal_outcome",
+            "text": "new engineer completes setup unaided"
+          },
+          "evidence_refs": [
+            "ev-003-user"
+          ]
+        },
+        {
+          "kind": "custom",
+          "value": {
+            "name": "candidate_task",
+            "text": "rewrite the install guide"
+          },
+          "evidence_refs": [
+            "ev-003-user"
+          ]
+        }
+      ],
+      "forbidden_facets": [],
+      "required_summary_meanings": [
+        "The user defined successful unaided setup by a new engineer as the goal.",
+        "Rewriting the install guide was identified only as one possible task."
+      ],
+      "retrieval_eligible": true,
+      "assertion_expectation": {
+        "required": false,
+        "empty_is_valid": true,
+        "supported_if_authored": [
+          "The stated goal is unaided setup completion by a new engineer."
+        ]
+      },
+      "associations_expected": [],
+      "revisions_expected": [],
+      "required_limitations": []
+    },
+    "acceptable_labels": [
+      "goal"
+    ],
+    "supported_propositions": [
+      "Unaided setup completion is the desired outcome.",
+      "Rewriting the install guide is a possible means, not the goal itself."
+    ],
+    "forbidden_propositions": [
+      "The install guide must be rewritten.",
+      "A new engineer completed setup unaided.",
+      "The guide is the only possible route to the goal."
+    ],
+    "evidence_spans": [
+      {
+        "evidence_id": "ev-003-user",
+        "source_event_id": "event-gd-003",
+        "start": 6,
+        "end": 118,
+        "quote": "The goal is for a new engineer to complete setup unaided; rewriting the install guide is only one possible task."
+      },
+      {
+        "evidence_id": "ev-003-agent",
+        "source_event_id": "event-gd-003",
+        "start": 126,
+        "end": 224,
+        "quote": "Understood: successful unaided setup is the outcome, and the guide rewrite is not itself the goal."
+      }
+    ]
+  },
+  {
+    "schema_version": "observation_ledger.gold.v1",
+    "case_id": "obs-gd-004",
+    "semantic_expectations": {
+      "preferred_primary_label": "goal",
+      "label_rationale": "The user expresses a desired future outcome while explicitly withholding a current-quarter commitment; a goal label must preserve that tentative status.",
+      "acceptable_facets": [
+        {
+          "kind": "custom",
+          "value": {
+            "name": "tentative_goal",
+            "text": "make the archive searchable eventually"
+          },
+          "evidence_refs": [
+            "ev-004-user"
+          ]
+        },
+        {
+          "kind": "custom",
+          "value": {
+            "name": "non_commitment",
+            "text": "not committed this quarter"
+          },
+          "evidence_refs": [
+            "ev-004-user"
+          ]
+        }
+      ],
+      "forbidden_facets": [],
+      "required_summary_meanings": [
+        "The user expressed searchable archives as a tentative longer-term goal.",
+        "The user explicitly did not commit that scope for the current quarter."
+      ],
+      "retrieval_eligible": true,
+      "assertion_expectation": {
+        "required": false,
+        "empty_is_valid": true,
+        "supported_if_authored": [
+          "Searchable archives are a tentative longer-term goal, not a current-quarter commitment."
+        ]
+      },
+      "associations_expected": [],
+      "revisions_expected": [],
+      "required_limitations": [
+        "No committed delivery period is established."
+      ]
+    },
+    "acceptable_labels": [
+      "goal"
+    ],
+    "supported_propositions": [
+      "The user would like the archive to become searchable eventually.",
+      "The user withheld a current-quarter scope commitment."
+    ],
+    "forbidden_propositions": [
+      "Archive search is committed for this quarter.",
+      "Work on archive search has started.",
+      "The user rejected archive search permanently."
+    ],
+    "evidence_spans": [
+      {
+        "evidence_id": "ev-004-user",
+        "source_event_id": "event-gd-004",
+        "start": 6,
+        "end": 113,
+        "quote": "I would like to make the archive searchable eventually, but I am not committing to that scope this quarter."
+      },
+      {
+        "evidence_id": "ev-004-agent",
+        "source_event_id": "event-gd-004",
+        "start": 121,
+        "end": 220,
+        "quote": "I will treat searchable archives as a tentative longer-term goal, not a current-quarter commitment."
+      }
+    ]
+  },
+  {
+    "schema_version": "observation_ledger.gold.v1",
+    "case_id": "obs-gd-005",
+    "semantic_expectations": {
+      "preferred_primary_label": "goal",
+      "label_rationale": "The user defines a future goal that activates only if a measurable condition is met, and the agent keeps the condition unresolved.",
+      "acceptable_facets": [
+        {
+          "kind": "custom",
+          "value": {
+            "name": "conditional_goal",
+            "text": "expand to the support team"
+          },
+          "evidence_refs": [
+            "ev-005-user"
+          ]
+        },
+        {
+          "kind": "custom",
+          "value": {
+            "name": "activation_condition",
+            "text": "pilot reaches eighty percent weekly use"
+          },
+          "evidence_refs": [
+            "ev-005-user"
+          ]
+        }
+      ],
+      "forbidden_facets": [],
+      "required_summary_meanings": [
+        "The user made expansion to the support team a goal conditional on eighty percent weekly pilot use.",
+        "The event does not establish that the usage threshold has been reached."
+      ],
+      "retrieval_eligible": true,
+      "assertion_expectation": {
+        "required": false,
+        "empty_is_valid": true,
+        "supported_if_authored": [
+          "Expansion to the support team is a conditional future goal tied to eighty percent weekly pilot use."
+        ]
+      },
+      "associations_expected": [],
+      "revisions_expected": [],
+      "required_limitations": [
+        "The activation condition remains unresolved."
+      ]
+    },
+    "acceptable_labels": [
+      "goal"
+    ],
+    "supported_propositions": [
+      "The expansion goal depends on an eighty percent weekly-use threshold.",
+      "Threshold attainment is not supplied."
+    ],
+    "forbidden_propositions": [
+      "The pilot reached eighty percent weekly use.",
+      "Expansion to the support team is active now.",
+      "The support team approved expansion."
+    ],
+    "evidence_spans": [
+      {
+        "evidence_id": "ev-005-user",
+        "source_event_id": "event-gd-005",
+        "start": 6,
+        "end": 106,
+        "quote": "If the pilot reaches eighty percent weekly use, our next goal will be expanding to the support team."
+      },
+      {
+        "evidence_id": "ev-005-agent",
+        "source_event_id": "event-gd-005",
+        "start": 114,
+        "end": 224,
+        "quote": "That expansion goal is conditional; this conversation does not establish that the usage threshold was reached."
+      }
+    ]
+  },
+  {
+    "schema_version": "observation_ledger.gold.v1",
+    "case_id": "obs-gd-006",
+    "semantic_expectations": {
+      "preferred_primary_label": "goal",
+      "label_rationale": "The user establishes a prioritized goal and explicitly excludes a tempting but unsupported success measure.",
+      "acceptable_facets": [
+        {
+          "kind": "custom",
+          "value": {
+            "name": "primary_goal",
+            "text": "reliability for this cycle"
+          },
+          "evidence_refs": [
+            "ev-006-user"
+          ]
+        },
+        {
+          "kind": "custom",
+          "value": {
+            "name": "excluded_measure",
+            "text": "feature count"
+          },
+          "evidence_refs": [
+            "ev-006-user"
+          ]
+        }
+      ],
+      "forbidden_facets": [],
+      "required_summary_meanings": [
+        "The user made reliability the primary goal for the cycle.",
+        "The user explicitly excluded adding more features as the success measure."
+      ],
+      "retrieval_eligible": true,
+      "assertion_expectation": {
+        "required": false,
+        "empty_is_valid": true,
+        "supported_if_authored": [
+          "Reliability is the stated primary goal for the current cycle."
+        ]
+      },
+      "associations_expected": [],
+      "revisions_expected": [],
+      "required_limitations": [
+        "The event does not define a quantitative reliability measure."
+      ]
+    },
+    "acceptable_labels": [
+      "goal"
+    ],
+    "supported_propositions": [
+      "Reliability is the primary cycle goal.",
+      "Feature count is not the success measure."
+    ],
+    "forbidden_propositions": [
+      "The cycle has a feature-count goal.",
+      "Reliability has already improved.",
+      "All feature work is prohibited."
+    ],
+    "evidence_spans": [
+      {
+        "evidence_id": "ev-006-user",
+        "source_event_id": "event-gd-006",
+        "start": 6,
+        "end": 113,
+        "quote": "Reliability is the primary goal for this cycle; adding more features is explicitly not the success measure."
+      },
+      {
+        "evidence_id": "ev-006-agent",
+        "source_event_id": "event-gd-006",
+        "start": 121,
+        "end": 231,
+        "quote": "I will preserve reliability as the goal and feature count as an excluded measure, not invent a feature target."
+      }
+    ]
+  },
+  {
+    "schema_version": "observation_ledger.gold.v1",
+    "case_id": "obs-gd-007",
+    "semantic_expectations": {
+      "preferred_primary_label": "goal",
+      "label_rationale": "A goal is explicitly reported, but its owner is the compliance team rather than the speaking user.",
+      "acceptable_facets": [
+        {
+          "kind": "custom",
+          "value": {
+            "name": "goal_owner",
+            "text": "compliance team"
+          },
+          "evidence_refs": [
+            "ev-007-user"
+          ]
+        },
+        {
+          "kind": "custom",
+          "value": {
+            "name": "goal_outcome",
+            "text": "finish the control mapping this month"
+          },
+          "evidence_refs": [
+            "ev-007-user"
+          ]
+        }
+      ],
+      "forbidden_facets": [],
+      "required_summary_meanings": [
+        "The user reported that the compliance team aims to finish control mapping this month.",
+        "The user explicitly did not adopt that goal personally."
+      ],
+      "retrieval_eligible": true,
+      "assertion_expectation": {
+        "required": false,
+        "empty_is_valid": true,
+        "supported_if_authored": [
+          "The user reported a compliance-team goal to finish control mapping this month."
+        ]
+      },
+      "associations_expected": [],
+      "revisions_expected": [],
+      "required_limitations": [
+        "The month is relative to the event time and no timezone is stated.",
+        "The team's goal is reported by the user rather than directly stated by the team."
+      ]
+    },
+    "acceptable_labels": [
+      "goal",
+      "statement"
+    ],
+    "supported_propositions": [
+      "The reported goal belongs to the compliance team.",
+      "The user is the reporter, not the stated goal owner."
+    ],
+    "forbidden_propositions": [
+      "The user personally owns the control-mapping goal.",
+      "The control mapping is finished.",
+      "The exact calendar month is independently resolved."
+    ],
+    "evidence_spans": [
+      {
+        "evidence_id": "ev-007-user",
+        "source_event_id": "event-gd-007",
+        "start": 6,
+        "end": 132,
+        "quote": "The compliance team's goal is to finish the control mapping this month; I am reporting their goal, not adopting it personally."
+      },
+      {
+        "evidence_id": "ev-007-agent",
+        "source_event_id": "event-gd-007",
+        "start": 140,
+        "end": 220,
+        "quote": "I will attribute the goal to the compliance team and keep your role as reporter."
+      }
+    ]
+  },
+  {
+    "schema_version": "observation_ledger.gold.v1",
+    "case_id": "obs-gd-008",
+    "semantic_expectations": {
+      "preferred_primary_label": "goal",
+      "label_rationale": "The agent proposes an outcome and the user explicitly adopts it, so the goal is jointly authored but user-approved.",
+      "acceptable_facets": [
+        {
+          "kind": "custom",
+          "value": {
+            "name": "goal_outcome",
+            "text": "every imported record traceable to its source"
+          },
+          "evidence_refs": [
+            "ev-008-agent"
+          ]
+        },
+        {
+          "kind": "commitment",
+          "value": "adopt source traceability as the goal",
+          "evidence_refs": [
+            "ev-008-user2"
+          ]
+        }
+      ],
+      "forbidden_facets": [],
+      "required_summary_meanings": [
+        "The agent proposed source traceability for every imported record.",
+        "The user explicitly adopted source traceability as the goal."
+      ],
+      "retrieval_eligible": true,
+      "assertion_expectation": {
+        "required": false,
+        "empty_is_valid": true,
+        "supported_if_authored": [
+          "Source traceability for every imported record is an explicitly adopted goal."
+        ]
+      },
+      "associations_expected": [],
+      "revisions_expected": [],
+      "required_limitations": []
+    },
+    "acceptable_labels": [
+      "goal"
+    ],
+    "supported_propositions": [
+      "The agent proposed source traceability as the outcome.",
+      "The user explicitly adopted the proposed goal."
+    ],
+    "forbidden_propositions": [
+      "Every imported record is currently traceable.",
+      "The agent unilaterally established the goal.",
+      "A traceability implementation was selected."
+    ],
+    "evidence_spans": [
+      {
+        "evidence_id": "ev-008-user",
+        "source_event_id": "event-gd-008",
+        "start": 6,
+        "end": 44,
+        "quote": "We need a clear outcome for this work."
+      },
+      {
+        "evidence_id": "ev-008-agent",
+        "source_event_id": "event-gd-008",
+        "start": 52,
+        "end": 115,
+        "quote": "How about making every imported record traceable to its source?"
+      },
+      {
+        "evidence_id": "ev-008-user2",
+        "source_event_id": "event-gd-008",
+        "start": 122,
+        "end": 165,
+        "quote": "Yes, adopt source traceability as the goal."
+      }
+    ]
+  },
+  {
+    "schema_version": "observation_ledger.gold.v1",
+    "case_id": "obs-gd-009",
+    "semantic_expectations": {
+      "preferred_primary_label": "goal",
+      "label_rationale": "The user corrects an overbroad goal and supplies the intended outcome plus a preservation constraint within the observed event.",
+      "acceptable_facets": [
+        {
+          "kind": "correction",
+          "value": "retire the JSONL authority",
+          "evidence_refs": [
+            "ev-009-user"
+          ]
+        },
+        {
+          "kind": "custom",
+          "value": {
+            "name": "constraint",
+            "text": "preserve archive access"
+          },
+          "evidence_refs": [
+            "ev-009-user"
+          ]
+        },
+        {
+          "kind": "custom",
+          "value": {
+            "name": "rejected_scope",
+            "text": "replace every database"
+          },
+          "evidence_refs": [
+            "ev-009-user"
+          ]
+        }
+      ],
+      "forbidden_facets": [],
+      "required_summary_meanings": [
+        "The user corrected the goal to retiring JSONL as an authority while preserving archive access.",
+        "Replacing every database was explicitly rejected as the goal."
+      ],
+      "retrieval_eligible": true,
+      "assertion_expectation": {
+        "required": false,
+        "empty_is_valid": true,
+        "supported_if_authored": [
+          "The corrected stated goal is to retire JSONL authority while preserving archive access."
+        ]
+      },
+      "associations_expected": [],
+      "revisions_expected": [],
+      "required_limitations": [
+        "No persisted prior goal record is supplied for a revision-ledger operation."
+      ]
+    },
+    "acceptable_labels": [
+      "goal"
+    ],
+    "supported_propositions": [
+      "The intended goal is retirement of JSONL authority.",
+      "Archive access must be preserved.",
+      "Replacing every database is not the goal."
+    ],
+    "forbidden_propositions": [
+      "Every database will be replaced.",
+      "JSONL authority has already been retired.",
+      "Archive data may be discarded."
+    ],
+    "evidence_spans": [
+      {
+        "evidence_id": "ev-009-user",
+        "source_event_id": "event-gd-009",
+        "start": 6,
+        "end": 127,
+        "quote": "No, the goal is not to replace every database. The goal is to retire the JSONL authority while preserving archive access."
+      },
+      {
+        "evidence_id": "ev-009-agent",
+        "source_event_id": "event-gd-009",
+        "start": 135,
+        "end": 218,
+        "quote": "I will record the corrected goal and retain the explicit archive-access constraint."
+      }
+    ]
+  },
+  {
+    "schema_version": "observation_ledger.gold.v1",
+    "case_id": "obs-gd-010",
+    "semantic_expectations": {
+      "preferred_primary_label": "goal",
+      "label_rationale": "The user states a goal with a relative deadline; the observation must retain the phrase without fabricating an absolute timestamp.",
+      "acceptable_facets": [
+        {
+          "kind": "custom",
+          "value": {
+            "name": "goal_outcome",
+            "text": "migration plan ready"
+          },
+          "evidence_refs": [
+            "ev-010-user"
+          ]
+        },
+        {
+          "kind": "custom",
+          "value": {
+            "name": "relative_deadline",
+            "text": "next Friday"
+          },
+          "evidence_refs": [
+            "ev-010-user"
+          ]
+        }
+      ],
+      "forbidden_facets": [],
+      "required_summary_meanings": [
+        "The user stated a goal to have the migration plan ready by next Friday.",
+        "The agent said the relative deadline needs locale and timezone context for absolute resolution."
+      ],
+      "retrieval_eligible": true,
+      "assertion_expectation": {
+        "required": false,
+        "empty_is_valid": true,
+        "supported_if_authored": [
+          "The user has a stated goal to prepare the migration plan by the referenced next Friday."
+        ]
+      },
+      "associations_expected": [],
+      "revisions_expected": [],
+      "required_limitations": [
+        "The absolute deadline is unresolved because locale and timezone are not supplied."
+      ]
+    },
+    "acceptable_labels": [
+      "goal"
+    ],
+    "supported_propositions": [
+      "The desired outcome is a ready migration plan.",
+      "The stated deadline is next Friday relative to the event."
+    ],
+    "forbidden_propositions": [
+      "The migration plan is ready.",
+      "Next Friday corresponds to an unstated absolute date.",
+      "The deadline is midnight in the user's timezone."
+    ],
+    "evidence_spans": [
+      {
+        "evidence_id": "ev-010-user",
+        "source_event_id": "event-gd-010",
+        "start": 6,
+        "end": 65,
+        "quote": "My goal is to have the migration plan ready by next Friday."
+      },
+      {
+        "evidence_id": "ev-010-agent",
+        "source_event_id": "event-gd-010",
+        "start": 73,
+        "end": 184,
+        "quote": "I can record that goal, but next Friday needs locale and timezone context before becoming an absolute deadline."
+      }
+    ]
+  },
+  {
+    "schema_version": "observation_ledger.gold.v1",
+    "case_id": "obs-gd-011",
+    "semantic_expectations": {
+      "preferred_primary_label": "goal",
+      "label_rationale": "The user explicitly supplies a goal hierarchy, distinguishing the top-level outcome from supporting outcomes.",
+      "acceptable_facets": [
+        {
+          "kind": "custom",
+          "value": {
+            "name": "top_level_goal",
+            "text": "safe beta launch"
+          },
+          "evidence_refs": [
+            "ev-011-user"
+          ]
+        },
+        {
+          "kind": "custom",
+          "value": {
+            "name": "supporting_outcome",
+            "text": "documentation"
+          },
+          "evidence_refs": [
+            "ev-011-user"
+          ]
+        },
+        {
+          "kind": "custom",
+          "value": {
+            "name": "supporting_outcome",
+            "text": "rollback rehearsal"
+          },
+          "evidence_refs": [
+            "ev-011-user"
+          ]
+        }
+      ],
+      "forbidden_facets": [],
+      "required_summary_meanings": [
+        "The user defined a safe beta launch as the top-level goal.",
+        "Documentation and rollback rehearsal were identified as supporting outcomes rather than equal priorities."
+      ],
+      "retrieval_eligible": true,
+      "assertion_expectation": {
+        "required": false,
+        "empty_is_valid": true,
+        "supported_if_authored": [
+          "A safe beta launch is the stated top-level goal, supported by documentation and rollback rehearsal."
+        ]
+      },
+      "associations_expected": [],
+      "revisions_expected": [],
+      "required_limitations": []
+    },
+    "acceptable_labels": [
+      "goal"
+    ],
+    "supported_propositions": [
+      "Safe beta launch is the top-level goal.",
+      "Documentation and rollback rehearsal are subordinate outcomes."
+    ],
+    "forbidden_propositions": [
+      "The three outcomes have equal priority.",
+      "The beta launched safely.",
+      "Documentation and rollback rehearsal are optional."
+    ],
+    "evidence_spans": [
+      {
+        "evidence_id": "ev-011-user",
+        "source_event_id": "event-gd-011",
+        "start": 6,
+        "end": 137,
+        "quote": "The top-level goal is a safe beta launch. Documentation and rollback rehearsal are supporting outcomes, not independent priorities."
+      },
+      {
+        "evidence_id": "ev-011-agent",
+        "source_event_id": "event-gd-011",
+        "start": 145,
+        "end": 225,
+        "quote": "I will preserve that hierarchy instead of flattening all three into equal goals."
+      }
+    ]
+  },
+  {
+    "schema_version": "observation_ledger.gold.v1",
+    "case_id": "obs-gd-012",
+    "semantic_expectations": {
+      "preferred_primary_label": "goal",
+      "label_rationale": "The user defines an explicit completion criterion while the agent prevents the criterion from being mistaken for an achieved result.",
+      "acceptable_facets": [
+        {
+          "kind": "custom",
+          "value": {
+            "name": "success_criterion",
+            "text": "eight of ten test users finish onboarding without help"
+          },
+          "evidence_refs": [
+            "ev-012-user"
+          ]
+        }
+      ],
+      "forbidden_facets": [],
+      "required_summary_meanings": [
+        "The user defined goal achievement as eight of ten test users completing onboarding without help.",
+        "The event does not state that the criterion has been met."
+      ],
+      "retrieval_eligible": true,
+      "assertion_expectation": {
+        "required": false,
+        "empty_is_valid": true,
+        "supported_if_authored": [
+          "The onboarding goal has a stated success criterion of eight of ten unaided completions."
+        ]
+      },
+      "associations_expected": [],
+      "revisions_expected": [],
+      "required_limitations": [
+        "No test result is present in the event."
+      ]
+    },
+    "acceptable_labels": [
+      "goal"
+    ],
+    "supported_propositions": [
+      "Eight of ten unaided completions is the stated success criterion.",
+      "No achieved result is supplied."
+    ],
+    "forbidden_propositions": [
+      "Eight test users finished onboarding.",
+      "The onboarding goal is achieved.",
+      "The remaining two users failed."
+    ],
+    "evidence_spans": [
+      {
+        "evidence_id": "ev-012-user",
+        "source_event_id": "event-gd-012",
+        "start": 6,
+        "end": 101,
+        "quote": "We will consider the onboarding goal achieved when eight of ten test users finish without help."
+      },
+      {
+        "evidence_id": "ev-012-agent",
+        "source_event_id": "event-gd-012",
+        "start": 109,
+        "end": 198,
+        "quote": "That defines the success criterion; it does not establish that eight users have finished."
+      }
+    ]
+  },
+  {
+    "schema_version": "observation_ledger.gold.v1",
+    "case_id": "obs-gd-013",
+    "semantic_expectations": {
+      "preferred_primary_label": "goal",
+      "label_rationale": "The user states a simplification goal together with three explicit non-loss constraints, all of which must remain attached to the observation.",
+      "acceptable_facets": [
+        {
+          "kind": "custom",
+          "value": {
+            "name": "goal_outcome",
+            "text": "simpler library"
+          },
+          "evidence_refs": [
+            "ev-013-user"
+          ]
+        },
+        {
+          "kind": "custom",
+          "value": {
+            "name": "must_preserve",
+            "text": "causal search"
+          },
+          "evidence_refs": [
+            "ev-013-user"
+          ]
+        },
+        {
+          "kind": "custom",
+          "value": {
+            "name": "must_preserve",
+            "text": "source hydration"
+          },
+          "evidence_refs": [
+            "ev-013-user"
+          ]
+        },
+        {
+          "kind": "custom",
+          "value": {
+            "name": "must_preserve",
+            "text": "archive unpacking"
+          },
+          "evidence_refs": [
+            "ev-013-user"
+          ]
+        }
+      ],
+      "forbidden_facets": [],
+      "required_summary_meanings": [
+        "The user set a goal of simplifying the library.",
+        "Causal search, source hydration, and archive unpacking must be preserved."
+      ],
+      "retrieval_eligible": true,
+      "assertion_expectation": {
+        "required": false,
+        "empty_is_valid": true,
+        "supported_if_authored": [
+          "Library simplification is a stated goal constrained by preserving causal search, source hydration, and archive unpacking."
+        ]
+      },
+      "associations_expected": [],
+      "revisions_expected": [],
+      "required_limitations": [
+        "No implementation mechanism or quantitative simplicity measure is specified."
+      ]
+    },
+    "acceptable_labels": [
+      "goal"
+    ],
+    "supported_propositions": [
+      "The desired outcome is a simpler library.",
+      "Three named capabilities must be preserved."
+    ],
+    "forbidden_propositions": [
+      "Any named capability may be removed.",
+      "The library has already been simplified.",
+      "The user supplied a specific simplification design."
+    ],
+    "evidence_spans": [
+      {
+        "evidence_id": "ev-013-user",
+        "source_event_id": "event-gd-013",
+        "start": 6,
+        "end": 105,
+        "quote": "The goal is a simpler library without losing causal search, source hydration, or archive unpacking."
+      },
+      {
+        "evidence_id": "ev-013-agent",
+        "source_event_id": "event-gd-013",
+        "start": 113,
+        "end": 210,
+        "quote": "I will treat simplicity as the outcome and those three capabilities as must-preserve constraints."
+      }
+    ]
+  },
+  {
+    "schema_version": "observation_ledger.gold.v1",
+    "case_id": "obs-gd-014",
+    "semantic_expectations": {
+      "preferred_primary_label": "decision",
+      "label_rationale": "The user reports an explicit choice between alternatives and supplies the reason, while implementation remains unobserved.",
+      "acceptable_facets": [
+        {
+          "kind": "custom",
+          "value": {
+            "name": "selected_option",
+            "text": "PostgreSQL"
+          },
+          "evidence_refs": [
+            "ev-014-user"
+          ]
+        },
+        {
+          "kind": "custom",
+          "value": {
+            "name": "rejected_option",
+            "text": "JSONL"
+          },
+          "evidence_refs": [
+            "ev-014-user"
+          ]
+        },
+        {
+          "kind": "custom",
+          "value": {
+            "name": "rationale",
+            "text": "transactional revision chains"
+          },
+          "evidence_refs": [
+            "ev-014-user"
+          ]
+        }
+      ],
+      "forbidden_facets": [],
+      "required_summary_meanings": [
+        "The user reported a decision to use PostgreSQL instead of JSONL for transactional revision chains.",
+        "The agent did not claim PostgreSQL was deployed."
+      ],
+      "retrieval_eligible": true,
+      "assertion_expectation": {
+        "required": false,
+        "empty_is_valid": true,
+        "supported_if_authored": [
+          "The reported storage decision selects PostgreSQL over JSONL for transactional revision chains."
+        ]
+      },
+      "associations_expected": [],
+      "revisions_expected": [],
+      "required_limitations": [
+        "The event reports the decision but contains no implementation evidence."
+      ]
+    },
+    "acceptable_labels": [
+      "decision"
+    ],
+    "supported_propositions": [
+      "PostgreSQL was selected over JSONL.",
+      "Transactional revision chains were the stated rationale."
+    ],
+    "forbidden_propositions": [
+      "PostgreSQL is deployed.",
+      "JSONL data was migrated.",
+      "PostgreSQL objectively outperforms every alternative."
+    ],
+    "evidence_spans": [
+      {
+        "evidence_id": "ev-014-user",
+        "source_event_id": "event-gd-014",
+        "start": 6,
+        "end": 99,
+        "quote": "We decided to use PostgreSQL rather than JSONL because we need transactional revision chains."
+      },
+      {
+        "evidence_id": "ev-014-agent",
+        "source_event_id": "event-gd-014",
+        "start": 107,
+        "end": 204,
+        "quote": "I will record the choice and its stated rationale, not claim that PostgreSQL is already deployed."
+      }
+    ]
+  },
+  {
+    "schema_version": "observation_ledger.gold.v1",
+    "case_id": "obs-gd-015",
+    "semantic_expectations": {
+      "preferred_primary_label": "decision",
+      "label_rationale": "The user makes a current but explicitly provisional choice whose continued validity depends on future evidence.",
+      "acceptable_facets": [
+        {
+          "kind": "custom",
+          "value": {
+            "name": "provisional_choice",
+            "text": "provider A"
+          },
+          "evidence_refs": [
+            "ev-015-user"
+          ]
+        },
+        {
+          "kind": "custom",
+          "value": {
+            "name": "review_condition",
+            "text": "Friday's cost report"
+          },
+          "evidence_refs": [
+            "ev-015-user"
+          ]
+        }
+      ],
+      "forbidden_facets": [],
+      "required_summary_meanings": [
+        "The user provisionally chose provider A.",
+        "The choice remains subject to review after Friday's cost report."
+      ],
+      "retrieval_eligible": true,
+      "assertion_expectation": {
+        "required": false,
+        "empty_is_valid": true,
+        "supported_if_authored": [
+          "Provider A is the current provisional choice pending Friday's cost report."
+        ]
+      },
+      "associations_expected": [],
+      "revisions_expected": [],
+      "required_limitations": [
+        "The content and outcome of the future cost report are unknown.",
+        "The absolute date and timezone for Friday are not supplied."
+      ]
+    },
+    "acceptable_labels": [
+      "decision"
+    ],
+    "supported_propositions": [
+      "Provider A is the provisional choice.",
+      "The choice is not final before the cost report review."
+    ],
+    "forbidden_propositions": [
+      "Provider A is the final provider.",
+      "Friday's cost report supports provider A.",
+      "A provider contract was signed."
+    ],
+    "evidence_spans": [
+      {
+        "evidence_id": "ev-015-user",
+        "source_event_id": "event-gd-015",
+        "start": 6,
+        "end": 93,
+        "quote": "For now, choose provider A, but the decision is provisional until Friday's cost report."
+      },
+      {
+        "evidence_id": "ev-015-agent",
+        "source_event_id": "event-gd-015",
+        "start": 101,
+        "end": 209,
+        "quote": "I will preserve provider A as the provisional choice and Friday's report as the unresolved review condition."
+      }
+    ]
+  },
+  {
+    "schema_version": "observation_ledger.gold.v1",
+    "case_id": "obs-gd-016",
+    "semantic_expectations": {
+      "preferred_primary_label": "decision",
+      "label_rationale": "The explicit decision is to defer a choice until evidence arrives; no option is selected.",
+      "acceptable_facets": [
+        {
+          "kind": "custom",
+          "value": {
+            "name": "decision_action",
+            "text": "defer vector-store selection"
+          },
+          "evidence_refs": [
+            "ev-016-user"
+          ]
+        },
+        {
+          "kind": "custom",
+          "value": {
+            "name": "until_condition",
+            "text": "benchmark results are available"
+          },
+          "evidence_refs": [
+            "ev-016-user"
+          ]
+        }
+      ],
+      "forbidden_facets": [],
+      "required_summary_meanings": [
+        "The user reported a decision to defer vector-store selection until benchmark results are available.",
+        "No vector-store winner was established."
+      ],
+      "retrieval_eligible": true,
+      "assertion_expectation": {
+        "required": false,
+        "empty_is_valid": true,
+        "supported_if_authored": [
+          "Vector-store selection is deferred pending benchmark results."
+        ]
+      },
+      "associations_expected": [],
+      "revisions_expected": [],
+      "required_limitations": [
+        "No benchmark result or future selection is supplied."
+      ]
+    },
+    "acceptable_labels": [
+      "decision"
+    ],
+    "supported_propositions": [
+      "The decision defers vector-store selection.",
+      "Benchmark availability is the stated prerequisite."
+    ],
+    "forbidden_propositions": [
+      "A vector store was selected.",
+      "Benchmark results are available.",
+      "All vector stores failed."
+    ],
+    "evidence_spans": [
+      {
+        "evidence_id": "ev-016-user",
+        "source_event_id": "event-gd-016",
+        "start": 6,
+        "end": 88,
+        "quote": "We decided not to select a vector store until the benchmark results are available."
+      },
+      {
+        "evidence_id": "ev-016-agent",
+        "source_event_id": "event-gd-016",
+        "start": 96,
+        "end": 174,
+        "quote": "That is a decision to defer selection, not evidence that any vector store won."
+      }
+    ]
+  },
+  {
+    "schema_version": "observation_ledger.gold.v1",
+    "case_id": "obs-gd-017",
+    "semantic_expectations": {
+      "preferred_primary_label": "decision",
+      "label_rationale": "The event distinguishes an agent recommendation from the user's authoritative selection.",
+      "acceptable_facets": [
+        {
+          "kind": "custom",
+          "value": {
+            "name": "selected_option",
+            "text": "local deployment for the pilot"
+          },
+          "evidence_refs": [
+            "ev-017-user"
+          ]
+        },
+        {
+          "kind": "custom",
+          "value": {
+            "name": "unselected_recommendation",
+            "text": "hosted option"
+          },
+          "evidence_refs": [
+            "ev-017-user"
+          ]
+        }
+      ],
+      "forbidden_facets": [],
+      "required_summary_meanings": [
+        "The user selected local deployment for the pilot despite the agent's hosted recommendation.",
+        "The hosted option was not selected."
+      ],
+      "retrieval_eligible": true,
+      "assertion_expectation": {
+        "required": false,
+        "empty_is_valid": true,
+        "supported_if_authored": [
+          "The user decided on local deployment for the pilot."
+        ]
+      },
+      "associations_expected": [],
+      "revisions_expected": [],
+      "required_limitations": []
+    },
+    "acceptable_labels": [
+      "decision"
+    ],
+    "supported_propositions": [
+      "Local deployment is the user's selected pilot option.",
+      "Hosted deployment was only the agent's recommendation."
+    ],
+    "forbidden_propositions": [
+      "The hosted option was selected.",
+      "Local deployment is already running.",
+      "The agent made the final decision."
+    ],
+    "evidence_spans": [
+      {
+        "evidence_id": "ev-017-user",
+        "source_event_id": "event-gd-017",
+        "start": 6,
+        "end": 98,
+        "quote": "You recommended the hosted option, but I am deciding on the local deployment for this pilot."
+      },
+      {
+        "evidence_id": "ev-017-agent",
+        "source_event_id": "event-gd-017",
+        "start": 106,
+        "end": 206,
+        "quote": "Understood. Your decision is local deployment; my hosted recommendation was not the selected option."
+      }
+    ]
+  },
+  {
+    "schema_version": "observation_ledger.gold.v1",
+    "case_id": "obs-gd-018",
+    "semantic_expectations": {
+      "preferred_primary_label": "decision",
+      "label_rationale": "The user decides who has authority to choose but does not choose the rollout window itself.",
+      "acceptable_facets": [
+        {
+          "kind": "custom",
+          "value": {
+            "name": "delegated_decision",
+            "text": "rollout window"
+          },
+          "evidence_refs": [
+            "ev-018-user"
+          ]
+        },
+        {
+          "kind": "custom",
+          "value": {
+            "name": "decision_owner",
+            "text": "Maya"
+          },
+          "evidence_refs": [
+            "ev-018-user"
+          ]
+        }
+      ],
+      "forbidden_facets": [],
+      "required_summary_meanings": [
+        "The user delegated the rollout-window decision to Maya.",
+        "No rollout window was selected in the event."
+      ],
+      "retrieval_eligible": true,
+      "assertion_expectation": {
+        "required": false,
+        "empty_is_valid": true,
+        "supported_if_authored": [
+          "Maya was delegated authority to decide the rollout window."
+        ]
+      },
+      "associations_expected": [],
+      "revisions_expected": [],
+      "required_limitations": [
+        "Maya's acceptance and eventual decision are not observed."
+      ]
+    },
+    "acceptable_labels": [
+      "decision"
+    ],
+    "supported_propositions": [
+      "The user's decision was to delegate the rollout-window choice to Maya.",
+      "The rollout window remains unresolved."
+    ],
+    "forbidden_propositions": [
+      "Maya selected a rollout window.",
+      "The user selected the rollout window.",
+      "Maya accepted the delegation."
+    ],
+    "evidence_spans": [
+      {
+        "evidence_id": "ev-018-user",
+        "source_event_id": "event-gd-018",
+        "start": 6,
+        "end": 94,
+        "quote": "Maya will decide the rollout window. I have decided only to delegate that choice to her."
+      },
+      {
+        "evidence_id": "ev-018-agent",
+        "source_event_id": "event-gd-018",
+        "start": 102,
+        "end": 180,
+        "quote": "I will record the delegation decision and leave the rollout window unresolved."
+      }
+    ]
+  },
+  {
+    "schema_version": "observation_ledger.gold.v1",
+    "case_id": "obs-gd-019",
+    "semantic_expectations": {
+      "preferred_primary_label": "decision",
+      "label_rationale": "The user reports a past group decision and cites meeting notes, but the notes themselves are not supplied as evidence.",
+      "acceptable_facets": [
+        {
+          "kind": "custom",
+          "value": {
+            "name": "reported_decision",
+            "text": "pause the integration"
+          },
+          "evidence_refs": [
+            "ev-019-user"
+          ]
+        },
+        {
+          "kind": "custom",
+          "value": {
+            "name": "decision_owner",
+            "text": "steering group"
+          },
+          "evidence_refs": [
+            "ev-019-user"
+          ]
+        },
+        {
+          "kind": "custom",
+          "value": {
+            "name": "reported_source",
+            "text": "meeting notes"
+          },
+          "evidence_refs": [
+            "ev-019-user"
+          ]
+        }
+      ],
+      "forbidden_facets": [],
+      "required_summary_meanings": [
+        "The user reported that the steering group decided the previous week to pause the integration.",
+        "The report was attributed to meeting notes that are not included."
+      ],
+      "retrieval_eligible": true,
+      "assertion_expectation": {
+        "required": false,
+        "empty_is_valid": true,
+        "supported_if_authored": [
+          "The user reported a notes-based steering-group decision to pause the integration."
+        ]
+      },
+      "associations_expected": [],
+      "revisions_expected": [],
+      "required_limitations": [
+        "The decision is indirectly reported; the referenced meeting notes are unavailable.",
+        "Last week is relative to the event time."
+      ]
+    },
+    "acceptable_labels": [
+      "decision",
+      "statement"
+    ],
+    "supported_propositions": [
+      "The user reported a steering-group decision to pause the integration.",
+      "Meeting notes were named as the report source."
+    ],
+    "forbidden_propositions": [
+      "Core Memory independently verified the steering-group decision.",
+      "The integration is currently paused.",
+      "The meeting notes are present in the admissible evidence."
+    ],
+    "evidence_spans": [
+      {
+        "evidence_id": "ev-019-user",
+        "source_event_id": "event-gd-019",
+        "start": 6,
+        "end": 100,
+        "quote": "The steering group decided last week to pause the integration, according to the meeting notes."
+      },
+      {
+        "evidence_id": "ev-019-agent",
+        "source_event_id": "event-gd-019",
+        "start": 108,
+        "end": 204,
+        "quote": "I will preserve that as your notes-based report, not as independently verified committee action."
+      }
+    ]
+  },
+  {
+    "schema_version": "observation_ledger.gold.v1",
+    "case_id": "obs-gd-020",
+    "semantic_expectations": {
+      "preferred_primary_label": "decision",
+      "label_rationale": "The user corrects an earlier-mentioned alternative and states the current choice, while no persisted prior decision is available for a revision operation.",
+      "acceptable_facets": [
+        {
+          "kind": "correction",
+          "value": "PostgreSQL for the shared service",
+          "evidence_refs": [
+            "ev-020-user"
+          ]
+        },
+        {
+          "kind": "custom",
+          "value": {
+            "name": "prior_mention",
+            "text": "SQLite"
+          },
+          "evidence_refs": [
+            "ev-020-user"
+          ]
+        }
+      ],
+      "forbidden_facets": [],
+      "required_summary_meanings": [
+        "The user stated PostgreSQL as the current shared-service decision after previously mentioning SQLite.",
+        "No prior persisted record was supplied for mutation."
+      ],
+      "retrieval_eligible": true,
+      "assertion_expectation": {
+        "required": false,
+        "empty_is_valid": true,
+        "supported_if_authored": [
+          "PostgreSQL is the user's stated current database choice for the shared service."
+        ]
+      },
+      "associations_expected": [],
+      "revisions_expected": [],
+      "required_limitations": [
+        "No persisted prior decision artifact is supplied for revision-chain handling."
+      ]
+    },
+    "acceptable_labels": [
+      "decision"
+    ],
+    "supported_propositions": [
+      "The current stated choice is PostgreSQL for the shared service.",
+      "SQLite was an earlier mention, not the current choice."
+    ],
+    "forbidden_propositions": [
+      "A prior SQLite decision record was superseded in storage.",
+      "PostgreSQL is deployed.",
+      "SQLite was deployed and removed."
+    ],
+    "evidence_spans": [
+      {
+        "evidence_id": "ev-020-user",
+        "source_event_id": "event-gd-020",
+        "start": 6,
+        "end": 88,
+        "quote": "I mentioned SQLite earlier, but the decision for the shared service is PostgreSQL."
+      },
+      {
+        "evidence_id": "ev-020-agent",
+        "source_event_id": "event-gd-020",
+        "start": 96,
+        "end": 212,
+        "quote": "I will capture PostgreSQL as the stated current choice without mutating any prior record that was not supplied here."
+      }
+    ]
+  },
+  {
+    "schema_version": "observation_ledger.gold.v1",
+    "case_id": "obs-gd-021",
+    "semantic_expectations": {
+      "preferred_primary_label": "decision",
+      "label_rationale": "The user establishes a complete conditional choice rule, but the condition's outcome is not observed.",
+      "acceptable_facets": [
+        {
+          "kind": "custom",
+          "value": {
+            "name": "condition",
+            "text": "vendor signs the data agreement"
+          },
+          "evidence_refs": [
+            "ev-021-user"
+          ]
+        },
+        {
+          "kind": "custom",
+          "value": {
+            "name": "true_branch",
+            "text": "use hosted storage"
+          },
+          "evidence_refs": [
+            "ev-021-user"
+          ]
+        },
+        {
+          "kind": "custom",
+          "value": {
+            "name": "false_branch",
+            "text": "self-host"
+          },
+          "evidence_refs": [
+            "ev-021-user"
+          ]
+        }
+      ],
+      "forbidden_facets": [],
+      "required_summary_meanings": [
+        "The user stated a decision rule selecting hosted storage if the vendor signs the data agreement and self-hosting otherwise.",
+        "The event does not establish which branch is active."
+      ],
+      "retrieval_eligible": true,
+      "assertion_expectation": {
+        "required": false,
+        "empty_is_valid": true,
+        "supported_if_authored": [
+          "Storage deployment follows a stated conditional rule based on vendor signature of the data agreement."
+        ]
+      },
+      "associations_expected": [],
+      "revisions_expected": [],
+      "required_limitations": [
+        "The vendor-signature condition is unresolved."
+      ]
+    },
+    "acceptable_labels": [
+      "decision"
+    ],
+    "supported_propositions": [
+      "Hosted storage is the true branch of the decision rule.",
+      "Self-hosting is the false branch.",
+      "The active branch is unresolved."
+    ],
+    "forbidden_propositions": [
+      "The vendor signed the agreement.",
+      "Hosted storage is selected now.",
+      "Self-hosting is selected now."
+    ],
+    "evidence_spans": [
+      {
+        "evidence_id": "ev-021-user",
+        "source_event_id": "event-gd-021",
+        "start": 6,
+        "end": 118,
+        "quote": "We decided that if the vendor signs the data agreement, we will use hosted storage; otherwise we will self-host."
+      },
+      {
+        "evidence_id": "ev-021-agent",
+        "source_event_id": "event-gd-021",
+        "start": 126,
+        "end": 206,
+        "quote": "I will record the conditional decision rule and leave the active branch unknown."
+      }
+    ]
+  },
+  {
+    "schema_version": "observation_ledger.gold.v1",
+    "case_id": "obs-gd-022",
+    "semantic_expectations": {
+      "preferred_primary_label": "decision",
+      "label_rationale": "The user selects an option for a bounded trial and explicitly schedules reconsideration, so permanence would be unsupported.",
+      "acceptable_facets": [
+        {
+          "kind": "custom",
+          "value": {
+            "name": "time_boxed_choice",
+            "text": "option B"
+          },
+          "evidence_refs": [
+            "ev-022-user"
+          ]
+        },
+        {
+          "kind": "custom",
+          "value": {
+            "name": "trial_duration",
+            "text": "two weeks"
+          },
+          "evidence_refs": [
+            "ev-022-user"
+          ]
+        },
+        {
+          "kind": "custom",
+          "value": {
+            "name": "review_point",
+            "text": "after the trial"
+          },
+          "evidence_refs": [
+            "ev-022-user"
+          ]
+        }
+      ],
+      "forbidden_facets": [],
+      "required_summary_meanings": [
+        "The user selected option B for a two-week trial.",
+        "The decision is intended to be revisited after the trial."
+      ],
+      "retrieval_eligible": true,
+      "assertion_expectation": {
+        "required": false,
+        "empty_is_valid": true,
+        "supported_if_authored": [
+          "Option B is the selected two-week trial choice, subject to later review."
+        ]
+      },
+      "associations_expected": [],
+      "revisions_expected": [],
+      "required_limitations": [
+        "The trial start time and absolute review date are not stated."
+      ]
+    },
+    "acceptable_labels": [
+      "decision"
+    ],
+    "supported_propositions": [
+      "Option B was selected for a two-week trial.",
+      "The selection is reversible and scheduled for reconsideration."
+    ],
+    "forbidden_propositions": [
+      "Option B is the permanent choice.",
+      "The trial has started.",
+      "The trial succeeded."
+    ],
+    "evidence_spans": [
+      {
+        "evidence_id": "ev-022-user",
+        "source_event_id": "event-gd-022",
+        "start": 6,
+        "end": 87,
+        "quote": "Let's use option B for a two-week trial and revisit the decision after the trial."
+      },
+      {
+        "evidence_id": "ev-022-agent",
+        "source_event_id": "event-gd-022",
+        "start": 95,
+        "end": 185,
+        "quote": "I will mark option B as a time-boxed, reversible choice rather than a permanent selection."
+      }
+    ]
+  },
+  {
+    "schema_version": "observation_ledger.gold.v1",
+    "case_id": "obs-gd-023",
+    "semantic_expectations": {
+      "preferred_primary_label": "decision",
+      "label_rationale": "The user makes an approval decision while explicitly withholding authorization for the consequential action.",
+      "acceptable_facets": [
+        {
+          "kind": "custom",
+          "value": {
+            "name": "approved_object",
+            "text": "rollout plan"
+          },
+          "evidence_refs": [
+            "ev-023-user"
+          ]
+        },
+        {
+          "kind": "custom",
+          "value": {
+            "name": "withheld_authorization",
+            "text": "deployment until separate go-ahead"
+          },
+          "evidence_refs": [
+            "ev-023-user"
+          ]
+        }
+      ],
+      "forbidden_facets": [],
+      "required_summary_meanings": [
+        "The user approved the rollout plan.",
+        "The user explicitly withheld deployment authorization pending a separate go-ahead."
+      ],
+      "retrieval_eligible": true,
+      "assertion_expectation": {
+        "required": false,
+        "empty_is_valid": true,
+        "supported_if_authored": [
+          "The rollout plan is approved, while deployment remains unauthorized until a separate go-ahead."
+        ]
+      },
+      "associations_expected": [],
+      "revisions_expected": [],
+      "required_limitations": []
+    },
+    "acceptable_labels": [
+      "decision"
+    ],
+    "supported_propositions": [
+      "The rollout plan received approval.",
+      "Deployment is not authorized by this event."
+    ],
+    "forbidden_propositions": [
+      "Deployment was authorized.",
+      "Deployment occurred.",
+      "The separate go-ahead was sent."
+    ],
+    "evidence_spans": [
+      {
+        "evidence_id": "ev-023-user",
+        "source_event_id": "event-gd-023",
+        "start": 6,
+        "end": 94,
+        "quote": "I approve the rollout plan, but do not deploy anything until I send a separate go-ahead."
+      },
+      {
+        "evidence_id": "ev-023-agent",
+        "source_event_id": "event-gd-023",
+        "start": 102,
+        "end": 181,
+        "quote": "The plan is approved; deployment remains explicitly unauthorized in this event."
+      }
+    ]
+  },
+  {
+    "schema_version": "observation_ledger.gold.v1",
+    "case_id": "obs-gd-024",
+    "semantic_expectations": {
+      "preferred_primary_label": "decision",
+      "label_rationale": "The user reports both a rejected alternative and a release-bounded decision to retain current labels.",
+      "acceptable_facets": [
+        {
+          "kind": "custom",
+          "value": {
+            "name": "rejected_option",
+            "text": "expanded taxonomy"
+          },
+          "evidence_refs": [
+            "ev-024-user"
+          ]
+        },
+        {
+          "kind": "custom",
+          "value": {
+            "name": "selected_option",
+            "text": "current labels for this release"
+          },
+          "evidence_refs": [
+            "ev-024-user"
+          ]
+        }
+      ],
+      "forbidden_facets": [],
+      "required_summary_meanings": [
+        "The user reported a decision not to adopt the expanded taxonomy.",
+        "The current labels will be retained for this release."
+      ],
+      "retrieval_eligible": true,
+      "assertion_expectation": {
+        "required": false,
+        "empty_is_valid": true,
+        "supported_if_authored": [
+          "The current labels are the selected option for this release, and the expanded taxonomy is rejected."
+        ]
+      },
+      "associations_expected": [],
+      "revisions_expected": [],
+      "required_limitations": [
+        "The decision is explicitly bounded to this release."
+      ]
+    },
+    "acceptable_labels": [
+      "decision"
+    ],
+    "supported_propositions": [
+      "The expanded taxonomy was rejected.",
+      "The current labels were selected for this release."
+    ],
+    "forbidden_propositions": [
+      "The expanded taxonomy was deleted.",
+      "The current labels are permanent for all future releases.",
+      "The release has shipped."
+    ],
+    "evidence_spans": [
+      {
+        "evidence_id": "ev-024-user",
+        "source_event_id": "event-gd-024",
+        "start": 6,
+        "end": 100,
+        "quote": "We decided not to adopt the expanded taxonomy and to keep the current labels for this release."
+      },
+      {
+        "evidence_id": "ev-024-agent",
+        "source_event_id": "event-gd-024",
+        "start": 108,
+        "end": 187,
+        "quote": "I will record the rejection and the bounded status-quo choice for this release."
+      }
+    ]
+  },
+  {
+    "schema_version": "observation_ledger.gold.v1",
+    "case_id": "obs-gd-025",
+    "semantic_expectations": {
+      "preferred_primary_label": "decision",
+      "label_rationale": "The user resolves one part of the design while explicitly leaving a dependent legal question undecided.",
+      "acceptable_facets": [
+        {
+          "kind": "custom",
+          "value": {
+            "name": "decided_scope",
+            "text": "interface uses plain-language labels"
+          },
+          "evidence_refs": [
+            "ev-025-user"
+          ]
+        },
+        {
+          "kind": "custom",
+          "value": {
+            "name": "unresolved_scope",
+            "text": "legal wording pending counsel review"
+          },
+          "evidence_refs": [
+            "ev-025-user"
+          ]
+        }
+      ],
+      "forbidden_facets": [],
+      "required_summary_meanings": [
+        "The user decided that the interface will use plain-language labels.",
+        "Legal wording remains unresolved pending counsel review."
+      ],
+      "retrieval_eligible": true,
+      "assertion_expectation": {
+        "required": false,
+        "empty_is_valid": true,
+        "supported_if_authored": [
+          "Plain-language interface labels are decided, while legal wording remains pending counsel review."
+        ]
+      },
+      "associations_expected": [],
+      "revisions_expected": [],
+      "required_limitations": [
+        "The legal wording depends on an unobserved counsel review."
+      ]
+    },
+    "acceptable_labels": [
+      "decision"
+    ],
+    "supported_propositions": [
+      "Plain-language interface labels are the decided direction.",
+      "Legal wording is not yet decided."
+    ],
+    "forbidden_propositions": [
+      "Counsel approved legal wording.",
+      "The final legal wording is plain language.",
+      "The interface change was implemented."
+    ],
+    "evidence_spans": [
+      {
+        "evidence_id": "ev-025-user",
+        "source_event_id": "event-gd-025",
+        "start": 6,
+        "end": 122,
+        "quote": "I have decided that the interface will use plain-language labels; the legal wording is still pending counsel review."
+      },
+      {
+        "evidence_id": "ev-025-agent",
+        "source_event_id": "event-gd-025",
+        "start": 130,
+        "end": 212,
+        "quote": "I will capture the interface-label decision and keep the legal wording unresolved."
+      }
+    ]
+  }
+]

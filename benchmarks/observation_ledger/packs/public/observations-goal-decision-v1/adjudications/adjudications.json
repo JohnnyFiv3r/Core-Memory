@@ -1,0 +1,2324 @@
+[
+  {
+    "schema_version": "observation_ledger.adjudication.v1",
+    "case_id": "obs-gd-001",
+    "judge_model": "codex:gpt-5.6-sol-high",
+    "judge_critique": {
+      "acceptable_as_proposed": false,
+      "issues": [
+        "The facet kinds `goal_outcome` and `target_date` are outside the closed ObservationFacet vocabulary and are not namespaced extensions, so they would be rejected from canonical writes."
+      ],
+      "recommended_changes": [
+        "Remove the two facets or encode them as canonical `custom` facets with typed values that preserve the goal outcome and the unresolved October 1 date.",
+        "Retain `goal` as the primary label and keep the missing-year limitation and non-completion boundary."
+      ],
+      "strengths": [
+        "The goal, clinic count, and October 1 wording are directly entailed by the user's statement.",
+        "The gold does not upgrade the launch goal into completion or clinic participation.",
+        "Both evidence spans and quotes are exact, and no association or revision is invented."
+      ]
+    },
+    "human_decision": "revised",
+    "accepted_gold_checksum": "4c346ed4b61ed6eff0410da582717392ebc56d38d6f059f7973688df02ae4418",
+    "proposed_gold_checksum": "4b9633cd07c8947dd17b6263fb2d7924ab8c3b75241c55f5fa17e63f7ebb602c",
+    "human_review": {
+      "reviewer_role": "project_owner",
+      "decision_source": "explicit_user_acceptance",
+      "reviewed_at": "2026-08-06T16:49:12Z",
+      "acceptance_scope": "all_25_revised_gold_records",
+      "decision_reason": "Accepted after applying the judge-recommended canonical-facet corrections and removing the unsupported reflection alternative from case 004."
+    },
+    "judge_execution": {
+      "kind": "codex_internal",
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "high",
+      "critique_artifact_checksum": "211e4fe8dc5816ed6c6fac8e4966c1f5f373a0ea6268fabe9273fbb6b203e00d",
+      "provider_attempt": {
+        "requested": "openai:gpt-5.6-sol-high",
+        "status": "blocked",
+        "status_reason": "missing_credentials:openai",
+        "record_count": 0
+      },
+      "model_selection_user_supplied": true
+    },
+    "human_revision": {
+      "changes": [
+        {
+          "path": "/semantic_expectations/acceptable_facets",
+          "before": [
+            {
+              "kind": "goal_outcome",
+              "value": "launch the pilot to five clinics",
+              "evidence_refs": [
+                "ev-001-user"
+              ]
+            },
+            {
+              "kind": "target_date",
+              "value": "October 1",
+              "evidence_refs": [
+                "ev-001-user"
+              ]
+            }
+          ],
+          "after": [
+            {
+              "kind": "custom",
+              "value": {
+                "name": "goal_outcome",
+                "text": "launch the pilot to five clinics"
+              },
+              "evidence_refs": [
+                "ev-001-user"
+              ]
+            },
+            {
+              "kind": "custom",
+              "value": {
+                "name": "target_date",
+                "text": "October 1"
+              },
+              "evidence_refs": [
+                "ev-001-user"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "schema_version": "observation_ledger.adjudication.v1",
+    "case_id": "obs-gd-002",
+    "judge_model": "codex:gpt-5.6-sol-high",
+    "judge_critique": {
+      "acceptable_as_proposed": false,
+      "issues": [
+        "The facet kinds `metric` and `condition` are not canonical ObservationFacet kinds and are not valid namespaced extensions."
+      ],
+      "recommended_changes": [
+        "Replace the invalid facets with typed `custom` facets, or omit them and preserve the threshold and load-test condition in the evidence-grounded summary.",
+        "Keep the explicit limitation that no current measurement or load-test result is present."
+      ],
+      "strengths": [
+        "The primary `goal` label accurately captures the desired release outcome.",
+        "The threshold and documented-load-test condition are preserved without claiming present achievement.",
+        "Both evidence spans are exact, assertions remain optional, and no unsupported association or revision is required."
+      ]
+    },
+    "human_decision": "revised",
+    "accepted_gold_checksum": "1a925a4589b0ad372f5ce443dd9ea3e6bc161dbba8d9c155caaaf09d7dbc2469",
+    "proposed_gold_checksum": "4d5fd4f9f4adee8e9bd740495556204a2dd9c68befd016a1c8a5819eab05b8e9",
+    "human_review": {
+      "reviewer_role": "project_owner",
+      "decision_source": "explicit_user_acceptance",
+      "reviewed_at": "2026-08-06T16:49:12Z",
+      "acceptance_scope": "all_25_revised_gold_records",
+      "decision_reason": "Accepted after applying the judge-recommended canonical-facet corrections and removing the unsupported reflection alternative from case 004."
+    },
+    "judge_execution": {
+      "kind": "codex_internal",
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "high",
+      "critique_artifact_checksum": "211e4fe8dc5816ed6c6fac8e4966c1f5f373a0ea6268fabe9273fbb6b203e00d",
+      "provider_attempt": {
+        "requested": "openai:gpt-5.6-sol-high",
+        "status": "blocked",
+        "status_reason": "missing_credentials:openai",
+        "record_count": 0
+      },
+      "model_selection_user_supplied": true
+    },
+    "human_revision": {
+      "changes": [
+        {
+          "path": "/semantic_expectations/acceptable_facets",
+          "before": [
+            {
+              "kind": "metric",
+              "value": "p95 latency below 200 milliseconds",
+              "evidence_refs": [
+                "ev-002-user"
+              ]
+            },
+            {
+              "kind": "condition",
+              "value": "documented load test",
+              "evidence_refs": [
+                "ev-002-user"
+              ]
+            }
+          ],
+          "after": [
+            {
+              "kind": "custom",
+              "value": {
+                "name": "metric",
+                "text": "p95 latency below 200 milliseconds"
+              },
+              "evidence_refs": [
+                "ev-002-user"
+              ]
+            },
+            {
+              "kind": "custom",
+              "value": {
+                "name": "condition",
+                "text": "documented load test"
+              },
+              "evidence_refs": [
+                "ev-002-user"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "schema_version": "observation_ledger.adjudication.v1",
+    "case_id": "obs-gd-003",
+    "judge_model": "codex:gpt-5.6-sol-high",
+    "judge_critique": {
+      "acceptable_as_proposed": false,
+      "issues": [
+        "The facet kinds `goal_outcome` and `candidate_task` are outside the canonical facet vocabulary."
+      ],
+      "recommended_changes": [
+        "Convert the outcome/task distinction to typed `custom` facets or express it only in the summaries.",
+        "Continue to forbid treating the guide rewrite as mandatory, completed, or the only route to the outcome."
+      ],
+      "strengths": [
+        "The gold correctly distinguishes the outcome-level goal from one possible implementation task.",
+        "The primary label, summaries, supported propositions, and forbidden propositions are evidence-entailing.",
+        "Both evidence spans are exact and no optional semantic object is fabricated."
+      ]
+    },
+    "human_decision": "revised",
+    "accepted_gold_checksum": "f6c34b5515f21ad6b72bca28132ebafb911f2e642527bdb722147f722f3225b7",
+    "proposed_gold_checksum": "523f5da1d8f57aa782c73378db4a81b9e93c83f5cf4c71cf69173cc2794a9966",
+    "human_review": {
+      "reviewer_role": "project_owner",
+      "decision_source": "explicit_user_acceptance",
+      "reviewed_at": "2026-08-06T16:49:12Z",
+      "acceptance_scope": "all_25_revised_gold_records",
+      "decision_reason": "Accepted after applying the judge-recommended canonical-facet corrections and removing the unsupported reflection alternative from case 004."
+    },
+    "judge_execution": {
+      "kind": "codex_internal",
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "high",
+      "critique_artifact_checksum": "211e4fe8dc5816ed6c6fac8e4966c1f5f373a0ea6268fabe9273fbb6b203e00d",
+      "provider_attempt": {
+        "requested": "openai:gpt-5.6-sol-high",
+        "status": "blocked",
+        "status_reason": "missing_credentials:openai",
+        "record_count": 0
+      },
+      "model_selection_user_supplied": true
+    },
+    "human_revision": {
+      "changes": [
+        {
+          "path": "/semantic_expectations/acceptable_facets",
+          "before": [
+            {
+              "kind": "goal_outcome",
+              "value": "new engineer completes setup unaided",
+              "evidence_refs": [
+                "ev-003-user"
+              ]
+            },
+            {
+              "kind": "candidate_task",
+              "value": "rewrite the install guide",
+              "evidence_refs": [
+                "ev-003-user"
+              ]
+            }
+          ],
+          "after": [
+            {
+              "kind": "custom",
+              "value": {
+                "name": "goal_outcome",
+                "text": "new engineer completes setup unaided"
+              },
+              "evidence_refs": [
+                "ev-003-user"
+              ]
+            },
+            {
+              "kind": "custom",
+              "value": {
+                "name": "candidate_task",
+                "text": "rewrite the install guide"
+              },
+              "evidence_refs": [
+                "ev-003-user"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "schema_version": "observation_ledger.adjudication.v1",
+    "case_id": "obs-gd-004",
+    "judge_model": "codex:gpt-5.6-sol-high",
+    "judge_critique": {
+      "acceptable_as_proposed": false,
+      "issues": [
+        "The facet kinds `tentative_goal` and `non_commitment` are not in the canonical ObservationFacet vocabulary.",
+        "Including `reflection` in acceptable_labels is unsupported: the event expresses a tentative future goal and explicitly withholds a quarterly commitment, but it does not evaluate, interpret, learn from, or reconsider prior events."
+      ],
+      "recommended_changes": [
+        "Use typed `custom` facets for tentative status and current-quarter non-commitment, or omit the facets.",
+        "Remove `reflection` from acceptable_labels and retain `goal` as the supported label.",
+        "Keep the limitation that no committed delivery period is established."
+      ],
+      "strengths": [
+        "The summaries preserve both the longer-term aspiration and the explicit current-quarter non-commitment.",
+        "The gold correctly forbids claims that work started, that delivery is committed this quarter, or that the goal was permanently rejected.",
+        "Both evidence spans are exact, with no unsupported revision or association."
+      ]
+    },
+    "human_decision": "revised",
+    "accepted_gold_checksum": "96b5da9fc859db0d5973a6db3f69eb2a0c82e2673d9ea199018119e71c04b882",
+    "proposed_gold_checksum": "e7374b98a75b79eb7f4cd83cb054fa3750adc900b9ab5427bccb8b91de644f98",
+    "human_review": {
+      "reviewer_role": "project_owner",
+      "decision_source": "explicit_user_acceptance",
+      "reviewed_at": "2026-08-06T16:49:12Z",
+      "acceptance_scope": "all_25_revised_gold_records",
+      "decision_reason": "Accepted after applying the judge-recommended canonical-facet corrections and removing the unsupported reflection alternative from case 004."
+    },
+    "judge_execution": {
+      "kind": "codex_internal",
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "high",
+      "critique_artifact_checksum": "211e4fe8dc5816ed6c6fac8e4966c1f5f373a0ea6268fabe9273fbb6b203e00d",
+      "provider_attempt": {
+        "requested": "openai:gpt-5.6-sol-high",
+        "status": "blocked",
+        "status_reason": "missing_credentials:openai",
+        "record_count": 0
+      },
+      "model_selection_user_supplied": true
+    },
+    "human_revision": {
+      "changes": [
+        {
+          "path": "/semantic_expectations/acceptable_facets",
+          "before": [
+            {
+              "kind": "tentative_goal",
+              "value": "make the archive searchable eventually",
+              "evidence_refs": [
+                "ev-004-user"
+              ]
+            },
+            {
+              "kind": "non_commitment",
+              "value": "not committed this quarter",
+              "evidence_refs": [
+                "ev-004-user"
+              ]
+            }
+          ],
+          "after": [
+            {
+              "kind": "custom",
+              "value": {
+                "name": "tentative_goal",
+                "text": "make the archive searchable eventually"
+              },
+              "evidence_refs": [
+                "ev-004-user"
+              ]
+            },
+            {
+              "kind": "custom",
+              "value": {
+                "name": "non_commitment",
+                "text": "not committed this quarter"
+              },
+              "evidence_refs": [
+                "ev-004-user"
+              ]
+            }
+          ]
+        },
+        {
+          "path": "/acceptable_labels",
+          "before": [
+            "goal",
+            "reflection"
+          ],
+          "after": [
+            "goal"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "schema_version": "observation_ledger.adjudication.v1",
+    "case_id": "obs-gd-005",
+    "judge_model": "codex:gpt-5.6-sol-high",
+    "judge_critique": {
+      "acceptable_as_proposed": false,
+      "issues": [
+        "The facet kinds `conditional_goal` and `activation_condition` are not canonical and are not namespaced extensions."
+      ],
+      "recommended_changes": [
+        "Represent the conditional goal and threshold with typed `custom` facets or omit the facets while retaining both elements in the summary.",
+        "Preserve the unresolved-condition limitation and the prohibition against treating expansion as active."
+      ],
+      "strengths": [
+        "The goal label is appropriate and the eighty-percent condition is preserved exactly.",
+        "The gold does not infer threshold attainment, current expansion, or support-team approval.",
+        "Both evidence spans are exact and optional assertions, associations, and revisions remain appropriately non-required."
+      ]
+    },
+    "human_decision": "revised",
+    "accepted_gold_checksum": "9f626a4971f68d46ca03e5498afcdee4962e2af3a23d710151b87e3c19cd03bb",
+    "proposed_gold_checksum": "4b5dcfca28aea6e91a597e11ff7071357189567483e89f96ab39e560bad578d8",
+    "human_review": {
+      "reviewer_role": "project_owner",
+      "decision_source": "explicit_user_acceptance",
+      "reviewed_at": "2026-08-06T16:49:12Z",
+      "acceptance_scope": "all_25_revised_gold_records",
+      "decision_reason": "Accepted after applying the judge-recommended canonical-facet corrections and removing the unsupported reflection alternative from case 004."
+    },
+    "judge_execution": {
+      "kind": "codex_internal",
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "high",
+      "critique_artifact_checksum": "211e4fe8dc5816ed6c6fac8e4966c1f5f373a0ea6268fabe9273fbb6b203e00d",
+      "provider_attempt": {
+        "requested": "openai:gpt-5.6-sol-high",
+        "status": "blocked",
+        "status_reason": "missing_credentials:openai",
+        "record_count": 0
+      },
+      "model_selection_user_supplied": true
+    },
+    "human_revision": {
+      "changes": [
+        {
+          "path": "/semantic_expectations/acceptable_facets",
+          "before": [
+            {
+              "kind": "conditional_goal",
+              "value": "expand to the support team",
+              "evidence_refs": [
+                "ev-005-user"
+              ]
+            },
+            {
+              "kind": "activation_condition",
+              "value": "pilot reaches eighty percent weekly use",
+              "evidence_refs": [
+                "ev-005-user"
+              ]
+            }
+          ],
+          "after": [
+            {
+              "kind": "custom",
+              "value": {
+                "name": "conditional_goal",
+                "text": "expand to the support team"
+              },
+              "evidence_refs": [
+                "ev-005-user"
+              ]
+            },
+            {
+              "kind": "custom",
+              "value": {
+                "name": "activation_condition",
+                "text": "pilot reaches eighty percent weekly use"
+              },
+              "evidence_refs": [
+                "ev-005-user"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "schema_version": "observation_ledger.adjudication.v1",
+    "case_id": "obs-gd-006",
+    "judge_model": "codex:gpt-5.6-sol-high",
+    "judge_critique": {
+      "acceptable_as_proposed": false,
+      "issues": [
+        "The facet kinds `primary_goal` and `excluded_measure` are outside the closed canonical vocabulary."
+      ],
+      "recommended_changes": [
+        "Convert both meanings to typed `custom` facets or omit them and rely on the two grounded summary meanings.",
+        "Retain the limitation that the event provides no quantitative reliability measure."
+      ],
+      "strengths": [
+        "The gold preserves reliability as the primary cycle goal and feature count only as an excluded success measure.",
+        "It correctly avoids inferring improved reliability, a feature-count goal, or a ban on all feature work.",
+        "Both evidence spans are exact and no result, revision, or association is fabricated."
+      ]
+    },
+    "human_decision": "revised",
+    "accepted_gold_checksum": "431a5e7f5be115870310a6ccb602265be2be604640948267ca9e4716b4eb6d46",
+    "proposed_gold_checksum": "5dfaaff137e3b20e930e64e60ed67ee52e781eb096ad6a97bbc2f12cf7c9b87c",
+    "human_review": {
+      "reviewer_role": "project_owner",
+      "decision_source": "explicit_user_acceptance",
+      "reviewed_at": "2026-08-06T16:49:12Z",
+      "acceptance_scope": "all_25_revised_gold_records",
+      "decision_reason": "Accepted after applying the judge-recommended canonical-facet corrections and removing the unsupported reflection alternative from case 004."
+    },
+    "judge_execution": {
+      "kind": "codex_internal",
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "high",
+      "critique_artifact_checksum": "211e4fe8dc5816ed6c6fac8e4966c1f5f373a0ea6268fabe9273fbb6b203e00d",
+      "provider_attempt": {
+        "requested": "openai:gpt-5.6-sol-high",
+        "status": "blocked",
+        "status_reason": "missing_credentials:openai",
+        "record_count": 0
+      },
+      "model_selection_user_supplied": true
+    },
+    "human_revision": {
+      "changes": [
+        {
+          "path": "/semantic_expectations/acceptable_facets",
+          "before": [
+            {
+              "kind": "primary_goal",
+              "value": "reliability for this cycle",
+              "evidence_refs": [
+                "ev-006-user"
+              ]
+            },
+            {
+              "kind": "excluded_measure",
+              "value": "feature count",
+              "evidence_refs": [
+                "ev-006-user"
+              ]
+            }
+          ],
+          "after": [
+            {
+              "kind": "custom",
+              "value": {
+                "name": "primary_goal",
+                "text": "reliability for this cycle"
+              },
+              "evidence_refs": [
+                "ev-006-user"
+              ]
+            },
+            {
+              "kind": "custom",
+              "value": {
+                "name": "excluded_measure",
+                "text": "feature count"
+              },
+              "evidence_refs": [
+                "ev-006-user"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "schema_version": "observation_ledger.adjudication.v1",
+    "case_id": "obs-gd-007",
+    "judge_model": "codex:gpt-5.6-sol-high",
+    "judge_critique": {
+      "acceptable_as_proposed": false,
+      "issues": [
+        "The facet kinds `goal_owner` and `goal_outcome` are not canonical ObservationFacet kinds."
+      ],
+      "recommended_changes": [
+        "Use typed `custom` facets for reported goal ownership and outcome, or omit facets while keeping explicit attribution in the summaries.",
+        "Retain both `goal` and `statement` as acceptable labels because this is a user-attributed report of a third-party goal."
+      ],
+      "strengths": [
+        "The gold carefully distinguishes the compliance team's reported goal from the user's personal goals.",
+        "The limitation preserves both indirect attribution and the relative temporal expression.",
+        "Both evidence spans are exact, and completion, personal ownership, revisions, and associations are not invented."
+      ]
+    },
+    "human_decision": "revised",
+    "accepted_gold_checksum": "e05acf2903739082bbe4a81dde2e7fac11761eb9fa381c4e9b07781dd0f9c119",
+    "proposed_gold_checksum": "70d6604e97ed2078fc9efbeb862b3ee067acd21e71f76649e4187e130098fcf0",
+    "human_review": {
+      "reviewer_role": "project_owner",
+      "decision_source": "explicit_user_acceptance",
+      "reviewed_at": "2026-08-06T16:49:12Z",
+      "acceptance_scope": "all_25_revised_gold_records",
+      "decision_reason": "Accepted after applying the judge-recommended canonical-facet corrections and removing the unsupported reflection alternative from case 004."
+    },
+    "judge_execution": {
+      "kind": "codex_internal",
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "high",
+      "critique_artifact_checksum": "211e4fe8dc5816ed6c6fac8e4966c1f5f373a0ea6268fabe9273fbb6b203e00d",
+      "provider_attempt": {
+        "requested": "openai:gpt-5.6-sol-high",
+        "status": "blocked",
+        "status_reason": "missing_credentials:openai",
+        "record_count": 0
+      },
+      "model_selection_user_supplied": true
+    },
+    "human_revision": {
+      "changes": [
+        {
+          "path": "/semantic_expectations/acceptable_facets",
+          "before": [
+            {
+              "kind": "goal_owner",
+              "value": "compliance team",
+              "evidence_refs": [
+                "ev-007-user"
+              ]
+            },
+            {
+              "kind": "goal_outcome",
+              "value": "finish the control mapping this month",
+              "evidence_refs": [
+                "ev-007-user"
+              ]
+            }
+          ],
+          "after": [
+            {
+              "kind": "custom",
+              "value": {
+                "name": "goal_owner",
+                "text": "compliance team"
+              },
+              "evidence_refs": [
+                "ev-007-user"
+              ]
+            },
+            {
+              "kind": "custom",
+              "value": {
+                "name": "goal_outcome",
+                "text": "finish the control mapping this month"
+              },
+              "evidence_refs": [
+                "ev-007-user"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "schema_version": "observation_ledger.adjudication.v1",
+    "case_id": "obs-gd-008",
+    "judge_model": "codex:gpt-5.6-sol-high",
+    "judge_critique": {
+      "acceptable_as_proposed": false,
+      "issues": [
+        "The facet kinds `goal_outcome` and `acceptance` are outside the canonical facet vocabulary."
+      ],
+      "recommended_changes": [
+        "Use a typed `custom` facet for the goal outcome and, if a facet is desired for adoption, use the canonical `commitment` kind grounded in ev-008-user2 or another typed `custom` facet.",
+        "Retain the distinct proposal and user-adoption summary meanings."
+      ],
+      "strengths": [
+        "The gold accurately preserves joint authoring: the agent proposes and the user authoritatively adopts.",
+        "It does not claim current traceability or selection of an implementation.",
+        "All three evidence spans are exact, and no unsupported revision or association is expected."
+      ]
+    },
+    "human_decision": "revised",
+    "accepted_gold_checksum": "ca859fa9c9eb96ff00fcb1ae3172e9e660811343ebba599d42e75cb060d90462",
+    "proposed_gold_checksum": "cdbc1a63c604c3cf846ddad0eee1948ac9e81833f8730d7d0762dbd8a78b4271",
+    "human_review": {
+      "reviewer_role": "project_owner",
+      "decision_source": "explicit_user_acceptance",
+      "reviewed_at": "2026-08-06T16:49:12Z",
+      "acceptance_scope": "all_25_revised_gold_records",
+      "decision_reason": "Accepted after applying the judge-recommended canonical-facet corrections and removing the unsupported reflection alternative from case 004."
+    },
+    "judge_execution": {
+      "kind": "codex_internal",
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "high",
+      "critique_artifact_checksum": "211e4fe8dc5816ed6c6fac8e4966c1f5f373a0ea6268fabe9273fbb6b203e00d",
+      "provider_attempt": {
+        "requested": "openai:gpt-5.6-sol-high",
+        "status": "blocked",
+        "status_reason": "missing_credentials:openai",
+        "record_count": 0
+      },
+      "model_selection_user_supplied": true
+    },
+    "human_revision": {
+      "changes": [
+        {
+          "path": "/semantic_expectations/acceptable_facets",
+          "before": [
+            {
+              "kind": "goal_outcome",
+              "value": "every imported record traceable to its source",
+              "evidence_refs": [
+                "ev-008-agent"
+              ]
+            },
+            {
+              "kind": "acceptance",
+              "value": "adopt source traceability as the goal",
+              "evidence_refs": [
+                "ev-008-user2"
+              ]
+            }
+          ],
+          "after": [
+            {
+              "kind": "custom",
+              "value": {
+                "name": "goal_outcome",
+                "text": "every imported record traceable to its source"
+              },
+              "evidence_refs": [
+                "ev-008-agent"
+              ]
+            },
+            {
+              "kind": "commitment",
+              "value": "adopt source traceability as the goal",
+              "evidence_refs": [
+                "ev-008-user2"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "schema_version": "observation_ledger.adjudication.v1",
+    "case_id": "obs-gd-009",
+    "judge_model": "codex:gpt-5.6-sol-high",
+    "judge_critique": {
+      "acceptable_as_proposed": false,
+      "issues": [
+        "The facet kinds `corrected_goal`, `constraint`, and `rejected_scope` are not canonical ObservationFacet kinds."
+      ],
+      "recommended_changes": [
+        "Use the canonical `correction` facet to capture the observed correction, with typed `custom` facets only if separate preservation-constraint and rejected-scope structure is necessary.",
+        "Keep revisions_expected empty because no persisted prior semantic object is supplied."
+      ],
+      "strengths": [
+        "The corrected outcome, archive-access constraint, and rejected overbroad scope are all directly grounded.",
+        "The gold correctly avoids treating the goal as completed or authorizing archive deletion.",
+        "Both evidence spans are exact and the revision limitation respects the append-only revision boundary."
+      ]
+    },
+    "human_decision": "revised",
+    "accepted_gold_checksum": "58bc038cdf31f4d2b1930f645159be8bc4234da1d1e60abe5c2de1e05c9fd258",
+    "proposed_gold_checksum": "b638c9eab83e3b686bc970b648520be9f59e8e672af7d2088a3e8a2dbe949de9",
+    "human_review": {
+      "reviewer_role": "project_owner",
+      "decision_source": "explicit_user_acceptance",
+      "reviewed_at": "2026-08-06T16:49:12Z",
+      "acceptance_scope": "all_25_revised_gold_records",
+      "decision_reason": "Accepted after applying the judge-recommended canonical-facet corrections and removing the unsupported reflection alternative from case 004."
+    },
+    "judge_execution": {
+      "kind": "codex_internal",
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "high",
+      "critique_artifact_checksum": "211e4fe8dc5816ed6c6fac8e4966c1f5f373a0ea6268fabe9273fbb6b203e00d",
+      "provider_attempt": {
+        "requested": "openai:gpt-5.6-sol-high",
+        "status": "blocked",
+        "status_reason": "missing_credentials:openai",
+        "record_count": 0
+      },
+      "model_selection_user_supplied": true
+    },
+    "human_revision": {
+      "changes": [
+        {
+          "path": "/semantic_expectations/acceptable_facets",
+          "before": [
+            {
+              "kind": "corrected_goal",
+              "value": "retire the JSONL authority",
+              "evidence_refs": [
+                "ev-009-user"
+              ]
+            },
+            {
+              "kind": "constraint",
+              "value": "preserve archive access",
+              "evidence_refs": [
+                "ev-009-user"
+              ]
+            },
+            {
+              "kind": "rejected_scope",
+              "value": "replace every database",
+              "evidence_refs": [
+                "ev-009-user"
+              ]
+            }
+          ],
+          "after": [
+            {
+              "kind": "correction",
+              "value": "retire the JSONL authority",
+              "evidence_refs": [
+                "ev-009-user"
+              ]
+            },
+            {
+              "kind": "custom",
+              "value": {
+                "name": "constraint",
+                "text": "preserve archive access"
+              },
+              "evidence_refs": [
+                "ev-009-user"
+              ]
+            },
+            {
+              "kind": "custom",
+              "value": {
+                "name": "rejected_scope",
+                "text": "replace every database"
+              },
+              "evidence_refs": [
+                "ev-009-user"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "schema_version": "observation_ledger.adjudication.v1",
+    "case_id": "obs-gd-010",
+    "judge_model": "codex:gpt-5.6-sol-high",
+    "judge_critique": {
+      "acceptable_as_proposed": false,
+      "issues": [
+        "The facet kinds `goal_outcome` and `relative_deadline` are outside the canonical facet vocabulary."
+      ],
+      "recommended_changes": [
+        "Replace the invalid facets with typed `custom` facets or omit them while retaining `next Friday` verbatim in the summary.",
+        "Preserve the limitation that locale and timezone context is absent and prohibit an unsupported absolute timestamp."
+      ],
+      "strengths": [
+        "The primary goal label and requested outcome are directly supported.",
+        "The gold preserves the relative deadline without fabricating completion or temporal precision.",
+        "Both evidence spans are exact and no optional association or revision is invented."
+      ]
+    },
+    "human_decision": "revised",
+    "accepted_gold_checksum": "45dcfdbedc255234c72e643c9af8c16e37c1df48b699947e04020a9e37c14667",
+    "proposed_gold_checksum": "427ecb1c124e298a289ac91ba6dbfb1addd5e8234bd7d63c9232b182441a0109",
+    "human_review": {
+      "reviewer_role": "project_owner",
+      "decision_source": "explicit_user_acceptance",
+      "reviewed_at": "2026-08-06T16:49:12Z",
+      "acceptance_scope": "all_25_revised_gold_records",
+      "decision_reason": "Accepted after applying the judge-recommended canonical-facet corrections and removing the unsupported reflection alternative from case 004."
+    },
+    "judge_execution": {
+      "kind": "codex_internal",
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "high",
+      "critique_artifact_checksum": "211e4fe8dc5816ed6c6fac8e4966c1f5f373a0ea6268fabe9273fbb6b203e00d",
+      "provider_attempt": {
+        "requested": "openai:gpt-5.6-sol-high",
+        "status": "blocked",
+        "status_reason": "missing_credentials:openai",
+        "record_count": 0
+      },
+      "model_selection_user_supplied": true
+    },
+    "human_revision": {
+      "changes": [
+        {
+          "path": "/semantic_expectations/acceptable_facets",
+          "before": [
+            {
+              "kind": "goal_outcome",
+              "value": "migration plan ready",
+              "evidence_refs": [
+                "ev-010-user"
+              ]
+            },
+            {
+              "kind": "relative_deadline",
+              "value": "next Friday",
+              "evidence_refs": [
+                "ev-010-user"
+              ]
+            }
+          ],
+          "after": [
+            {
+              "kind": "custom",
+              "value": {
+                "name": "goal_outcome",
+                "text": "migration plan ready"
+              },
+              "evidence_refs": [
+                "ev-010-user"
+              ]
+            },
+            {
+              "kind": "custom",
+              "value": {
+                "name": "relative_deadline",
+                "text": "next Friday"
+              },
+              "evidence_refs": [
+                "ev-010-user"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "schema_version": "observation_ledger.adjudication.v1",
+    "case_id": "obs-gd-011",
+    "judge_model": "codex:gpt-5.6-sol-high",
+    "judge_critique": {
+      "acceptable_as_proposed": false,
+      "issues": [
+        "The facet kinds `top_level_goal` and `supporting_outcome` are not canonical ObservationFacet kinds."
+      ],
+      "recommended_changes": [
+        "Encode the hierarchy through typed `custom` facets or solely through the evidence-grounded summaries.",
+        "Retain the distinction between the safe beta launch and its two subordinate outcomes without claiming launch completion."
+      ],
+      "strengths": [
+        "The gold faithfully preserves the stated hierarchy rather than flattening all outcomes into equal goals.",
+        "The primary label and supported propositions are evidence-entailing.",
+        "Both evidence spans are exact, and no completion, association, or revision is fabricated."
+      ]
+    },
+    "human_decision": "revised",
+    "accepted_gold_checksum": "2b72c39fbc6234fb2d351c3a1e1ffb5fbe31565210d3b6fe2d9ffdd34ddf72da",
+    "proposed_gold_checksum": "a8109e0006f89f7e17d61d29f284b8c239c511b94fe6a89dcbc3ef4e495b59d4",
+    "human_review": {
+      "reviewer_role": "project_owner",
+      "decision_source": "explicit_user_acceptance",
+      "reviewed_at": "2026-08-06T16:49:12Z",
+      "acceptance_scope": "all_25_revised_gold_records",
+      "decision_reason": "Accepted after applying the judge-recommended canonical-facet corrections and removing the unsupported reflection alternative from case 004."
+    },
+    "judge_execution": {
+      "kind": "codex_internal",
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "high",
+      "critique_artifact_checksum": "211e4fe8dc5816ed6c6fac8e4966c1f5f373a0ea6268fabe9273fbb6b203e00d",
+      "provider_attempt": {
+        "requested": "openai:gpt-5.6-sol-high",
+        "status": "blocked",
+        "status_reason": "missing_credentials:openai",
+        "record_count": 0
+      },
+      "model_selection_user_supplied": true
+    },
+    "human_revision": {
+      "changes": [
+        {
+          "path": "/semantic_expectations/acceptable_facets",
+          "before": [
+            {
+              "kind": "top_level_goal",
+              "value": "safe beta launch",
+              "evidence_refs": [
+                "ev-011-user"
+              ]
+            },
+            {
+              "kind": "supporting_outcome",
+              "value": "documentation",
+              "evidence_refs": [
+                "ev-011-user"
+              ]
+            },
+            {
+              "kind": "supporting_outcome",
+              "value": "rollback rehearsal",
+              "evidence_refs": [
+                "ev-011-user"
+              ]
+            }
+          ],
+          "after": [
+            {
+              "kind": "custom",
+              "value": {
+                "name": "top_level_goal",
+                "text": "safe beta launch"
+              },
+              "evidence_refs": [
+                "ev-011-user"
+              ]
+            },
+            {
+              "kind": "custom",
+              "value": {
+                "name": "supporting_outcome",
+                "text": "documentation"
+              },
+              "evidence_refs": [
+                "ev-011-user"
+              ]
+            },
+            {
+              "kind": "custom",
+              "value": {
+                "name": "supporting_outcome",
+                "text": "rollback rehearsal"
+              },
+              "evidence_refs": [
+                "ev-011-user"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "schema_version": "observation_ledger.adjudication.v1",
+    "case_id": "obs-gd-012",
+    "judge_model": "codex:gpt-5.6-sol-high",
+    "judge_critique": {
+      "acceptable_as_proposed": false,
+      "issues": [
+        "The facet kind `success_criterion` is outside the canonical ObservationFacet vocabulary."
+      ],
+      "recommended_changes": [
+        "Represent the eight-of-ten criterion with a typed `custom` facet or omit the facet and retain the criterion in the summary.",
+        "Keep the explicit limitation and forbidden propositions separating the criterion from an achieved result."
+      ],
+      "strengths": [
+        "The goal label correctly captures an explicit success criterion.",
+        "The gold does not infer that eight users finished, that two failed, or that the goal was achieved.",
+        "Both evidence spans are exact and assertions remain optional."
+      ]
+    },
+    "human_decision": "revised",
+    "accepted_gold_checksum": "61981aa2bf0db83df84f05cfff7b554f738e2d4d4b2d01af39ca807505f405ab",
+    "proposed_gold_checksum": "e9f86c3648952ec0962afc247609c3f2cd069f47daee13a2e4fbb3dd76ec97c3",
+    "human_review": {
+      "reviewer_role": "project_owner",
+      "decision_source": "explicit_user_acceptance",
+      "reviewed_at": "2026-08-06T16:49:12Z",
+      "acceptance_scope": "all_25_revised_gold_records",
+      "decision_reason": "Accepted after applying the judge-recommended canonical-facet corrections and removing the unsupported reflection alternative from case 004."
+    },
+    "judge_execution": {
+      "kind": "codex_internal",
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "high",
+      "critique_artifact_checksum": "211e4fe8dc5816ed6c6fac8e4966c1f5f373a0ea6268fabe9273fbb6b203e00d",
+      "provider_attempt": {
+        "requested": "openai:gpt-5.6-sol-high",
+        "status": "blocked",
+        "status_reason": "missing_credentials:openai",
+        "record_count": 0
+      },
+      "model_selection_user_supplied": true
+    },
+    "human_revision": {
+      "changes": [
+        {
+          "path": "/semantic_expectations/acceptable_facets",
+          "before": [
+            {
+              "kind": "success_criterion",
+              "value": "eight of ten test users finish onboarding without help",
+              "evidence_refs": [
+                "ev-012-user"
+              ]
+            }
+          ],
+          "after": [
+            {
+              "kind": "custom",
+              "value": {
+                "name": "success_criterion",
+                "text": "eight of ten test users finish onboarding without help"
+              },
+              "evidence_refs": [
+                "ev-012-user"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "schema_version": "observation_ledger.adjudication.v1",
+    "case_id": "obs-gd-013",
+    "judge_model": "codex:gpt-5.6-sol-high",
+    "judge_critique": {
+      "acceptable_as_proposed": false,
+      "issues": [
+        "The facet kinds `goal_outcome` and `must_preserve` are outside the canonical facet vocabulary."
+      ],
+      "recommended_changes": [
+        "Convert the simplification outcome and three capability constraints to typed `custom` facets, or omit facets and preserve the complete list in the summary.",
+        "Retain the limitation that neither an implementation mechanism nor a quantitative simplicity measure is provided."
+      ],
+      "strengths": [
+        "The gold keeps all three must-preserve capabilities attached to the simplification goal.",
+        "It correctly forbids capability removal, completed simplification, and an invented design.",
+        "Both evidence spans are exact, with no unsupported association or revision."
+      ]
+    },
+    "human_decision": "revised",
+    "accepted_gold_checksum": "eb6f897ba5f4a3b4e27e45e4a9649356e7f59c84bb41ef7235f7963ee7000f82",
+    "proposed_gold_checksum": "f5780d112a6bbc9bc6dee7e2a708bb16290f3d3ae027116c33bc45ff70178db4",
+    "human_review": {
+      "reviewer_role": "project_owner",
+      "decision_source": "explicit_user_acceptance",
+      "reviewed_at": "2026-08-06T16:49:12Z",
+      "acceptance_scope": "all_25_revised_gold_records",
+      "decision_reason": "Accepted after applying the judge-recommended canonical-facet corrections and removing the unsupported reflection alternative from case 004."
+    },
+    "judge_execution": {
+      "kind": "codex_internal",
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "high",
+      "critique_artifact_checksum": "211e4fe8dc5816ed6c6fac8e4966c1f5f373a0ea6268fabe9273fbb6b203e00d",
+      "provider_attempt": {
+        "requested": "openai:gpt-5.6-sol-high",
+        "status": "blocked",
+        "status_reason": "missing_credentials:openai",
+        "record_count": 0
+      },
+      "model_selection_user_supplied": true
+    },
+    "human_revision": {
+      "changes": [
+        {
+          "path": "/semantic_expectations/acceptable_facets",
+          "before": [
+            {
+              "kind": "goal_outcome",
+              "value": "simpler library",
+              "evidence_refs": [
+                "ev-013-user"
+              ]
+            },
+            {
+              "kind": "must_preserve",
+              "value": "causal search",
+              "evidence_refs": [
+                "ev-013-user"
+              ]
+            },
+            {
+              "kind": "must_preserve",
+              "value": "source hydration",
+              "evidence_refs": [
+                "ev-013-user"
+              ]
+            },
+            {
+              "kind": "must_preserve",
+              "value": "archive unpacking",
+              "evidence_refs": [
+                "ev-013-user"
+              ]
+            }
+          ],
+          "after": [
+            {
+              "kind": "custom",
+              "value": {
+                "name": "goal_outcome",
+                "text": "simpler library"
+              },
+              "evidence_refs": [
+                "ev-013-user"
+              ]
+            },
+            {
+              "kind": "custom",
+              "value": {
+                "name": "must_preserve",
+                "text": "causal search"
+              },
+              "evidence_refs": [
+                "ev-013-user"
+              ]
+            },
+            {
+              "kind": "custom",
+              "value": {
+                "name": "must_preserve",
+                "text": "source hydration"
+              },
+              "evidence_refs": [
+                "ev-013-user"
+              ]
+            },
+            {
+              "kind": "custom",
+              "value": {
+                "name": "must_preserve",
+                "text": "archive unpacking"
+              },
+              "evidence_refs": [
+                "ev-013-user"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "schema_version": "observation_ledger.adjudication.v1",
+    "case_id": "obs-gd-014",
+    "judge_model": "codex:gpt-5.6-sol-high",
+    "judge_critique": {
+      "acceptable_as_proposed": false,
+      "issues": [
+        "The facet kinds `selected_option`, `rejected_option`, and `rationale` are not canonical ObservationFacet kinds."
+      ],
+      "recommended_changes": [
+        "Replace the three invalid facets with typed `custom` facets or omit them and preserve the choice and attributed rationale in the summaries.",
+        "Retain the implementation limitation and the prohibition against inferring deployment or migration."
+      ],
+      "strengths": [
+        "Decision is the correct primary label for the explicit reported choice.",
+        "The gold preserves the transactional-revision-chain rationale without turning it into universal product superiority.",
+        "Both evidence spans are exact, and implementation, revisions, and associations are not invented."
+      ]
+    },
+    "human_decision": "revised",
+    "accepted_gold_checksum": "a907a104b331b3765b66256152dbe49ecdf6b877ed3d1612dc7f0b61c99f479f",
+    "proposed_gold_checksum": "af4b660a435834069621abcaa5252eabdda9f558b82ab2e4819aef4f7a38d2db",
+    "human_review": {
+      "reviewer_role": "project_owner",
+      "decision_source": "explicit_user_acceptance",
+      "reviewed_at": "2026-08-06T16:49:12Z",
+      "acceptance_scope": "all_25_revised_gold_records",
+      "decision_reason": "Accepted after applying the judge-recommended canonical-facet corrections and removing the unsupported reflection alternative from case 004."
+    },
+    "judge_execution": {
+      "kind": "codex_internal",
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "high",
+      "critique_artifact_checksum": "211e4fe8dc5816ed6c6fac8e4966c1f5f373a0ea6268fabe9273fbb6b203e00d",
+      "provider_attempt": {
+        "requested": "openai:gpt-5.6-sol-high",
+        "status": "blocked",
+        "status_reason": "missing_credentials:openai",
+        "record_count": 0
+      },
+      "model_selection_user_supplied": true
+    },
+    "human_revision": {
+      "changes": [
+        {
+          "path": "/semantic_expectations/acceptable_facets",
+          "before": [
+            {
+              "kind": "selected_option",
+              "value": "PostgreSQL",
+              "evidence_refs": [
+                "ev-014-user"
+              ]
+            },
+            {
+              "kind": "rejected_option",
+              "value": "JSONL",
+              "evidence_refs": [
+                "ev-014-user"
+              ]
+            },
+            {
+              "kind": "rationale",
+              "value": "transactional revision chains",
+              "evidence_refs": [
+                "ev-014-user"
+              ]
+            }
+          ],
+          "after": [
+            {
+              "kind": "custom",
+              "value": {
+                "name": "selected_option",
+                "text": "PostgreSQL"
+              },
+              "evidence_refs": [
+                "ev-014-user"
+              ]
+            },
+            {
+              "kind": "custom",
+              "value": {
+                "name": "rejected_option",
+                "text": "JSONL"
+              },
+              "evidence_refs": [
+                "ev-014-user"
+              ]
+            },
+            {
+              "kind": "custom",
+              "value": {
+                "name": "rationale",
+                "text": "transactional revision chains"
+              },
+              "evidence_refs": [
+                "ev-014-user"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "schema_version": "observation_ledger.adjudication.v1",
+    "case_id": "obs-gd-015",
+    "judge_model": "codex:gpt-5.6-sol-high",
+    "judge_critique": {
+      "acceptable_as_proposed": false,
+      "issues": [
+        "The facet kinds `provisional_choice` and `review_condition` are not canonical ObservationFacet kinds."
+      ],
+      "recommended_changes": [
+        "Use typed `custom` facets for the provisional choice and review condition, or omit them while preserving provisionality in the summary and limitation.",
+        "Keep Friday relative and do not infer the cost report's contents or a final provider decision."
+      ],
+      "strengths": [
+        "The decision label is appropriate for a current but explicitly provisional choice.",
+        "The summaries, assertion boundary, and forbidden propositions preserve the unresolved future evidence condition.",
+        "Both evidence spans are exact, with no contract signing, revision, or association invented."
+      ]
+    },
+    "human_decision": "revised",
+    "accepted_gold_checksum": "b2b04fbf2182b840dcf1b7f1dcbe913eb1c6b267b09b64e408d7b9cec40ed158",
+    "proposed_gold_checksum": "892f65712d2eb297595eb78f1c3aace0d621b81bdee152925de6f1b6a4938639",
+    "human_review": {
+      "reviewer_role": "project_owner",
+      "decision_source": "explicit_user_acceptance",
+      "reviewed_at": "2026-08-06T16:49:12Z",
+      "acceptance_scope": "all_25_revised_gold_records",
+      "decision_reason": "Accepted after applying the judge-recommended canonical-facet corrections and removing the unsupported reflection alternative from case 004."
+    },
+    "judge_execution": {
+      "kind": "codex_internal",
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "high",
+      "critique_artifact_checksum": "211e4fe8dc5816ed6c6fac8e4966c1f5f373a0ea6268fabe9273fbb6b203e00d",
+      "provider_attempt": {
+        "requested": "openai:gpt-5.6-sol-high",
+        "status": "blocked",
+        "status_reason": "missing_credentials:openai",
+        "record_count": 0
+      },
+      "model_selection_user_supplied": true
+    },
+    "human_revision": {
+      "changes": [
+        {
+          "path": "/semantic_expectations/acceptable_facets",
+          "before": [
+            {
+              "kind": "provisional_choice",
+              "value": "provider A",
+              "evidence_refs": [
+                "ev-015-user"
+              ]
+            },
+            {
+              "kind": "review_condition",
+              "value": "Friday's cost report",
+              "evidence_refs": [
+                "ev-015-user"
+              ]
+            }
+          ],
+          "after": [
+            {
+              "kind": "custom",
+              "value": {
+                "name": "provisional_choice",
+                "text": "provider A"
+              },
+              "evidence_refs": [
+                "ev-015-user"
+              ]
+            },
+            {
+              "kind": "custom",
+              "value": {
+                "name": "review_condition",
+                "text": "Friday's cost report"
+              },
+              "evidence_refs": [
+                "ev-015-user"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "schema_version": "observation_ledger.adjudication.v1",
+    "case_id": "obs-gd-016",
+    "judge_model": "codex:gpt-5.6-sol-high",
+    "judge_critique": {
+      "acceptable_as_proposed": false,
+      "issues": [
+        "The facet kinds `decision_action` and `until_condition` are outside the canonical ObservationFacet vocabulary."
+      ],
+      "recommended_changes": [
+        "Encode the deferral and benchmark-availability condition as typed `custom` facets or omit the facets.",
+        "Retain the distinction between deciding to defer and selecting a vector store."
+      ],
+      "strengths": [
+        "The gold correctly recognizes deferral as the observed decision.",
+        "It does not infer benchmark availability, a winning store, or universal failure.",
+        "Both evidence spans are exact and no unsupported revision or association is expected."
+      ]
+    },
+    "human_decision": "revised",
+    "accepted_gold_checksum": "e3dfaa976a124d3b7b09e6eff9158e4d9604735b7f99663a71851b025f33c0bf",
+    "proposed_gold_checksum": "ebd98007f9bab414c7961cc9e7b8196d904f9833929a4082953545a6330123f3",
+    "human_review": {
+      "reviewer_role": "project_owner",
+      "decision_source": "explicit_user_acceptance",
+      "reviewed_at": "2026-08-06T16:49:12Z",
+      "acceptance_scope": "all_25_revised_gold_records",
+      "decision_reason": "Accepted after applying the judge-recommended canonical-facet corrections and removing the unsupported reflection alternative from case 004."
+    },
+    "judge_execution": {
+      "kind": "codex_internal",
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "high",
+      "critique_artifact_checksum": "211e4fe8dc5816ed6c6fac8e4966c1f5f373a0ea6268fabe9273fbb6b203e00d",
+      "provider_attempt": {
+        "requested": "openai:gpt-5.6-sol-high",
+        "status": "blocked",
+        "status_reason": "missing_credentials:openai",
+        "record_count": 0
+      },
+      "model_selection_user_supplied": true
+    },
+    "human_revision": {
+      "changes": [
+        {
+          "path": "/semantic_expectations/acceptable_facets",
+          "before": [
+            {
+              "kind": "decision_action",
+              "value": "defer vector-store selection",
+              "evidence_refs": [
+                "ev-016-user"
+              ]
+            },
+            {
+              "kind": "until_condition",
+              "value": "benchmark results are available",
+              "evidence_refs": [
+                "ev-016-user"
+              ]
+            }
+          ],
+          "after": [
+            {
+              "kind": "custom",
+              "value": {
+                "name": "decision_action",
+                "text": "defer vector-store selection"
+              },
+              "evidence_refs": [
+                "ev-016-user"
+              ]
+            },
+            {
+              "kind": "custom",
+              "value": {
+                "name": "until_condition",
+                "text": "benchmark results are available"
+              },
+              "evidence_refs": [
+                "ev-016-user"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "schema_version": "observation_ledger.adjudication.v1",
+    "case_id": "obs-gd-017",
+    "judge_model": "codex:gpt-5.6-sol-high",
+    "judge_critique": {
+      "acceptable_as_proposed": false,
+      "issues": [
+        "The facet kinds `selected_option` and `unselected_recommendation` are outside the canonical facet vocabulary."
+      ],
+      "recommended_changes": [
+        "Use typed `custom` facets for the selected local option and unselected hosted recommendation, or omit the facets.",
+        "Continue to preserve the user's decision authority and the lack of deployment evidence."
+      ],
+      "strengths": [
+        "The gold cleanly distinguishes the agent's recommendation from the user's authoritative decision.",
+        "It correctly forbids hosted selection, agent authority, and implemented local deployment.",
+        "Both evidence spans are exact and no unsupported association or revision is present."
+      ]
+    },
+    "human_decision": "revised",
+    "accepted_gold_checksum": "46ebbff00ca73cbf8d3b5cfff9d46d987ad14269f5220f54d114cc3f5976f189",
+    "proposed_gold_checksum": "1439a28f88dd615ca77a11b0da0254eefb3c1f3dcea2ddc9a7a2d3a40b6ee6d7",
+    "human_review": {
+      "reviewer_role": "project_owner",
+      "decision_source": "explicit_user_acceptance",
+      "reviewed_at": "2026-08-06T16:49:12Z",
+      "acceptance_scope": "all_25_revised_gold_records",
+      "decision_reason": "Accepted after applying the judge-recommended canonical-facet corrections and removing the unsupported reflection alternative from case 004."
+    },
+    "judge_execution": {
+      "kind": "codex_internal",
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "high",
+      "critique_artifact_checksum": "211e4fe8dc5816ed6c6fac8e4966c1f5f373a0ea6268fabe9273fbb6b203e00d",
+      "provider_attempt": {
+        "requested": "openai:gpt-5.6-sol-high",
+        "status": "blocked",
+        "status_reason": "missing_credentials:openai",
+        "record_count": 0
+      },
+      "model_selection_user_supplied": true
+    },
+    "human_revision": {
+      "changes": [
+        {
+          "path": "/semantic_expectations/acceptable_facets",
+          "before": [
+            {
+              "kind": "selected_option",
+              "value": "local deployment for the pilot",
+              "evidence_refs": [
+                "ev-017-user"
+              ]
+            },
+            {
+              "kind": "unselected_recommendation",
+              "value": "hosted option",
+              "evidence_refs": [
+                "ev-017-user"
+              ]
+            }
+          ],
+          "after": [
+            {
+              "kind": "custom",
+              "value": {
+                "name": "selected_option",
+                "text": "local deployment for the pilot"
+              },
+              "evidence_refs": [
+                "ev-017-user"
+              ]
+            },
+            {
+              "kind": "custom",
+              "value": {
+                "name": "unselected_recommendation",
+                "text": "hosted option"
+              },
+              "evidence_refs": [
+                "ev-017-user"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "schema_version": "observation_ledger.adjudication.v1",
+    "case_id": "obs-gd-018",
+    "judge_model": "codex:gpt-5.6-sol-high",
+    "judge_critique": {
+      "acceptable_as_proposed": false,
+      "issues": [
+        "The facet kinds `delegated_decision` and `decision_owner` are not canonical ObservationFacet kinds."
+      ],
+      "recommended_changes": [
+        "Represent the delegation subject and delegated owner with typed `custom` facets or omit facets while retaining them in the summary.",
+        "Preserve the limitation that Maya's acceptance and eventual rollout-window decision are unobserved."
+      ],
+      "strengths": [
+        "The decision label correctly applies to the user's delegation decision rather than to the unresolved rollout window.",
+        "Authority, non-acceptance, and non-selection boundaries are explicit.",
+        "Both evidence spans are exact, and no implementation, revision, or association is invented."
+      ]
+    },
+    "human_decision": "revised",
+    "accepted_gold_checksum": "95c809e0efc73548c0ebe6da6bc3bbbcfff02110dc9d4d78468a2d162f47e56a",
+    "proposed_gold_checksum": "c41b91c4dfb62dc476a2725209dd5f71d68312898e430d7ac23b1bb504e3c5ca",
+    "human_review": {
+      "reviewer_role": "project_owner",
+      "decision_source": "explicit_user_acceptance",
+      "reviewed_at": "2026-08-06T16:49:12Z",
+      "acceptance_scope": "all_25_revised_gold_records",
+      "decision_reason": "Accepted after applying the judge-recommended canonical-facet corrections and removing the unsupported reflection alternative from case 004."
+    },
+    "judge_execution": {
+      "kind": "codex_internal",
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "high",
+      "critique_artifact_checksum": "211e4fe8dc5816ed6c6fac8e4966c1f5f373a0ea6268fabe9273fbb6b203e00d",
+      "provider_attempt": {
+        "requested": "openai:gpt-5.6-sol-high",
+        "status": "blocked",
+        "status_reason": "missing_credentials:openai",
+        "record_count": 0
+      },
+      "model_selection_user_supplied": true
+    },
+    "human_revision": {
+      "changes": [
+        {
+          "path": "/semantic_expectations/acceptable_facets",
+          "before": [
+            {
+              "kind": "delegated_decision",
+              "value": "rollout window",
+              "evidence_refs": [
+                "ev-018-user"
+              ]
+            },
+            {
+              "kind": "decision_owner",
+              "value": "Maya",
+              "evidence_refs": [
+                "ev-018-user"
+              ]
+            }
+          ],
+          "after": [
+            {
+              "kind": "custom",
+              "value": {
+                "name": "delegated_decision",
+                "text": "rollout window"
+              },
+              "evidence_refs": [
+                "ev-018-user"
+              ]
+            },
+            {
+              "kind": "custom",
+              "value": {
+                "name": "decision_owner",
+                "text": "Maya"
+              },
+              "evidence_refs": [
+                "ev-018-user"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "schema_version": "observation_ledger.adjudication.v1",
+    "case_id": "obs-gd-019",
+    "judge_model": "codex:gpt-5.6-sol-high",
+    "judge_critique": {
+      "acceptable_as_proposed": false,
+      "issues": [
+        "The facet kinds `reported_decision`, `decision_owner`, and `reported_source` are outside the canonical facet vocabulary."
+      ],
+      "recommended_changes": [
+        "Use typed `custom` facets for the reported decision, attributed owner, and named source, or omit them while retaining the full attribution chain in the summary.",
+        "Keep both `decision` and `statement` acceptable and preserve the limitation that the meeting notes themselves are absent."
+      ],
+      "strengths": [
+        "The gold preserves the user-to-notes-to-steering-group attribution chain.",
+        "It does not independently verify the committee action or infer that the integration is currently paused.",
+        "Both evidence spans are exact, and no unsupported revision or association is expected."
+      ]
+    },
+    "human_decision": "revised",
+    "accepted_gold_checksum": "2ff76348e6d38ad1da0cc2f08c6d56daae16ec34079b8bd08365dbc9f53d9ef7",
+    "proposed_gold_checksum": "713de770e0bc1a9e50a01312f9479eade216ea4eb843aafa6dd40ad57e96d4f9",
+    "human_review": {
+      "reviewer_role": "project_owner",
+      "decision_source": "explicit_user_acceptance",
+      "reviewed_at": "2026-08-06T16:49:12Z",
+      "acceptance_scope": "all_25_revised_gold_records",
+      "decision_reason": "Accepted after applying the judge-recommended canonical-facet corrections and removing the unsupported reflection alternative from case 004."
+    },
+    "judge_execution": {
+      "kind": "codex_internal",
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "high",
+      "critique_artifact_checksum": "211e4fe8dc5816ed6c6fac8e4966c1f5f373a0ea6268fabe9273fbb6b203e00d",
+      "provider_attempt": {
+        "requested": "openai:gpt-5.6-sol-high",
+        "status": "blocked",
+        "status_reason": "missing_credentials:openai",
+        "record_count": 0
+      },
+      "model_selection_user_supplied": true
+    },
+    "human_revision": {
+      "changes": [
+        {
+          "path": "/semantic_expectations/acceptable_facets",
+          "before": [
+            {
+              "kind": "reported_decision",
+              "value": "pause the integration",
+              "evidence_refs": [
+                "ev-019-user"
+              ]
+            },
+            {
+              "kind": "decision_owner",
+              "value": "steering group",
+              "evidence_refs": [
+                "ev-019-user"
+              ]
+            },
+            {
+              "kind": "reported_source",
+              "value": "meeting notes",
+              "evidence_refs": [
+                "ev-019-user"
+              ]
+            }
+          ],
+          "after": [
+            {
+              "kind": "custom",
+              "value": {
+                "name": "reported_decision",
+                "text": "pause the integration"
+              },
+              "evidence_refs": [
+                "ev-019-user"
+              ]
+            },
+            {
+              "kind": "custom",
+              "value": {
+                "name": "decision_owner",
+                "text": "steering group"
+              },
+              "evidence_refs": [
+                "ev-019-user"
+              ]
+            },
+            {
+              "kind": "custom",
+              "value": {
+                "name": "reported_source",
+                "text": "meeting notes"
+              },
+              "evidence_refs": [
+                "ev-019-user"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "schema_version": "observation_ledger.adjudication.v1",
+    "case_id": "obs-gd-020",
+    "judge_model": "codex:gpt-5.6-sol-high",
+    "judge_critique": {
+      "acceptable_as_proposed": false,
+      "issues": [
+        "The facet kinds `current_choice` and `prior_mention` are outside the canonical ObservationFacet vocabulary."
+      ],
+      "recommended_changes": [
+        "Use a canonical `correction` facet if treating the contrast as a correction, plus a typed `custom` facet for the current choice if needed; otherwise omit facets.",
+        "Keep revisions_expected empty because no persisted prior decision object is available to supersede."
+      ],
+      "strengths": [
+        "The gold preserves PostgreSQL as the current stated choice and SQLite only as an earlier mention.",
+        "It explicitly avoids storage mutation, deployment claims, and an invented prior SQLite deployment.",
+        "Both evidence spans are exact and the revision-chain limitation is appropriate."
+      ]
+    },
+    "human_decision": "revised",
+    "accepted_gold_checksum": "7e80e55ac0899f116a9f3f198f0e7351a167aa3fcea95e3a97c6f32570ef22e3",
+    "proposed_gold_checksum": "8363ab5acdb96999f503bb19b23445e1c38ad7528741cc3c1f67f6f2d6c9d8a6",
+    "human_review": {
+      "reviewer_role": "project_owner",
+      "decision_source": "explicit_user_acceptance",
+      "reviewed_at": "2026-08-06T16:49:12Z",
+      "acceptance_scope": "all_25_revised_gold_records",
+      "decision_reason": "Accepted after applying the judge-recommended canonical-facet corrections and removing the unsupported reflection alternative from case 004."
+    },
+    "judge_execution": {
+      "kind": "codex_internal",
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "high",
+      "critique_artifact_checksum": "211e4fe8dc5816ed6c6fac8e4966c1f5f373a0ea6268fabe9273fbb6b203e00d",
+      "provider_attempt": {
+        "requested": "openai:gpt-5.6-sol-high",
+        "status": "blocked",
+        "status_reason": "missing_credentials:openai",
+        "record_count": 0
+      },
+      "model_selection_user_supplied": true
+    },
+    "human_revision": {
+      "changes": [
+        {
+          "path": "/semantic_expectations/acceptable_facets",
+          "before": [
+            {
+              "kind": "current_choice",
+              "value": "PostgreSQL for the shared service",
+              "evidence_refs": [
+                "ev-020-user"
+              ]
+            },
+            {
+              "kind": "prior_mention",
+              "value": "SQLite",
+              "evidence_refs": [
+                "ev-020-user"
+              ]
+            }
+          ],
+          "after": [
+            {
+              "kind": "correction",
+              "value": "PostgreSQL for the shared service",
+              "evidence_refs": [
+                "ev-020-user"
+              ]
+            },
+            {
+              "kind": "custom",
+              "value": {
+                "name": "prior_mention",
+                "text": "SQLite"
+              },
+              "evidence_refs": [
+                "ev-020-user"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "schema_version": "observation_ledger.adjudication.v1",
+    "case_id": "obs-gd-021",
+    "judge_model": "codex:gpt-5.6-sol-high",
+    "judge_critique": {
+      "acceptable_as_proposed": false,
+      "issues": [
+        "The facet kinds `condition`, `true_branch`, and `false_branch` are not canonical ObservationFacet kinds."
+      ],
+      "recommended_changes": [
+        "Encode the conditional rule in one typed `custom` facet or omit facets while retaining both branches in the summary.",
+        "Keep the active branch unresolved and forbid inferring a vendor signature or active storage choice."
+      ],
+      "strengths": [
+        "The decision label correctly captures a committed conditional rule rather than a presently active branch.",
+        "Both branches and the unresolved condition are preserved without implementation claims.",
+        "Both evidence spans are exact and no unsupported association or revision is authored."
+      ]
+    },
+    "human_decision": "revised",
+    "accepted_gold_checksum": "238d69d225f3db35e0fa78b0a75e1413f42bd23675f7b3c13b836f744c937465",
+    "proposed_gold_checksum": "2489cd0e20fe92cca64d53538f67a5f0f96cf0e03d2b73ad6abf115461d309ec",
+    "human_review": {
+      "reviewer_role": "project_owner",
+      "decision_source": "explicit_user_acceptance",
+      "reviewed_at": "2026-08-06T16:49:12Z",
+      "acceptance_scope": "all_25_revised_gold_records",
+      "decision_reason": "Accepted after applying the judge-recommended canonical-facet corrections and removing the unsupported reflection alternative from case 004."
+    },
+    "judge_execution": {
+      "kind": "codex_internal",
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "high",
+      "critique_artifact_checksum": "211e4fe8dc5816ed6c6fac8e4966c1f5f373a0ea6268fabe9273fbb6b203e00d",
+      "provider_attempt": {
+        "requested": "openai:gpt-5.6-sol-high",
+        "status": "blocked",
+        "status_reason": "missing_credentials:openai",
+        "record_count": 0
+      },
+      "model_selection_user_supplied": true
+    },
+    "human_revision": {
+      "changes": [
+        {
+          "path": "/semantic_expectations/acceptable_facets",
+          "before": [
+            {
+              "kind": "condition",
+              "value": "vendor signs the data agreement",
+              "evidence_refs": [
+                "ev-021-user"
+              ]
+            },
+            {
+              "kind": "true_branch",
+              "value": "use hosted storage",
+              "evidence_refs": [
+                "ev-021-user"
+              ]
+            },
+            {
+              "kind": "false_branch",
+              "value": "self-host",
+              "evidence_refs": [
+                "ev-021-user"
+              ]
+            }
+          ],
+          "after": [
+            {
+              "kind": "custom",
+              "value": {
+                "name": "condition",
+                "text": "vendor signs the data agreement"
+              },
+              "evidence_refs": [
+                "ev-021-user"
+              ]
+            },
+            {
+              "kind": "custom",
+              "value": {
+                "name": "true_branch",
+                "text": "use hosted storage"
+              },
+              "evidence_refs": [
+                "ev-021-user"
+              ]
+            },
+            {
+              "kind": "custom",
+              "value": {
+                "name": "false_branch",
+                "text": "self-host"
+              },
+              "evidence_refs": [
+                "ev-021-user"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "schema_version": "observation_ledger.adjudication.v1",
+    "case_id": "obs-gd-022",
+    "judge_model": "codex:gpt-5.6-sol-high",
+    "judge_critique": {
+      "acceptable_as_proposed": false,
+      "issues": [
+        "The facet kinds `time_boxed_choice`, `trial_duration`, and `review_point` are outside the canonical ObservationFacet vocabulary."
+      ],
+      "recommended_changes": [
+        "Represent the bounded trial choice, duration, and review point with typed `custom` facets or omit the facets.",
+        "Retain the limitation that the trial start and absolute review date are unknown."
+      ],
+      "strengths": [
+        "The gold preserves the two-week time box and planned reconsideration.",
+        "It correctly avoids treating option B as permanent or claiming the trial started or succeeded.",
+        "Both evidence spans are exact and no unsupported revision or association is expected."
+      ]
+    },
+    "human_decision": "revised",
+    "accepted_gold_checksum": "3f18b48a64c610e13e46877369cf6f3acfa32ac3a22990d553c686129ceed5cf",
+    "proposed_gold_checksum": "0b9766f186ba9446f6edbefa36a4db2a42028162b9f1e8a011eb34788aa69135",
+    "human_review": {
+      "reviewer_role": "project_owner",
+      "decision_source": "explicit_user_acceptance",
+      "reviewed_at": "2026-08-06T16:49:12Z",
+      "acceptance_scope": "all_25_revised_gold_records",
+      "decision_reason": "Accepted after applying the judge-recommended canonical-facet corrections and removing the unsupported reflection alternative from case 004."
+    },
+    "judge_execution": {
+      "kind": "codex_internal",
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "high",
+      "critique_artifact_checksum": "211e4fe8dc5816ed6c6fac8e4966c1f5f373a0ea6268fabe9273fbb6b203e00d",
+      "provider_attempt": {
+        "requested": "openai:gpt-5.6-sol-high",
+        "status": "blocked",
+        "status_reason": "missing_credentials:openai",
+        "record_count": 0
+      },
+      "model_selection_user_supplied": true
+    },
+    "human_revision": {
+      "changes": [
+        {
+          "path": "/semantic_expectations/acceptable_facets",
+          "before": [
+            {
+              "kind": "time_boxed_choice",
+              "value": "option B",
+              "evidence_refs": [
+                "ev-022-user"
+              ]
+            },
+            {
+              "kind": "trial_duration",
+              "value": "two weeks",
+              "evidence_refs": [
+                "ev-022-user"
+              ]
+            },
+            {
+              "kind": "review_point",
+              "value": "after the trial",
+              "evidence_refs": [
+                "ev-022-user"
+              ]
+            }
+          ],
+          "after": [
+            {
+              "kind": "custom",
+              "value": {
+                "name": "time_boxed_choice",
+                "text": "option B"
+              },
+              "evidence_refs": [
+                "ev-022-user"
+              ]
+            },
+            {
+              "kind": "custom",
+              "value": {
+                "name": "trial_duration",
+                "text": "two weeks"
+              },
+              "evidence_refs": [
+                "ev-022-user"
+              ]
+            },
+            {
+              "kind": "custom",
+              "value": {
+                "name": "review_point",
+                "text": "after the trial"
+              },
+              "evidence_refs": [
+                "ev-022-user"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "schema_version": "observation_ledger.adjudication.v1",
+    "case_id": "obs-gd-023",
+    "judge_model": "codex:gpt-5.6-sol-high",
+    "judge_critique": {
+      "acceptable_as_proposed": false,
+      "issues": [
+        "The facet kinds `approved_object` and `withheld_authorization` are outside the canonical ObservationFacet vocabulary."
+      ],
+      "recommended_changes": [
+        "Encode plan approval and withheld deployment authority as typed `custom` facets, or omit facets while preserving both meanings in the summary.",
+        "Keep deployment unauthorized until a separately observed go-ahead."
+      ],
+      "strengths": [
+        "The decision label accurately captures approval of the plan.",
+        "The gold sharply separates plan approval from authorization or execution of deployment.",
+        "Both evidence spans are exact, and no go-ahead, deployment, revision, or association is invented."
+      ]
+    },
+    "human_decision": "revised",
+    "accepted_gold_checksum": "5fbb08573fb82af212bc7cc28e1ac128179f705e872d5c1b90b3240bdebac761",
+    "proposed_gold_checksum": "a8cd8977550b934fc13a2faf58a6845feaf603b8a230ced2590e6972beaed555",
+    "human_review": {
+      "reviewer_role": "project_owner",
+      "decision_source": "explicit_user_acceptance",
+      "reviewed_at": "2026-08-06T16:49:12Z",
+      "acceptance_scope": "all_25_revised_gold_records",
+      "decision_reason": "Accepted after applying the judge-recommended canonical-facet corrections and removing the unsupported reflection alternative from case 004."
+    },
+    "judge_execution": {
+      "kind": "codex_internal",
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "high",
+      "critique_artifact_checksum": "211e4fe8dc5816ed6c6fac8e4966c1f5f373a0ea6268fabe9273fbb6b203e00d",
+      "provider_attempt": {
+        "requested": "openai:gpt-5.6-sol-high",
+        "status": "blocked",
+        "status_reason": "missing_credentials:openai",
+        "record_count": 0
+      },
+      "model_selection_user_supplied": true
+    },
+    "human_revision": {
+      "changes": [
+        {
+          "path": "/semantic_expectations/acceptable_facets",
+          "before": [
+            {
+              "kind": "approved_object",
+              "value": "rollout plan",
+              "evidence_refs": [
+                "ev-023-user"
+              ]
+            },
+            {
+              "kind": "withheld_authorization",
+              "value": "deployment until separate go-ahead",
+              "evidence_refs": [
+                "ev-023-user"
+              ]
+            }
+          ],
+          "after": [
+            {
+              "kind": "custom",
+              "value": {
+                "name": "approved_object",
+                "text": "rollout plan"
+              },
+              "evidence_refs": [
+                "ev-023-user"
+              ]
+            },
+            {
+              "kind": "custom",
+              "value": {
+                "name": "withheld_authorization",
+                "text": "deployment until separate go-ahead"
+              },
+              "evidence_refs": [
+                "ev-023-user"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "schema_version": "observation_ledger.adjudication.v1",
+    "case_id": "obs-gd-024",
+    "judge_model": "codex:gpt-5.6-sol-high",
+    "judge_critique": {
+      "acceptable_as_proposed": false,
+      "issues": [
+        "The facet kinds `rejected_option` and `selected_option` are outside the canonical ObservationFacet vocabulary."
+      ],
+      "recommended_changes": [
+        "Use typed `custom` facets for the rejected taxonomy and release-bounded retained labels, or omit the facets.",
+        "Preserve the release scope and continue to forbid permanence, deletion, or a shipped release."
+      ],
+      "strengths": [
+        "The gold captures both sides of the explicit decision: rejection of the expansion and retention of current labels.",
+        "The limitation prevents the release-bounded choice from becoming permanent policy.",
+        "Both evidence spans are exact and no unsupported implementation, association, or revision is inferred."
+      ]
+    },
+    "human_decision": "revised",
+    "accepted_gold_checksum": "1460cbdb7797cbd644e73ab606f6e2b02e1546ecae037893319eb862e12af0f6",
+    "proposed_gold_checksum": "4ee7d02a0e453702264458651b0087b1a65529966e03141b308cfb59782fac84",
+    "human_review": {
+      "reviewer_role": "project_owner",
+      "decision_source": "explicit_user_acceptance",
+      "reviewed_at": "2026-08-06T16:49:12Z",
+      "acceptance_scope": "all_25_revised_gold_records",
+      "decision_reason": "Accepted after applying the judge-recommended canonical-facet corrections and removing the unsupported reflection alternative from case 004."
+    },
+    "judge_execution": {
+      "kind": "codex_internal",
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "high",
+      "critique_artifact_checksum": "211e4fe8dc5816ed6c6fac8e4966c1f5f373a0ea6268fabe9273fbb6b203e00d",
+      "provider_attempt": {
+        "requested": "openai:gpt-5.6-sol-high",
+        "status": "blocked",
+        "status_reason": "missing_credentials:openai",
+        "record_count": 0
+      },
+      "model_selection_user_supplied": true
+    },
+    "human_revision": {
+      "changes": [
+        {
+          "path": "/semantic_expectations/acceptable_facets",
+          "before": [
+            {
+              "kind": "rejected_option",
+              "value": "expanded taxonomy",
+              "evidence_refs": [
+                "ev-024-user"
+              ]
+            },
+            {
+              "kind": "selected_option",
+              "value": "current labels for this release",
+              "evidence_refs": [
+                "ev-024-user"
+              ]
+            }
+          ],
+          "after": [
+            {
+              "kind": "custom",
+              "value": {
+                "name": "rejected_option",
+                "text": "expanded taxonomy"
+              },
+              "evidence_refs": [
+                "ev-024-user"
+              ]
+            },
+            {
+              "kind": "custom",
+              "value": {
+                "name": "selected_option",
+                "text": "current labels for this release"
+              },
+              "evidence_refs": [
+                "ev-024-user"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "schema_version": "observation_ledger.adjudication.v1",
+    "case_id": "obs-gd-025",
+    "judge_model": "codex:gpt-5.6-sol-high",
+    "judge_critique": {
+      "acceptable_as_proposed": false,
+      "issues": [
+        "The facet kinds `decided_scope` and `unresolved_scope` are outside the canonical ObservationFacet vocabulary."
+      ],
+      "recommended_changes": [
+        "Represent the resolved interface-label direction and unresolved legal wording as typed `custom` facets or omit the facets.",
+        "Retain the counsel-review limitation and the prohibition against inferring approved wording or implementation."
+      ],
+      "strengths": [
+        "The decision label correctly applies to the resolved interface-label portion only.",
+        "The gold preserves legal wording as pending and does not conflate it with the plain-language interface decision.",
+        "Both evidence spans are exact, and no counsel approval, implementation, association, or revision is fabricated."
+      ]
+    },
+    "human_decision": "revised",
+    "accepted_gold_checksum": "8758a8433da886a01850f1fddb69e6cd46fc3f8e6f805787dab3e11a2f09f403",
+    "proposed_gold_checksum": "c01daa32eb42216a4b0b81cc6fd00abb9ab5b3ba924f01f9429d898e8d713f97",
+    "human_review": {
+      "reviewer_role": "project_owner",
+      "decision_source": "explicit_user_acceptance",
+      "reviewed_at": "2026-08-06T16:49:12Z",
+      "acceptance_scope": "all_25_revised_gold_records",
+      "decision_reason": "Accepted after applying the judge-recommended canonical-facet corrections and removing the unsupported reflection alternative from case 004."
+    },
+    "judge_execution": {
+      "kind": "codex_internal",
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "high",
+      "critique_artifact_checksum": "211e4fe8dc5816ed6c6fac8e4966c1f5f373a0ea6268fabe9273fbb6b203e00d",
+      "provider_attempt": {
+        "requested": "openai:gpt-5.6-sol-high",
+        "status": "blocked",
+        "status_reason": "missing_credentials:openai",
+        "record_count": 0
+      },
+      "model_selection_user_supplied": true
+    },
+    "human_revision": {
+      "changes": [
+        {
+          "path": "/semantic_expectations/acceptable_facets",
+          "before": [
+            {
+              "kind": "decided_scope",
+              "value": "interface uses plain-language labels",
+              "evidence_refs": [
+                "ev-025-user"
+              ]
+            },
+            {
+              "kind": "unresolved_scope",
+              "value": "legal wording pending counsel review",
+              "evidence_refs": [
+                "ev-025-user"
+              ]
+            }
+          ],
+          "after": [
+            {
+              "kind": "custom",
+              "value": {
+                "name": "decided_scope",
+                "text": "interface uses plain-language labels"
+              },
+              "evidence_refs": [
+                "ev-025-user"
+              ]
+            },
+            {
+              "kind": "custom",
+              "value": {
+                "name": "unresolved_scope",
+                "text": "legal wording pending counsel review"
+              },
+              "evidence_refs": [
+                "ev-025-user"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+]

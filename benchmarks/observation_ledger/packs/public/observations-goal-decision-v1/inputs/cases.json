@@ -1,0 +1,1988 @@
+[
+  {
+    "schema_version": "observation_ledger.case.v1",
+    "case_id": "obs-gd-001",
+    "suite": "observations",
+    "behavioral_buckets": [
+      "goal_decision",
+      "goal",
+      "explicit_outcome",
+      "deadline"
+    ],
+    "privacy_classification": "public",
+    "source_events": [
+      {
+        "event_id": "event-gd-001",
+        "tenant_id": "public-benchmark-tenant",
+        "event_time": "2026-08-01T10:00:00Z",
+        "source_kind": "conversation_turn",
+        "content": "User: Our goal is to launch the pilot to five clinics by October 1.\nAgent: I will record that as the stated pilot goal, not as a completed launch."
+      }
+    ],
+    "admissible_evidence": [
+      {
+        "evidence_id": "ev-001-user",
+        "source_event_id": "event-gd-001",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "user",
+        "content": "Our goal is to launch the pilot to five clinics by October 1.",
+        "span": {
+          "start": 6,
+          "end": 67
+        }
+      },
+      {
+        "evidence_id": "ev-001-agent",
+        "source_event_id": "event-gd-001",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "agent",
+        "content": "I will record that as the stated pilot goal, not as a completed launch.",
+        "span": {
+          "start": 75,
+          "end": 146
+        }
+      }
+    ],
+    "task_input": {
+      "tenant_id": "public-benchmark-tenant",
+      "task_type": "annotate_event",
+      "operation": "annotate_event.v1",
+      "prompt_version": "observation.goal_decision.v1",
+      "instruction": "Author one evidence-bound ObservationBead and only warranted optional semantics."
+    },
+    "expected_structural_behavior": {
+      "output_contract": "core-memory.annotation-bundle.v1",
+      "required_output_fields": [
+        "primary_label",
+        "facets",
+        "title",
+        "summary",
+        "evidence_refs",
+        "retrieval_eligible",
+        "assertions",
+        "associations",
+        "revisions",
+        "limitations"
+      ],
+      "forbidden_output_fields": [
+        "gold",
+        "accepted_gold",
+        "adjudication",
+        "judge_critique",
+        "oracle_answer"
+      ],
+      "requires_citations": true,
+      "assertions_may_be_empty": true,
+      "exactly_one_observation_bead": true,
+      "source_event_lineage_count": 1
+    },
+    "evidence_checksum": "938e06b711bcfd98f3adc399b1984c865e6f4a43b93673d9d2b7666adbd69866"
+  },
+  {
+    "schema_version": "observation_ledger.case.v1",
+    "case_id": "obs-gd-002",
+    "suite": "observations",
+    "behavioral_buckets": [
+      "goal_decision",
+      "goal",
+      "measurable_outcome",
+      "quality_target"
+    ],
+    "privacy_classification": "public",
+    "source_events": [
+      {
+        "event_id": "event-gd-002",
+        "tenant_id": "public-benchmark-tenant",
+        "event_time": "2026-08-02T10:00:00Z",
+        "source_kind": "conversation_turn",
+        "content": "User: I want the next release to keep p95 latency below 200 milliseconds under the documented load test.\nAgent: That gives us a measurable performance goal; it does not show that the target is currently met."
+      }
+    ],
+    "admissible_evidence": [
+      {
+        "evidence_id": "ev-002-user",
+        "source_event_id": "event-gd-002",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "user",
+        "content": "I want the next release to keep p95 latency below 200 milliseconds under the documented load test.",
+        "span": {
+          "start": 6,
+          "end": 104
+        }
+      },
+      {
+        "evidence_id": "ev-002-agent",
+        "source_event_id": "event-gd-002",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "agent",
+        "content": "That gives us a measurable performance goal; it does not show that the target is currently met.",
+        "span": {
+          "start": 112,
+          "end": 207
+        }
+      }
+    ],
+    "task_input": {
+      "tenant_id": "public-benchmark-tenant",
+      "task_type": "annotate_event",
+      "operation": "annotate_event.v1",
+      "prompt_version": "observation.goal_decision.v1",
+      "instruction": "Author one evidence-bound ObservationBead and only warranted optional semantics."
+    },
+    "expected_structural_behavior": {
+      "output_contract": "core-memory.annotation-bundle.v1",
+      "required_output_fields": [
+        "primary_label",
+        "facets",
+        "title",
+        "summary",
+        "evidence_refs",
+        "retrieval_eligible",
+        "assertions",
+        "associations",
+        "revisions",
+        "limitations"
+      ],
+      "forbidden_output_fields": [
+        "gold",
+        "accepted_gold",
+        "adjudication",
+        "judge_critique",
+        "oracle_answer"
+      ],
+      "requires_citations": true,
+      "assertions_may_be_empty": true,
+      "exactly_one_observation_bead": true,
+      "source_event_lineage_count": 1
+    },
+    "evidence_checksum": "82c5f07620b0ad1e8d4adcb20d76f57712b9cd35fb22988b768d920708a180a7"
+  },
+  {
+    "schema_version": "observation_ledger.case.v1",
+    "case_id": "obs-gd-003",
+    "suite": "observations",
+    "behavioral_buckets": [
+      "goal_decision",
+      "goal",
+      "goal_task_boundary",
+      "documentation"
+    ],
+    "privacy_classification": "public",
+    "source_events": [
+      {
+        "event_id": "event-gd-003",
+        "tenant_id": "public-benchmark-tenant",
+        "event_time": "2026-08-03T10:00:00Z",
+        "source_kind": "conversation_turn",
+        "content": "User: The goal is for a new engineer to complete setup unaided; rewriting the install guide is only one possible task.\nAgent: Understood: successful unaided setup is the outcome, and the guide rewrite is not itself the goal."
+      }
+    ],
+    "admissible_evidence": [
+      {
+        "evidence_id": "ev-003-user",
+        "source_event_id": "event-gd-003",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "user",
+        "content": "The goal is for a new engineer to complete setup unaided; rewriting the install guide is only one possible task.",
+        "span": {
+          "start": 6,
+          "end": 118
+        }
+      },
+      {
+        "evidence_id": "ev-003-agent",
+        "source_event_id": "event-gd-003",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "agent",
+        "content": "Understood: successful unaided setup is the outcome, and the guide rewrite is not itself the goal.",
+        "span": {
+          "start": 126,
+          "end": 224
+        }
+      }
+    ],
+    "task_input": {
+      "tenant_id": "public-benchmark-tenant",
+      "task_type": "annotate_event",
+      "operation": "annotate_event.v1",
+      "prompt_version": "observation.goal_decision.v1",
+      "instruction": "Author one evidence-bound ObservationBead and only warranted optional semantics."
+    },
+    "expected_structural_behavior": {
+      "output_contract": "core-memory.annotation-bundle.v1",
+      "required_output_fields": [
+        "primary_label",
+        "facets",
+        "title",
+        "summary",
+        "evidence_refs",
+        "retrieval_eligible",
+        "assertions",
+        "associations",
+        "revisions",
+        "limitations"
+      ],
+      "forbidden_output_fields": [
+        "gold",
+        "accepted_gold",
+        "adjudication",
+        "judge_critique",
+        "oracle_answer"
+      ],
+      "requires_citations": true,
+      "assertions_may_be_empty": true,
+      "exactly_one_observation_bead": true,
+      "source_event_lineage_count": 1
+    },
+    "evidence_checksum": "25716fe3b718bcc336e204e28d0c35d804f92303b8af81a4c7f1a8e6b67fa08a"
+  },
+  {
+    "schema_version": "observation_ledger.case.v1",
+    "case_id": "obs-gd-004",
+    "suite": "observations",
+    "behavioral_buckets": [
+      "goal_decision",
+      "goal",
+      "tentative_goal",
+      "uncertainty"
+    ],
+    "privacy_classification": "public",
+    "source_events": [
+      {
+        "event_id": "event-gd-004",
+        "tenant_id": "public-benchmark-tenant",
+        "event_time": "2026-08-04T10:00:00Z",
+        "source_kind": "conversation_turn",
+        "content": "User: I would like to make the archive searchable eventually, but I am not committing to that scope this quarter.\nAgent: I will treat searchable archives as a tentative longer-term goal, not a current-quarter commitment."
+      }
+    ],
+    "admissible_evidence": [
+      {
+        "evidence_id": "ev-004-user",
+        "source_event_id": "event-gd-004",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "user",
+        "content": "I would like to make the archive searchable eventually, but I am not committing to that scope this quarter.",
+        "span": {
+          "start": 6,
+          "end": 113
+        }
+      },
+      {
+        "evidence_id": "ev-004-agent",
+        "source_event_id": "event-gd-004",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "agent",
+        "content": "I will treat searchable archives as a tentative longer-term goal, not a current-quarter commitment.",
+        "span": {
+          "start": 121,
+          "end": 220
+        }
+      }
+    ],
+    "task_input": {
+      "tenant_id": "public-benchmark-tenant",
+      "task_type": "annotate_event",
+      "operation": "annotate_event.v1",
+      "prompt_version": "observation.goal_decision.v1",
+      "instruction": "Author one evidence-bound ObservationBead and only warranted optional semantics."
+    },
+    "expected_structural_behavior": {
+      "output_contract": "core-memory.annotation-bundle.v1",
+      "required_output_fields": [
+        "primary_label",
+        "facets",
+        "title",
+        "summary",
+        "evidence_refs",
+        "retrieval_eligible",
+        "assertions",
+        "associations",
+        "revisions",
+        "limitations"
+      ],
+      "forbidden_output_fields": [
+        "gold",
+        "accepted_gold",
+        "adjudication",
+        "judge_critique",
+        "oracle_answer"
+      ],
+      "requires_citations": true,
+      "assertions_may_be_empty": true,
+      "exactly_one_observation_bead": true,
+      "source_event_lineage_count": 1
+    },
+    "evidence_checksum": "24ecf3dbb95cdc868b0317b6aabdcae0b62e401d93f23656bef39dfac7e370ed"
+  },
+  {
+    "schema_version": "observation_ledger.case.v1",
+    "case_id": "obs-gd-005",
+    "suite": "observations",
+    "behavioral_buckets": [
+      "goal_decision",
+      "goal",
+      "conditional_goal",
+      "future_branch"
+    ],
+    "privacy_classification": "public",
+    "source_events": [
+      {
+        "event_id": "event-gd-005",
+        "tenant_id": "public-benchmark-tenant",
+        "event_time": "2026-08-05T10:00:00Z",
+        "source_kind": "conversation_turn",
+        "content": "User: If the pilot reaches eighty percent weekly use, our next goal will be expanding to the support team.\nAgent: That expansion goal is conditional; this conversation does not establish that the usage threshold was reached."
+      }
+    ],
+    "admissible_evidence": [
+      {
+        "evidence_id": "ev-005-user",
+        "source_event_id": "event-gd-005",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "user",
+        "content": "If the pilot reaches eighty percent weekly use, our next goal will be expanding to the support team.",
+        "span": {
+          "start": 6,
+          "end": 106
+        }
+      },
+      {
+        "evidence_id": "ev-005-agent",
+        "source_event_id": "event-gd-005",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "agent",
+        "content": "That expansion goal is conditional; this conversation does not establish that the usage threshold was reached.",
+        "span": {
+          "start": 114,
+          "end": 224
+        }
+      }
+    ],
+    "task_input": {
+      "tenant_id": "public-benchmark-tenant",
+      "task_type": "annotate_event",
+      "operation": "annotate_event.v1",
+      "prompt_version": "observation.goal_decision.v1",
+      "instruction": "Author one evidence-bound ObservationBead and only warranted optional semantics."
+    },
+    "expected_structural_behavior": {
+      "output_contract": "core-memory.annotation-bundle.v1",
+      "required_output_fields": [
+        "primary_label",
+        "facets",
+        "title",
+        "summary",
+        "evidence_refs",
+        "retrieval_eligible",
+        "assertions",
+        "associations",
+        "revisions",
+        "limitations"
+      ],
+      "forbidden_output_fields": [
+        "gold",
+        "accepted_gold",
+        "adjudication",
+        "judge_critique",
+        "oracle_answer"
+      ],
+      "requires_citations": true,
+      "assertions_may_be_empty": true,
+      "exactly_one_observation_bead": true,
+      "source_event_lineage_count": 1
+    },
+    "evidence_checksum": "0e0bde53bf74fb24c003185d1f5b2ad39c712779ed9838c4353ab52cbea7698e"
+  },
+  {
+    "schema_version": "observation_ledger.case.v1",
+    "case_id": "obs-gd-006",
+    "suite": "observations",
+    "behavioral_buckets": [
+      "goal_decision",
+      "goal",
+      "priority",
+      "negative_constraint"
+    ],
+    "privacy_classification": "public",
+    "source_events": [
+      {
+        "event_id": "event-gd-006",
+        "tenant_id": "public-benchmark-tenant",
+        "event_time": "2026-08-06T10:00:00Z",
+        "source_kind": "conversation_turn",
+        "content": "User: Reliability is the primary goal for this cycle; adding more features is explicitly not the success measure.\nAgent: I will preserve reliability as the goal and feature count as an excluded measure, not invent a feature target."
+      }
+    ],
+    "admissible_evidence": [
+      {
+        "evidence_id": "ev-006-user",
+        "source_event_id": "event-gd-006",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "user",
+        "content": "Reliability is the primary goal for this cycle; adding more features is explicitly not the success measure.",
+        "span": {
+          "start": 6,
+          "end": 113
+        }
+      },
+      {
+        "evidence_id": "ev-006-agent",
+        "source_event_id": "event-gd-006",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "agent",
+        "content": "I will preserve reliability as the goal and feature count as an excluded measure, not invent a feature target.",
+        "span": {
+          "start": 121,
+          "end": 231
+        }
+      }
+    ],
+    "task_input": {
+      "tenant_id": "public-benchmark-tenant",
+      "task_type": "annotate_event",
+      "operation": "annotate_event.v1",
+      "prompt_version": "observation.goal_decision.v1",
+      "instruction": "Author one evidence-bound ObservationBead and only warranted optional semantics."
+    },
+    "expected_structural_behavior": {
+      "output_contract": "core-memory.annotation-bundle.v1",
+      "required_output_fields": [
+        "primary_label",
+        "facets",
+        "title",
+        "summary",
+        "evidence_refs",
+        "retrieval_eligible",
+        "assertions",
+        "associations",
+        "revisions",
+        "limitations"
+      ],
+      "forbidden_output_fields": [
+        "gold",
+        "accepted_gold",
+        "adjudication",
+        "judge_critique",
+        "oracle_answer"
+      ],
+      "requires_citations": true,
+      "assertions_may_be_empty": true,
+      "exactly_one_observation_bead": true,
+      "source_event_lineage_count": 1
+    },
+    "evidence_checksum": "fa967d579ffdb65f70e204b0c3c95552b7f4b59e33144795def6fb31e8844d30"
+  },
+  {
+    "schema_version": "observation_ledger.case.v1",
+    "case_id": "obs-gd-007",
+    "suite": "observations",
+    "behavioral_buckets": [
+      "goal_decision",
+      "goal",
+      "attribution",
+      "team_goal"
+    ],
+    "privacy_classification": "public",
+    "source_events": [
+      {
+        "event_id": "event-gd-007",
+        "tenant_id": "public-benchmark-tenant",
+        "event_time": "2026-08-07T10:00:00Z",
+        "source_kind": "conversation_turn",
+        "content": "User: The compliance team's goal is to finish the control mapping this month; I am reporting their goal, not adopting it personally.\nAgent: I will attribute the goal to the compliance team and keep your role as reporter."
+      }
+    ],
+    "admissible_evidence": [
+      {
+        "evidence_id": "ev-007-user",
+        "source_event_id": "event-gd-007",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "user",
+        "content": "The compliance team's goal is to finish the control mapping this month; I am reporting their goal, not adopting it personally.",
+        "span": {
+          "start": 6,
+          "end": 132
+        }
+      },
+      {
+        "evidence_id": "ev-007-agent",
+        "source_event_id": "event-gd-007",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "agent",
+        "content": "I will attribute the goal to the compliance team and keep your role as reporter.",
+        "span": {
+          "start": 140,
+          "end": 220
+        }
+      }
+    ],
+    "task_input": {
+      "tenant_id": "public-benchmark-tenant",
+      "task_type": "annotate_event",
+      "operation": "annotate_event.v1",
+      "prompt_version": "observation.goal_decision.v1",
+      "instruction": "Author one evidence-bound ObservationBead and only warranted optional semantics."
+    },
+    "expected_structural_behavior": {
+      "output_contract": "core-memory.annotation-bundle.v1",
+      "required_output_fields": [
+        "primary_label",
+        "facets",
+        "title",
+        "summary",
+        "evidence_refs",
+        "retrieval_eligible",
+        "assertions",
+        "associations",
+        "revisions",
+        "limitations"
+      ],
+      "forbidden_output_fields": [
+        "gold",
+        "accepted_gold",
+        "adjudication",
+        "judge_critique",
+        "oracle_answer"
+      ],
+      "requires_citations": true,
+      "assertions_may_be_empty": true,
+      "exactly_one_observation_bead": true,
+      "source_event_lineage_count": 1
+    },
+    "evidence_checksum": "40ffcf8f7693c1b4c0d4b01338a33d6044f6fde0c4a5f12e54005215dc7124fb"
+  },
+  {
+    "schema_version": "observation_ledger.case.v1",
+    "case_id": "obs-gd-008",
+    "suite": "observations",
+    "behavioral_buckets": [
+      "goal_decision",
+      "goal",
+      "joint_authoring",
+      "accepted_proposal"
+    ],
+    "privacy_classification": "public",
+    "source_events": [
+      {
+        "event_id": "event-gd-008",
+        "tenant_id": "public-benchmark-tenant",
+        "event_time": "2026-08-08T10:00:00Z",
+        "source_kind": "conversation_turn",
+        "content": "User: We need a clear outcome for this work.\nAgent: How about making every imported record traceable to its source?\nUser: Yes, adopt source traceability as the goal."
+      }
+    ],
+    "admissible_evidence": [
+      {
+        "evidence_id": "ev-008-user",
+        "source_event_id": "event-gd-008",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "user",
+        "content": "We need a clear outcome for this work.",
+        "span": {
+          "start": 6,
+          "end": 44
+        }
+      },
+      {
+        "evidence_id": "ev-008-agent",
+        "source_event_id": "event-gd-008",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "agent",
+        "content": "How about making every imported record traceable to its source?",
+        "span": {
+          "start": 52,
+          "end": 115
+        }
+      },
+      {
+        "evidence_id": "ev-008-user2",
+        "source_event_id": "event-gd-008",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "user",
+        "content": "Yes, adopt source traceability as the goal.",
+        "span": {
+          "start": 122,
+          "end": 165
+        }
+      }
+    ],
+    "task_input": {
+      "tenant_id": "public-benchmark-tenant",
+      "task_type": "annotate_event",
+      "operation": "annotate_event.v1",
+      "prompt_version": "observation.goal_decision.v1",
+      "instruction": "Author one evidence-bound ObservationBead and only warranted optional semantics."
+    },
+    "expected_structural_behavior": {
+      "output_contract": "core-memory.annotation-bundle.v1",
+      "required_output_fields": [
+        "primary_label",
+        "facets",
+        "title",
+        "summary",
+        "evidence_refs",
+        "retrieval_eligible",
+        "assertions",
+        "associations",
+        "revisions",
+        "limitations"
+      ],
+      "forbidden_output_fields": [
+        "gold",
+        "accepted_gold",
+        "adjudication",
+        "judge_critique",
+        "oracle_answer"
+      ],
+      "requires_citations": true,
+      "assertions_may_be_empty": true,
+      "exactly_one_observation_bead": true,
+      "source_event_lineage_count": 1
+    },
+    "evidence_checksum": "e5a081dd7098093eebb8bc078f61b4c62ed26d5f0086784c5b96953b853581d2"
+  },
+  {
+    "schema_version": "observation_ledger.case.v1",
+    "case_id": "obs-gd-009",
+    "suite": "observations",
+    "behavioral_buckets": [
+      "goal_decision",
+      "goal",
+      "correction",
+      "scope_boundary"
+    ],
+    "privacy_classification": "public",
+    "source_events": [
+      {
+        "event_id": "event-gd-009",
+        "tenant_id": "public-benchmark-tenant",
+        "event_time": "2026-08-09T10:00:00Z",
+        "source_kind": "conversation_turn",
+        "content": "User: No, the goal is not to replace every database. The goal is to retire the JSONL authority while preserving archive access.\nAgent: I will record the corrected goal and retain the explicit archive-access constraint."
+      }
+    ],
+    "admissible_evidence": [
+      {
+        "evidence_id": "ev-009-user",
+        "source_event_id": "event-gd-009",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "user",
+        "content": "No, the goal is not to replace every database. The goal is to retire the JSONL authority while preserving archive access.",
+        "span": {
+          "start": 6,
+          "end": 127
+        }
+      },
+      {
+        "evidence_id": "ev-009-agent",
+        "source_event_id": "event-gd-009",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "agent",
+        "content": "I will record the corrected goal and retain the explicit archive-access constraint.",
+        "span": {
+          "start": 135,
+          "end": 218
+        }
+      }
+    ],
+    "task_input": {
+      "tenant_id": "public-benchmark-tenant",
+      "task_type": "annotate_event",
+      "operation": "annotate_event.v1",
+      "prompt_version": "observation.goal_decision.v1",
+      "instruction": "Author one evidence-bound ObservationBead and only warranted optional semantics."
+    },
+    "expected_structural_behavior": {
+      "output_contract": "core-memory.annotation-bundle.v1",
+      "required_output_fields": [
+        "primary_label",
+        "facets",
+        "title",
+        "summary",
+        "evidence_refs",
+        "retrieval_eligible",
+        "assertions",
+        "associations",
+        "revisions",
+        "limitations"
+      ],
+      "forbidden_output_fields": [
+        "gold",
+        "accepted_gold",
+        "adjudication",
+        "judge_critique",
+        "oracle_answer"
+      ],
+      "requires_citations": true,
+      "assertions_may_be_empty": true,
+      "exactly_one_observation_bead": true,
+      "source_event_lineage_count": 1
+    },
+    "evidence_checksum": "14a8aaa0e8f1de20a29a012b8a2b1e3465da0ace3d0927b356cfce6efd826436"
+  },
+  {
+    "schema_version": "observation_ledger.case.v1",
+    "case_id": "obs-gd-010",
+    "suite": "observations",
+    "behavioral_buckets": [
+      "goal_decision",
+      "goal",
+      "relative_deadline",
+      "temporal_uncertainty"
+    ],
+    "privacy_classification": "public",
+    "source_events": [
+      {
+        "event_id": "event-gd-010",
+        "tenant_id": "public-benchmark-tenant",
+        "event_time": "2026-08-10T10:00:00Z",
+        "source_kind": "conversation_turn",
+        "content": "User: My goal is to have the migration plan ready by next Friday.\nAgent: I can record that goal, but next Friday needs locale and timezone context before becoming an absolute deadline."
+      }
+    ],
+    "admissible_evidence": [
+      {
+        "evidence_id": "ev-010-user",
+        "source_event_id": "event-gd-010",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "user",
+        "content": "My goal is to have the migration plan ready by next Friday.",
+        "span": {
+          "start": 6,
+          "end": 65
+        }
+      },
+      {
+        "evidence_id": "ev-010-agent",
+        "source_event_id": "event-gd-010",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "agent",
+        "content": "I can record that goal, but next Friday needs locale and timezone context before becoming an absolute deadline.",
+        "span": {
+          "start": 73,
+          "end": 184
+        }
+      }
+    ],
+    "task_input": {
+      "tenant_id": "public-benchmark-tenant",
+      "task_type": "annotate_event",
+      "operation": "annotate_event.v1",
+      "prompt_version": "observation.goal_decision.v1",
+      "instruction": "Author one evidence-bound ObservationBead and only warranted optional semantics."
+    },
+    "expected_structural_behavior": {
+      "output_contract": "core-memory.annotation-bundle.v1",
+      "required_output_fields": [
+        "primary_label",
+        "facets",
+        "title",
+        "summary",
+        "evidence_refs",
+        "retrieval_eligible",
+        "assertions",
+        "associations",
+        "revisions",
+        "limitations"
+      ],
+      "forbidden_output_fields": [
+        "gold",
+        "accepted_gold",
+        "adjudication",
+        "judge_critique",
+        "oracle_answer"
+      ],
+      "requires_citations": true,
+      "assertions_may_be_empty": true,
+      "exactly_one_observation_bead": true,
+      "source_event_lineage_count": 1
+    },
+    "evidence_checksum": "6d90e148845b6b70b5727e614971bf52bfb4cbcd8558e6b6ced3f28c7ea35627"
+  },
+  {
+    "schema_version": "observation_ledger.case.v1",
+    "case_id": "obs-gd-011",
+    "suite": "observations",
+    "behavioral_buckets": [
+      "goal_decision",
+      "goal",
+      "hierarchy",
+      "supporting_outcomes"
+    ],
+    "privacy_classification": "public",
+    "source_events": [
+      {
+        "event_id": "event-gd-011",
+        "tenant_id": "public-benchmark-tenant",
+        "event_time": "2026-08-11T10:00:00Z",
+        "source_kind": "conversation_turn",
+        "content": "User: The top-level goal is a safe beta launch. Documentation and rollback rehearsal are supporting outcomes, not independent priorities.\nAgent: I will preserve that hierarchy instead of flattening all three into equal goals."
+      }
+    ],
+    "admissible_evidence": [
+      {
+        "evidence_id": "ev-011-user",
+        "source_event_id": "event-gd-011",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "user",
+        "content": "The top-level goal is a safe beta launch. Documentation and rollback rehearsal are supporting outcomes, not independent priorities.",
+        "span": {
+          "start": 6,
+          "end": 137
+        }
+      },
+      {
+        "evidence_id": "ev-011-agent",
+        "source_event_id": "event-gd-011",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "agent",
+        "content": "I will preserve that hierarchy instead of flattening all three into equal goals.",
+        "span": {
+          "start": 145,
+          "end": 225
+        }
+      }
+    ],
+    "task_input": {
+      "tenant_id": "public-benchmark-tenant",
+      "task_type": "annotate_event",
+      "operation": "annotate_event.v1",
+      "prompt_version": "observation.goal_decision.v1",
+      "instruction": "Author one evidence-bound ObservationBead and only warranted optional semantics."
+    },
+    "expected_structural_behavior": {
+      "output_contract": "core-memory.annotation-bundle.v1",
+      "required_output_fields": [
+        "primary_label",
+        "facets",
+        "title",
+        "summary",
+        "evidence_refs",
+        "retrieval_eligible",
+        "assertions",
+        "associations",
+        "revisions",
+        "limitations"
+      ],
+      "forbidden_output_fields": [
+        "gold",
+        "accepted_gold",
+        "adjudication",
+        "judge_critique",
+        "oracle_answer"
+      ],
+      "requires_citations": true,
+      "assertions_may_be_empty": true,
+      "exactly_one_observation_bead": true,
+      "source_event_lineage_count": 1
+    },
+    "evidence_checksum": "49dd2c44dca9df9a4b364fc813935f0cad13d44aba59419caa0eb966e7d4517f"
+  },
+  {
+    "schema_version": "observation_ledger.case.v1",
+    "case_id": "obs-gd-012",
+    "suite": "observations",
+    "behavioral_buckets": [
+      "goal_decision",
+      "goal",
+      "success_criterion",
+      "completion_boundary"
+    ],
+    "privacy_classification": "public",
+    "source_events": [
+      {
+        "event_id": "event-gd-012",
+        "tenant_id": "public-benchmark-tenant",
+        "event_time": "2026-08-12T10:00:00Z",
+        "source_kind": "conversation_turn",
+        "content": "User: We will consider the onboarding goal achieved when eight of ten test users finish without help.\nAgent: That defines the success criterion; it does not establish that eight users have finished."
+      }
+    ],
+    "admissible_evidence": [
+      {
+        "evidence_id": "ev-012-user",
+        "source_event_id": "event-gd-012",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "user",
+        "content": "We will consider the onboarding goal achieved when eight of ten test users finish without help.",
+        "span": {
+          "start": 6,
+          "end": 101
+        }
+      },
+      {
+        "evidence_id": "ev-012-agent",
+        "source_event_id": "event-gd-012",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "agent",
+        "content": "That defines the success criterion; it does not establish that eight users have finished.",
+        "span": {
+          "start": 109,
+          "end": 198
+        }
+      }
+    ],
+    "task_input": {
+      "tenant_id": "public-benchmark-tenant",
+      "task_type": "annotate_event",
+      "operation": "annotate_event.v1",
+      "prompt_version": "observation.goal_decision.v1",
+      "instruction": "Author one evidence-bound ObservationBead and only warranted optional semantics."
+    },
+    "expected_structural_behavior": {
+      "output_contract": "core-memory.annotation-bundle.v1",
+      "required_output_fields": [
+        "primary_label",
+        "facets",
+        "title",
+        "summary",
+        "evidence_refs",
+        "retrieval_eligible",
+        "assertions",
+        "associations",
+        "revisions",
+        "limitations"
+      ],
+      "forbidden_output_fields": [
+        "gold",
+        "accepted_gold",
+        "adjudication",
+        "judge_critique",
+        "oracle_answer"
+      ],
+      "requires_citations": true,
+      "assertions_may_be_empty": true,
+      "exactly_one_observation_bead": true,
+      "source_event_lineage_count": 1
+    },
+    "evidence_checksum": "b8f04778d1d596558c900f55d894481c4691397604eeb5ff7e40d2a15ff648f7"
+  },
+  {
+    "schema_version": "observation_ledger.case.v1",
+    "case_id": "obs-gd-013",
+    "suite": "observations",
+    "behavioral_buckets": [
+      "goal_decision",
+      "goal",
+      "constraint",
+      "capability_preservation"
+    ],
+    "privacy_classification": "public",
+    "source_events": [
+      {
+        "event_id": "event-gd-013",
+        "tenant_id": "public-benchmark-tenant",
+        "event_time": "2026-08-13T10:00:00Z",
+        "source_kind": "conversation_turn",
+        "content": "User: The goal is a simpler library without losing causal search, source hydration, or archive unpacking.\nAgent: I will treat simplicity as the outcome and those three capabilities as must-preserve constraints."
+      }
+    ],
+    "admissible_evidence": [
+      {
+        "evidence_id": "ev-013-user",
+        "source_event_id": "event-gd-013",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "user",
+        "content": "The goal is a simpler library without losing causal search, source hydration, or archive unpacking.",
+        "span": {
+          "start": 6,
+          "end": 105
+        }
+      },
+      {
+        "evidence_id": "ev-013-agent",
+        "source_event_id": "event-gd-013",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "agent",
+        "content": "I will treat simplicity as the outcome and those three capabilities as must-preserve constraints.",
+        "span": {
+          "start": 113,
+          "end": 210
+        }
+      }
+    ],
+    "task_input": {
+      "tenant_id": "public-benchmark-tenant",
+      "task_type": "annotate_event",
+      "operation": "annotate_event.v1",
+      "prompt_version": "observation.goal_decision.v1",
+      "instruction": "Author one evidence-bound ObservationBead and only warranted optional semantics."
+    },
+    "expected_structural_behavior": {
+      "output_contract": "core-memory.annotation-bundle.v1",
+      "required_output_fields": [
+        "primary_label",
+        "facets",
+        "title",
+        "summary",
+        "evidence_refs",
+        "retrieval_eligible",
+        "assertions",
+        "associations",
+        "revisions",
+        "limitations"
+      ],
+      "forbidden_output_fields": [
+        "gold",
+        "accepted_gold",
+        "adjudication",
+        "judge_critique",
+        "oracle_answer"
+      ],
+      "requires_citations": true,
+      "assertions_may_be_empty": true,
+      "exactly_one_observation_bead": true,
+      "source_event_lineage_count": 1
+    },
+    "evidence_checksum": "62f8ac1f37e80bede20ce50431e4c64b834242a15cb875bf0f1e85ce0662d16b"
+  },
+  {
+    "schema_version": "observation_ledger.case.v1",
+    "case_id": "obs-gd-014",
+    "suite": "observations",
+    "behavioral_buckets": [
+      "goal_decision",
+      "decision",
+      "explicit_choice",
+      "rationale"
+    ],
+    "privacy_classification": "public",
+    "source_events": [
+      {
+        "event_id": "event-gd-014",
+        "tenant_id": "public-benchmark-tenant",
+        "event_time": "2026-08-14T10:00:00Z",
+        "source_kind": "conversation_turn",
+        "content": "User: We decided to use PostgreSQL rather than JSONL because we need transactional revision chains.\nAgent: I will record the choice and its stated rationale, not claim that PostgreSQL is already deployed."
+      }
+    ],
+    "admissible_evidence": [
+      {
+        "evidence_id": "ev-014-user",
+        "source_event_id": "event-gd-014",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "user",
+        "content": "We decided to use PostgreSQL rather than JSONL because we need transactional revision chains.",
+        "span": {
+          "start": 6,
+          "end": 99
+        }
+      },
+      {
+        "evidence_id": "ev-014-agent",
+        "source_event_id": "event-gd-014",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "agent",
+        "content": "I will record the choice and its stated rationale, not claim that PostgreSQL is already deployed.",
+        "span": {
+          "start": 107,
+          "end": 204
+        }
+      }
+    ],
+    "task_input": {
+      "tenant_id": "public-benchmark-tenant",
+      "task_type": "annotate_event",
+      "operation": "annotate_event.v1",
+      "prompt_version": "observation.goal_decision.v1",
+      "instruction": "Author one evidence-bound ObservationBead and only warranted optional semantics."
+    },
+    "expected_structural_behavior": {
+      "output_contract": "core-memory.annotation-bundle.v1",
+      "required_output_fields": [
+        "primary_label",
+        "facets",
+        "title",
+        "summary",
+        "evidence_refs",
+        "retrieval_eligible",
+        "assertions",
+        "associations",
+        "revisions",
+        "limitations"
+      ],
+      "forbidden_output_fields": [
+        "gold",
+        "accepted_gold",
+        "adjudication",
+        "judge_critique",
+        "oracle_answer"
+      ],
+      "requires_citations": true,
+      "assertions_may_be_empty": true,
+      "exactly_one_observation_bead": true,
+      "source_event_lineage_count": 1
+    },
+    "evidence_checksum": "cc9fe0f62fc1c49cf3af55a9c19181602ba158bc5657196f90a05fa9ba15a14d"
+  },
+  {
+    "schema_version": "observation_ledger.case.v1",
+    "case_id": "obs-gd-015",
+    "suite": "observations",
+    "behavioral_buckets": [
+      "goal_decision",
+      "decision",
+      "provisional_choice",
+      "pending_evidence"
+    ],
+    "privacy_classification": "public",
+    "source_events": [
+      {
+        "event_id": "event-gd-015",
+        "tenant_id": "public-benchmark-tenant",
+        "event_time": "2026-08-15T10:00:00Z",
+        "source_kind": "conversation_turn",
+        "content": "User: For now, choose provider A, but the decision is provisional until Friday's cost report.\nAgent: I will preserve provider A as the provisional choice and Friday's report as the unresolved review condition."
+      }
+    ],
+    "admissible_evidence": [
+      {
+        "evidence_id": "ev-015-user",
+        "source_event_id": "event-gd-015",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "user",
+        "content": "For now, choose provider A, but the decision is provisional until Friday's cost report.",
+        "span": {
+          "start": 6,
+          "end": 93
+        }
+      },
+      {
+        "evidence_id": "ev-015-agent",
+        "source_event_id": "event-gd-015",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "agent",
+        "content": "I will preserve provider A as the provisional choice and Friday's report as the unresolved review condition.",
+        "span": {
+          "start": 101,
+          "end": 209
+        }
+      }
+    ],
+    "task_input": {
+      "tenant_id": "public-benchmark-tenant",
+      "task_type": "annotate_event",
+      "operation": "annotate_event.v1",
+      "prompt_version": "observation.goal_decision.v1",
+      "instruction": "Author one evidence-bound ObservationBead and only warranted optional semantics."
+    },
+    "expected_structural_behavior": {
+      "output_contract": "core-memory.annotation-bundle.v1",
+      "required_output_fields": [
+        "primary_label",
+        "facets",
+        "title",
+        "summary",
+        "evidence_refs",
+        "retrieval_eligible",
+        "assertions",
+        "associations",
+        "revisions",
+        "limitations"
+      ],
+      "forbidden_output_fields": [
+        "gold",
+        "accepted_gold",
+        "adjudication",
+        "judge_critique",
+        "oracle_answer"
+      ],
+      "requires_citations": true,
+      "assertions_may_be_empty": true,
+      "exactly_one_observation_bead": true,
+      "source_event_lineage_count": 1
+    },
+    "evidence_checksum": "6e08443003e5c6cd6ed39c5c68b4c8e66b2fb4d8d38d952b70685a025b18895c"
+  },
+  {
+    "schema_version": "observation_ledger.case.v1",
+    "case_id": "obs-gd-016",
+    "suite": "observations",
+    "behavioral_buckets": [
+      "goal_decision",
+      "decision",
+      "deferral",
+      "insufficient_evidence"
+    ],
+    "privacy_classification": "public",
+    "source_events": [
+      {
+        "event_id": "event-gd-016",
+        "tenant_id": "public-benchmark-tenant",
+        "event_time": "2026-08-16T10:00:00Z",
+        "source_kind": "conversation_turn",
+        "content": "User: We decided not to select a vector store until the benchmark results are available.\nAgent: That is a decision to defer selection, not evidence that any vector store won."
+      }
+    ],
+    "admissible_evidence": [
+      {
+        "evidence_id": "ev-016-user",
+        "source_event_id": "event-gd-016",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "user",
+        "content": "We decided not to select a vector store until the benchmark results are available.",
+        "span": {
+          "start": 6,
+          "end": 88
+        }
+      },
+      {
+        "evidence_id": "ev-016-agent",
+        "source_event_id": "event-gd-016",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "agent",
+        "content": "That is a decision to defer selection, not evidence that any vector store won.",
+        "span": {
+          "start": 96,
+          "end": 174
+        }
+      }
+    ],
+    "task_input": {
+      "tenant_id": "public-benchmark-tenant",
+      "task_type": "annotate_event",
+      "operation": "annotate_event.v1",
+      "prompt_version": "observation.goal_decision.v1",
+      "instruction": "Author one evidence-bound ObservationBead and only warranted optional semantics."
+    },
+    "expected_structural_behavior": {
+      "output_contract": "core-memory.annotation-bundle.v1",
+      "required_output_fields": [
+        "primary_label",
+        "facets",
+        "title",
+        "summary",
+        "evidence_refs",
+        "retrieval_eligible",
+        "assertions",
+        "associations",
+        "revisions",
+        "limitations"
+      ],
+      "forbidden_output_fields": [
+        "gold",
+        "accepted_gold",
+        "adjudication",
+        "judge_critique",
+        "oracle_answer"
+      ],
+      "requires_citations": true,
+      "assertions_may_be_empty": true,
+      "exactly_one_observation_bead": true,
+      "source_event_lineage_count": 1
+    },
+    "evidence_checksum": "a3612646314a56dec2ddb1789548b2b63c1312a97535b3b6a8889bf59d25a4b7"
+  },
+  {
+    "schema_version": "observation_ledger.case.v1",
+    "case_id": "obs-gd-017",
+    "suite": "observations",
+    "behavioral_buckets": [
+      "goal_decision",
+      "decision",
+      "recommendation_boundary",
+      "user_authority"
+    ],
+    "privacy_classification": "public",
+    "source_events": [
+      {
+        "event_id": "event-gd-017",
+        "tenant_id": "public-benchmark-tenant",
+        "event_time": "2026-08-17T10:00:00Z",
+        "source_kind": "conversation_turn",
+        "content": "User: You recommended the hosted option, but I am deciding on the local deployment for this pilot.\nAgent: Understood. Your decision is local deployment; my hosted recommendation was not the selected option."
+      }
+    ],
+    "admissible_evidence": [
+      {
+        "evidence_id": "ev-017-user",
+        "source_event_id": "event-gd-017",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "user",
+        "content": "You recommended the hosted option, but I am deciding on the local deployment for this pilot.",
+        "span": {
+          "start": 6,
+          "end": 98
+        }
+      },
+      {
+        "evidence_id": "ev-017-agent",
+        "source_event_id": "event-gd-017",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "agent",
+        "content": "Understood. Your decision is local deployment; my hosted recommendation was not the selected option.",
+        "span": {
+          "start": 106,
+          "end": 206
+        }
+      }
+    ],
+    "task_input": {
+      "tenant_id": "public-benchmark-tenant",
+      "task_type": "annotate_event",
+      "operation": "annotate_event.v1",
+      "prompt_version": "observation.goal_decision.v1",
+      "instruction": "Author one evidence-bound ObservationBead and only warranted optional semantics."
+    },
+    "expected_structural_behavior": {
+      "output_contract": "core-memory.annotation-bundle.v1",
+      "required_output_fields": [
+        "primary_label",
+        "facets",
+        "title",
+        "summary",
+        "evidence_refs",
+        "retrieval_eligible",
+        "assertions",
+        "associations",
+        "revisions",
+        "limitations"
+      ],
+      "forbidden_output_fields": [
+        "gold",
+        "accepted_gold",
+        "adjudication",
+        "judge_critique",
+        "oracle_answer"
+      ],
+      "requires_citations": true,
+      "assertions_may_be_empty": true,
+      "exactly_one_observation_bead": true,
+      "source_event_lineage_count": 1
+    },
+    "evidence_checksum": "41cb687f4a167f8315a8f02416e015b9975db5e3ec0a0712c337bfc5de7ddce2"
+  },
+  {
+    "schema_version": "observation_ledger.case.v1",
+    "case_id": "obs-gd-018",
+    "suite": "observations",
+    "behavioral_buckets": [
+      "goal_decision",
+      "decision",
+      "delegation",
+      "authority"
+    ],
+    "privacy_classification": "public",
+    "source_events": [
+      {
+        "event_id": "event-gd-018",
+        "tenant_id": "public-benchmark-tenant",
+        "event_time": "2026-08-18T10:00:00Z",
+        "source_kind": "conversation_turn",
+        "content": "User: Maya will decide the rollout window. I have decided only to delegate that choice to her.\nAgent: I will record the delegation decision and leave the rollout window unresolved."
+      }
+    ],
+    "admissible_evidence": [
+      {
+        "evidence_id": "ev-018-user",
+        "source_event_id": "event-gd-018",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "user",
+        "content": "Maya will decide the rollout window. I have decided only to delegate that choice to her.",
+        "span": {
+          "start": 6,
+          "end": 94
+        }
+      },
+      {
+        "evidence_id": "ev-018-agent",
+        "source_event_id": "event-gd-018",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "agent",
+        "content": "I will record the delegation decision and leave the rollout window unresolved.",
+        "span": {
+          "start": 102,
+          "end": 180
+        }
+      }
+    ],
+    "task_input": {
+      "tenant_id": "public-benchmark-tenant",
+      "task_type": "annotate_event",
+      "operation": "annotate_event.v1",
+      "prompt_version": "observation.goal_decision.v1",
+      "instruction": "Author one evidence-bound ObservationBead and only warranted optional semantics."
+    },
+    "expected_structural_behavior": {
+      "output_contract": "core-memory.annotation-bundle.v1",
+      "required_output_fields": [
+        "primary_label",
+        "facets",
+        "title",
+        "summary",
+        "evidence_refs",
+        "retrieval_eligible",
+        "assertions",
+        "associations",
+        "revisions",
+        "limitations"
+      ],
+      "forbidden_output_fields": [
+        "gold",
+        "accepted_gold",
+        "adjudication",
+        "judge_critique",
+        "oracle_answer"
+      ],
+      "requires_citations": true,
+      "assertions_may_be_empty": true,
+      "exactly_one_observation_bead": true,
+      "source_event_lineage_count": 1
+    },
+    "evidence_checksum": "7f3eb5ee3a5a6d2ec56797671b8f9b8c40b984a8cf5dfdd65d4d00084fc5f31c"
+  },
+  {
+    "schema_version": "observation_ledger.case.v1",
+    "case_id": "obs-gd-019",
+    "suite": "observations",
+    "behavioral_buckets": [
+      "goal_decision",
+      "decision",
+      "reported_past_decision",
+      "attribution"
+    ],
+    "privacy_classification": "public",
+    "source_events": [
+      {
+        "event_id": "event-gd-019",
+        "tenant_id": "public-benchmark-tenant",
+        "event_time": "2026-08-19T10:00:00Z",
+        "source_kind": "conversation_turn",
+        "content": "User: The steering group decided last week to pause the integration, according to the meeting notes.\nAgent: I will preserve that as your notes-based report, not as independently verified committee action."
+      }
+    ],
+    "admissible_evidence": [
+      {
+        "evidence_id": "ev-019-user",
+        "source_event_id": "event-gd-019",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "user",
+        "content": "The steering group decided last week to pause the integration, according to the meeting notes.",
+        "span": {
+          "start": 6,
+          "end": 100
+        }
+      },
+      {
+        "evidence_id": "ev-019-agent",
+        "source_event_id": "event-gd-019",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "agent",
+        "content": "I will preserve that as your notes-based report, not as independently verified committee action.",
+        "span": {
+          "start": 108,
+          "end": 204
+        }
+      }
+    ],
+    "task_input": {
+      "tenant_id": "public-benchmark-tenant",
+      "task_type": "annotate_event",
+      "operation": "annotate_event.v1",
+      "prompt_version": "observation.goal_decision.v1",
+      "instruction": "Author one evidence-bound ObservationBead and only warranted optional semantics."
+    },
+    "expected_structural_behavior": {
+      "output_contract": "core-memory.annotation-bundle.v1",
+      "required_output_fields": [
+        "primary_label",
+        "facets",
+        "title",
+        "summary",
+        "evidence_refs",
+        "retrieval_eligible",
+        "assertions",
+        "associations",
+        "revisions",
+        "limitations"
+      ],
+      "forbidden_output_fields": [
+        "gold",
+        "accepted_gold",
+        "adjudication",
+        "judge_critique",
+        "oracle_answer"
+      ],
+      "requires_citations": true,
+      "assertions_may_be_empty": true,
+      "exactly_one_observation_bead": true,
+      "source_event_lineage_count": 1
+    },
+    "evidence_checksum": "efbb595d8c88881d9beb11dddfc573a72b05045c7298093b97909a02b3ba805c"
+  },
+  {
+    "schema_version": "observation_ledger.case.v1",
+    "case_id": "obs-gd-020",
+    "suite": "observations",
+    "behavioral_buckets": [
+      "goal_decision",
+      "decision",
+      "correction",
+      "current_choice"
+    ],
+    "privacy_classification": "public",
+    "source_events": [
+      {
+        "event_id": "event-gd-020",
+        "tenant_id": "public-benchmark-tenant",
+        "event_time": "2026-08-20T10:00:00Z",
+        "source_kind": "conversation_turn",
+        "content": "User: I mentioned SQLite earlier, but the decision for the shared service is PostgreSQL.\nAgent: I will capture PostgreSQL as the stated current choice without mutating any prior record that was not supplied here."
+      }
+    ],
+    "admissible_evidence": [
+      {
+        "evidence_id": "ev-020-user",
+        "source_event_id": "event-gd-020",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "user",
+        "content": "I mentioned SQLite earlier, but the decision for the shared service is PostgreSQL.",
+        "span": {
+          "start": 6,
+          "end": 88
+        }
+      },
+      {
+        "evidence_id": "ev-020-agent",
+        "source_event_id": "event-gd-020",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "agent",
+        "content": "I will capture PostgreSQL as the stated current choice without mutating any prior record that was not supplied here.",
+        "span": {
+          "start": 96,
+          "end": 212
+        }
+      }
+    ],
+    "task_input": {
+      "tenant_id": "public-benchmark-tenant",
+      "task_type": "annotate_event",
+      "operation": "annotate_event.v1",
+      "prompt_version": "observation.goal_decision.v1",
+      "instruction": "Author one evidence-bound ObservationBead and only warranted optional semantics."
+    },
+    "expected_structural_behavior": {
+      "output_contract": "core-memory.annotation-bundle.v1",
+      "required_output_fields": [
+        "primary_label",
+        "facets",
+        "title",
+        "summary",
+        "evidence_refs",
+        "retrieval_eligible",
+        "assertions",
+        "associations",
+        "revisions",
+        "limitations"
+      ],
+      "forbidden_output_fields": [
+        "gold",
+        "accepted_gold",
+        "adjudication",
+        "judge_critique",
+        "oracle_answer"
+      ],
+      "requires_citations": true,
+      "assertions_may_be_empty": true,
+      "exactly_one_observation_bead": true,
+      "source_event_lineage_count": 1
+    },
+    "evidence_checksum": "69ec297c0ae3018cde152c22793a6d273f0bf48665c67bfbaa0f842219545a25"
+  },
+  {
+    "schema_version": "observation_ledger.case.v1",
+    "case_id": "obs-gd-021",
+    "suite": "observations",
+    "behavioral_buckets": [
+      "goal_decision",
+      "decision",
+      "conditional_rule",
+      "branching"
+    ],
+    "privacy_classification": "public",
+    "source_events": [
+      {
+        "event_id": "event-gd-021",
+        "tenant_id": "public-benchmark-tenant",
+        "event_time": "2026-08-21T10:00:00Z",
+        "source_kind": "conversation_turn",
+        "content": "User: We decided that if the vendor signs the data agreement, we will use hosted storage; otherwise we will self-host.\nAgent: I will record the conditional decision rule and leave the active branch unknown."
+      }
+    ],
+    "admissible_evidence": [
+      {
+        "evidence_id": "ev-021-user",
+        "source_event_id": "event-gd-021",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "user",
+        "content": "We decided that if the vendor signs the data agreement, we will use hosted storage; otherwise we will self-host.",
+        "span": {
+          "start": 6,
+          "end": 118
+        }
+      },
+      {
+        "evidence_id": "ev-021-agent",
+        "source_event_id": "event-gd-021",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "agent",
+        "content": "I will record the conditional decision rule and leave the active branch unknown.",
+        "span": {
+          "start": 126,
+          "end": 206
+        }
+      }
+    ],
+    "task_input": {
+      "tenant_id": "public-benchmark-tenant",
+      "task_type": "annotate_event",
+      "operation": "annotate_event.v1",
+      "prompt_version": "observation.goal_decision.v1",
+      "instruction": "Author one evidence-bound ObservationBead and only warranted optional semantics."
+    },
+    "expected_structural_behavior": {
+      "output_contract": "core-memory.annotation-bundle.v1",
+      "required_output_fields": [
+        "primary_label",
+        "facets",
+        "title",
+        "summary",
+        "evidence_refs",
+        "retrieval_eligible",
+        "assertions",
+        "associations",
+        "revisions",
+        "limitations"
+      ],
+      "forbidden_output_fields": [
+        "gold",
+        "accepted_gold",
+        "adjudication",
+        "judge_critique",
+        "oracle_answer"
+      ],
+      "requires_citations": true,
+      "assertions_may_be_empty": true,
+      "exactly_one_observation_bead": true,
+      "source_event_lineage_count": 1
+    },
+    "evidence_checksum": "d1e4aece2477180714a8a77d8d589dc1950afbabba2d0632cff634f98b87ae2e"
+  },
+  {
+    "schema_version": "observation_ledger.case.v1",
+    "case_id": "obs-gd-022",
+    "suite": "observations",
+    "behavioral_buckets": [
+      "goal_decision",
+      "decision",
+      "reversible_choice",
+      "time_box"
+    ],
+    "privacy_classification": "public",
+    "source_events": [
+      {
+        "event_id": "event-gd-022",
+        "tenant_id": "public-benchmark-tenant",
+        "event_time": "2026-08-22T10:00:00Z",
+        "source_kind": "conversation_turn",
+        "content": "User: Let's use option B for a two-week trial and revisit the decision after the trial.\nAgent: I will mark option B as a time-boxed, reversible choice rather than a permanent selection."
+      }
+    ],
+    "admissible_evidence": [
+      {
+        "evidence_id": "ev-022-user",
+        "source_event_id": "event-gd-022",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "user",
+        "content": "Let's use option B for a two-week trial and revisit the decision after the trial.",
+        "span": {
+          "start": 6,
+          "end": 87
+        }
+      },
+      {
+        "evidence_id": "ev-022-agent",
+        "source_event_id": "event-gd-022",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "agent",
+        "content": "I will mark option B as a time-boxed, reversible choice rather than a permanent selection.",
+        "span": {
+          "start": 95,
+          "end": 185
+        }
+      }
+    ],
+    "task_input": {
+      "tenant_id": "public-benchmark-tenant",
+      "task_type": "annotate_event",
+      "operation": "annotate_event.v1",
+      "prompt_version": "observation.goal_decision.v1",
+      "instruction": "Author one evidence-bound ObservationBead and only warranted optional semantics."
+    },
+    "expected_structural_behavior": {
+      "output_contract": "core-memory.annotation-bundle.v1",
+      "required_output_fields": [
+        "primary_label",
+        "facets",
+        "title",
+        "summary",
+        "evidence_refs",
+        "retrieval_eligible",
+        "assertions",
+        "associations",
+        "revisions",
+        "limitations"
+      ],
+      "forbidden_output_fields": [
+        "gold",
+        "accepted_gold",
+        "adjudication",
+        "judge_critique",
+        "oracle_answer"
+      ],
+      "requires_citations": true,
+      "assertions_may_be_empty": true,
+      "exactly_one_observation_bead": true,
+      "source_event_lineage_count": 1
+    },
+    "evidence_checksum": "1eb4cf2d9896a1e8fe1dcd3c6f0fbaeff0604e720c3ebe56fe6fc024aea465ad"
+  },
+  {
+    "schema_version": "observation_ledger.case.v1",
+    "case_id": "obs-gd-023",
+    "suite": "observations",
+    "behavioral_buckets": [
+      "goal_decision",
+      "decision",
+      "approval",
+      "execution_boundary"
+    ],
+    "privacy_classification": "public",
+    "source_events": [
+      {
+        "event_id": "event-gd-023",
+        "tenant_id": "public-benchmark-tenant",
+        "event_time": "2026-08-23T10:00:00Z",
+        "source_kind": "conversation_turn",
+        "content": "User: I approve the rollout plan, but do not deploy anything until I send a separate go-ahead.\nAgent: The plan is approved; deployment remains explicitly unauthorized in this event."
+      }
+    ],
+    "admissible_evidence": [
+      {
+        "evidence_id": "ev-023-user",
+        "source_event_id": "event-gd-023",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "user",
+        "content": "I approve the rollout plan, but do not deploy anything until I send a separate go-ahead.",
+        "span": {
+          "start": 6,
+          "end": 94
+        }
+      },
+      {
+        "evidence_id": "ev-023-agent",
+        "source_event_id": "event-gd-023",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "agent",
+        "content": "The plan is approved; deployment remains explicitly unauthorized in this event.",
+        "span": {
+          "start": 102,
+          "end": 181
+        }
+      }
+    ],
+    "task_input": {
+      "tenant_id": "public-benchmark-tenant",
+      "task_type": "annotate_event",
+      "operation": "annotate_event.v1",
+      "prompt_version": "observation.goal_decision.v1",
+      "instruction": "Author one evidence-bound ObservationBead and only warranted optional semantics."
+    },
+    "expected_structural_behavior": {
+      "output_contract": "core-memory.annotation-bundle.v1",
+      "required_output_fields": [
+        "primary_label",
+        "facets",
+        "title",
+        "summary",
+        "evidence_refs",
+        "retrieval_eligible",
+        "assertions",
+        "associations",
+        "revisions",
+        "limitations"
+      ],
+      "forbidden_output_fields": [
+        "gold",
+        "accepted_gold",
+        "adjudication",
+        "judge_critique",
+        "oracle_answer"
+      ],
+      "requires_citations": true,
+      "assertions_may_be_empty": true,
+      "exactly_one_observation_bead": true,
+      "source_event_lineage_count": 1
+    },
+    "evidence_checksum": "d1ff1d4f24638332ecda3c40aa0e745fc90672774615912a5843fe68dd439d55"
+  },
+  {
+    "schema_version": "observation_ledger.case.v1",
+    "case_id": "obs-gd-024",
+    "suite": "observations",
+    "behavioral_buckets": [
+      "goal_decision",
+      "decision",
+      "rejection",
+      "status_quo"
+    ],
+    "privacy_classification": "public",
+    "source_events": [
+      {
+        "event_id": "event-gd-024",
+        "tenant_id": "public-benchmark-tenant",
+        "event_time": "2026-08-24T10:00:00Z",
+        "source_kind": "conversation_turn",
+        "content": "User: We decided not to adopt the expanded taxonomy and to keep the current labels for this release.\nAgent: I will record the rejection and the bounded status-quo choice for this release."
+      }
+    ],
+    "admissible_evidence": [
+      {
+        "evidence_id": "ev-024-user",
+        "source_event_id": "event-gd-024",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "user",
+        "content": "We decided not to adopt the expanded taxonomy and to keep the current labels for this release.",
+        "span": {
+          "start": 6,
+          "end": 100
+        }
+      },
+      {
+        "evidence_id": "ev-024-agent",
+        "source_event_id": "event-gd-024",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "agent",
+        "content": "I will record the rejection and the bounded status-quo choice for this release.",
+        "span": {
+          "start": 108,
+          "end": 187
+        }
+      }
+    ],
+    "task_input": {
+      "tenant_id": "public-benchmark-tenant",
+      "task_type": "annotate_event",
+      "operation": "annotate_event.v1",
+      "prompt_version": "observation.goal_decision.v1",
+      "instruction": "Author one evidence-bound ObservationBead and only warranted optional semantics."
+    },
+    "expected_structural_behavior": {
+      "output_contract": "core-memory.annotation-bundle.v1",
+      "required_output_fields": [
+        "primary_label",
+        "facets",
+        "title",
+        "summary",
+        "evidence_refs",
+        "retrieval_eligible",
+        "assertions",
+        "associations",
+        "revisions",
+        "limitations"
+      ],
+      "forbidden_output_fields": [
+        "gold",
+        "accepted_gold",
+        "adjudication",
+        "judge_critique",
+        "oracle_answer"
+      ],
+      "requires_citations": true,
+      "assertions_may_be_empty": true,
+      "exactly_one_observation_bead": true,
+      "source_event_lineage_count": 1
+    },
+    "evidence_checksum": "ce13ac1fc0ffc9db238d6a432cd0d31d9fd87493bc7edfa33a86d1c3a2332756"
+  },
+  {
+    "schema_version": "observation_ledger.case.v1",
+    "case_id": "obs-gd-025",
+    "suite": "observations",
+    "behavioral_buckets": [
+      "goal_decision",
+      "decision",
+      "partial_decision",
+      "unresolved_dependency"
+    ],
+    "privacy_classification": "public",
+    "source_events": [
+      {
+        "event_id": "event-gd-025",
+        "tenant_id": "public-benchmark-tenant",
+        "event_time": "2026-08-25T10:00:00Z",
+        "source_kind": "conversation_turn",
+        "content": "User: I have decided that the interface will use plain-language labels; the legal wording is still pending counsel review.\nAgent: I will capture the interface-label decision and keep the legal wording unresolved."
+      }
+    ],
+    "admissible_evidence": [
+      {
+        "evidence_id": "ev-025-user",
+        "source_event_id": "event-gd-025",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "user",
+        "content": "I have decided that the interface will use plain-language labels; the legal wording is still pending counsel review.",
+        "span": {
+          "start": 6,
+          "end": 122
+        }
+      },
+      {
+        "evidence_id": "ev-025-agent",
+        "source_event_id": "event-gd-025",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "agent",
+        "content": "I will capture the interface-label decision and keep the legal wording unresolved.",
+        "span": {
+          "start": 130,
+          "end": 212
+        }
+      }
+    ],
+    "task_input": {
+      "tenant_id": "public-benchmark-tenant",
+      "task_type": "annotate_event",
+      "operation": "annotate_event.v1",
+      "prompt_version": "observation.goal_decision.v1",
+      "instruction": "Author one evidence-bound ObservationBead and only warranted optional semantics."
+    },
+    "expected_structural_behavior": {
+      "output_contract": "core-memory.annotation-bundle.v1",
+      "required_output_fields": [
+        "primary_label",
+        "facets",
+        "title",
+        "summary",
+        "evidence_refs",
+        "retrieval_eligible",
+        "assertions",
+        "associations",
+        "revisions",
+        "limitations"
+      ],
+      "forbidden_output_fields": [
+        "gold",
+        "accepted_gold",
+        "adjudication",
+        "judge_critique",
+        "oracle_answer"
+      ],
+      "requires_citations": true,
+      "assertions_may_be_empty": true,
+      "exactly_one_observation_bead": true,
+      "source_event_lineage_count": 1
+    },
+    "evidence_checksum": "de7a3ebd978725c2d71ef67fdf19d121aadc216a0c00ea9a960589084942f748"
+  }
+]
