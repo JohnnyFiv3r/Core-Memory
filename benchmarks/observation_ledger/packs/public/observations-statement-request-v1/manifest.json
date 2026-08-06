@@ -1,0 +1,25 @@
+{
+  "schema_version": "observation_ledger.pack.v1",
+  "pack_id": "public-observations-statement-request-v1",
+  "visibility": "public",
+  "prompt_version": "observation.statement_request.v1",
+  "schema_versions": [
+    "observation_ledger.case.v1",
+    "observation_ledger.gold.v1",
+    "observation_ledger.adjudication.v1"
+  ],
+  "cases": [
+    "inputs/cases.json"
+  ],
+  "gold": [
+    "gold/gold.json"
+  ],
+  "adjudications": [
+    "adjudications/adjudications.json"
+  ],
+  "checksums": {
+    "adjudications/adjudications.json": "ed09661e31cc05c3d260df196084218770842f07e3bcf34a95501061885dad29",
+    "inputs/cases.json": "f5187275ba5bbb33d3043b78c50f7f986fa2770281b6ab1a2d022d3e1b9b517d",
+    "gold/gold.json": "1b6ca4de67f9980afbf8cf244db282b0c8d4d3f90c86e3d835280ed11f12e36c"
+  }
+}

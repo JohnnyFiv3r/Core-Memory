@@ -1,0 +1,1104 @@
+[
+  {
+    "schema_version": "observation_ledger.adjudication.v1",
+    "case_id": "obs-sr-001",
+    "judge_model": "codex:gpt-5.6-sol-high",
+    "judge_critique": {
+      "acceptable_as_proposed": false,
+      "issues": [
+        "The agent did more than acknowledge the preference: it explicitly committed to keeping future status updates concise and outcome-first.",
+        "The supported propositions and acceptable facets omit that directly evidenced commitment, potentially rejecting a faithful annotation."
+      ],
+      "recommended_changes": [
+        "Add the supported proposition: \"The agent committed to keeping future status updates concise and outcome-first.\"",
+        "Add an acceptable commitment facet grounded in ev-001-agent, or explicitly state that such a facet is acceptable.",
+        "Revise the second required summary meaning to preserve both acknowledgment and future commitment."
+      ],
+      "strengths": [
+        "Statement is a defensible preferred label for the user's expressed preference.",
+        "The preference facet is directly grounded in ev-001-user.",
+        "The gold correctly forbids inferring a system-setting change or completed configuration.",
+        "Both evidence spans are exact."
+      ]
+    },
+    "human_decision": "revised",
+    "accepted_gold_checksum": "4c5dd408d628b689a7de96b3e23042f6abea9d6b0f1c3ad889a156fc798c5334",
+    "proposed_gold_checksum": "d67c720a2021d81c434ac4d0ebe5dddadbf4ddec78eb5998eccfa3e8aa1b0dc2",
+    "human_review": {
+      "reviewer_role": "project_owner",
+      "decision_source": "explicit_user_acceptance",
+      "reviewed_at": "2026-08-06T14:35:26Z",
+      "acceptance_scope": "all_25_revised_gold_records",
+      "decision_reason": "Accepted after applying the judge-recommended evidence-bound corrections."
+    },
+    "judge_execution": {
+      "kind": "codex_internal",
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "high",
+      "critique_artifact_checksum": "853aca7ebdaa8be1678264c4fe99c0a1e633d2157ea1240a2ff16dce019934f6",
+      "provider_attempt": {
+        "requested": "openai:gpt-5.6-sol-high",
+        "status": "blocked",
+        "status_reason": "missing_credentials:openai",
+        "record_count": 0
+      },
+      "model_selection_user_supplied": true
+    },
+    "human_revision": {
+      "changes": [
+        {
+          "path": "/semantic_expectations/label_rationale",
+          "before": "The user states a durable communication preference; the agent acknowledges it without proving a permanent setting change.",
+          "after": "The user states a durable communication preference; the agent commits to following it without proving a permanent setting change."
+        },
+        {
+          "path": "/semantic_expectations/acceptable_facets",
+          "before": [
+            {
+              "kind": "preference",
+              "value": "concise outcome-first status updates",
+              "evidence_refs": [
+                "ev-001-user"
+              ]
+            }
+          ],
+          "after": [
+            {
+              "kind": "preference",
+              "value": "concise outcome-first status updates",
+              "evidence_refs": [
+                "ev-001-user"
+              ]
+            },
+            {
+              "kind": "commitment",
+              "value": "keep future status updates concise and outcome-first",
+              "evidence_refs": [
+                "ev-001-agent"
+              ]
+            }
+          ]
+        },
+        {
+          "path": "/semantic_expectations/required_summary_meanings/1",
+          "before": "The agent acknowledged the stated communication preference.",
+          "after": "The agent committed to keeping future status updates concise and outcome-first."
+        }
+      ]
+    }
+  },
+  {
+    "schema_version": "observation_ledger.adjudication.v1",
+    "case_id": "obs-sr-002",
+    "judge_model": "codex:gpt-5.6-sol-high",
+    "judge_critique": {
+      "acceptable_as_proposed": true,
+      "issues": [],
+      "recommended_changes": [],
+      "strengths": [
+        "The primary label and incident facet preserve the event as a user report.",
+        "The summaries and limitation retain attribution and the agent's explicit lack of verification.",
+        "The forbidden propositions prevent promotion to independently verified service truth, production scope, or resolution.",
+        "Both evidence spans are exact."
+      ]
+    },
+    "human_decision": "accepted",
+    "accepted_gold_checksum": "7c039c5d257e1651b51ca6d287322cf344eb213f5994750950f26ed795da4b88",
+    "proposed_gold_checksum": "7c039c5d257e1651b51ca6d287322cf344eb213f5994750950f26ed795da4b88",
+    "human_review": {
+      "reviewer_role": "project_owner",
+      "decision_source": "explicit_user_acceptance",
+      "reviewed_at": "2026-08-06T14:35:26Z",
+      "acceptance_scope": "all_25_revised_gold_records",
+      "decision_reason": "Accepted as proposed after frontier critique."
+    },
+    "judge_execution": {
+      "kind": "codex_internal",
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "high",
+      "critique_artifact_checksum": "853aca7ebdaa8be1678264c4fe99c0a1e633d2157ea1240a2ff16dce019934f6",
+      "provider_attempt": {
+        "requested": "openai:gpt-5.6-sol-high",
+        "status": "blocked",
+        "status_reason": "missing_credentials:openai",
+        "record_count": 0
+      },
+      "model_selection_user_supplied": true
+    },
+    "human_revision": null
+  },
+  {
+    "schema_version": "observation_ledger.adjudication.v1",
+    "case_id": "obs-sr-003",
+    "judge_model": "codex:gpt-5.6-sol-high",
+    "judge_critique": {
+      "acceptable_as_proposed": true,
+      "issues": [],
+      "recommended_changes": [],
+      "strengths": [
+        "The statement label and hypothesis facet preserve the user's hedging.",
+        "The limitation and forbidden propositions prevent an unsupported causal conclusion.",
+        "The optional assertion remains explicitly tentative and attributable to the user.",
+        "Both evidence spans are exact."
+      ]
+    },
+    "human_decision": "accepted",
+    "accepted_gold_checksum": "391d815c3bf0a1230f8f1498dfb373de65d9265ef4e6e56a121f3fc7fb7fbf9d",
+    "proposed_gold_checksum": "391d815c3bf0a1230f8f1498dfb373de65d9265ef4e6e56a121f3fc7fb7fbf9d",
+    "human_review": {
+      "reviewer_role": "project_owner",
+      "decision_source": "explicit_user_acceptance",
+      "reviewed_at": "2026-08-06T14:35:26Z",
+      "acceptance_scope": "all_25_revised_gold_records",
+      "decision_reason": "Accepted as proposed after frontier critique."
+    },
+    "judge_execution": {
+      "kind": "codex_internal",
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "high",
+      "critique_artifact_checksum": "853aca7ebdaa8be1678264c4fe99c0a1e633d2157ea1240a2ff16dce019934f6",
+      "provider_attempt": {
+        "requested": "openai:gpt-5.6-sol-high",
+        "status": "blocked",
+        "status_reason": "missing_credentials:openai",
+        "record_count": 0
+      },
+      "model_selection_user_supplied": true
+    },
+    "human_revision": null
+  },
+  {
+    "schema_version": "observation_ledger.adjudication.v1",
+    "case_id": "obs-sr-004",
+    "judge_model": "codex:gpt-5.6-sol-high",
+    "judge_critique": {
+      "acceptable_as_proposed": true,
+      "issues": [],
+      "recommended_changes": [],
+      "strengths": [
+        "The gold records the constraint as a user statement without inventing legal provenance.",
+        "The custom constraint facet is canonical, typed, and evidence-grounded.",
+        "The limitation and forbidden propositions prevent universalization and any claim that deployment configuration changed.",
+        "Both evidence spans are exact."
+      ]
+    },
+    "human_decision": "accepted",
+    "accepted_gold_checksum": "eb03e013609c04de01cf1803040db9cb1e847d22ed8f4550effe5f4fc644cf6e",
+    "proposed_gold_checksum": "eb03e013609c04de01cf1803040db9cb1e847d22ed8f4550effe5f4fc644cf6e",
+    "human_review": {
+      "reviewer_role": "project_owner",
+      "decision_source": "explicit_user_acceptance",
+      "reviewed_at": "2026-08-06T14:35:26Z",
+      "acceptance_scope": "all_25_revised_gold_records",
+      "decision_reason": "Accepted as proposed after frontier critique."
+    },
+    "judge_execution": {
+      "kind": "codex_internal",
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "high",
+      "critique_artifact_checksum": "853aca7ebdaa8be1678264c4fe99c0a1e633d2157ea1240a2ff16dce019934f6",
+      "provider_attempt": {
+        "requested": "openai:gpt-5.6-sol-high",
+        "status": "blocked",
+        "status_reason": "missing_credentials:openai",
+        "record_count": 0
+      },
+      "model_selection_user_supplied": true
+    },
+    "human_revision": null
+  },
+  {
+    "schema_version": "observation_ledger.adjudication.v1",
+    "case_id": "obs-sr-005",
+    "judge_model": "codex:gpt-5.6-sol-high",
+    "judge_critique": {
+      "acceptable_as_proposed": true,
+      "issues": [],
+      "recommended_changes": [],
+      "strengths": [
+        "The gold consistently attributes the causal account to the user.",
+        "The limitation prevents promotion of the account into verified causation or vendor fault.",
+        "The forbidden propositions properly reject false temporal precision and later completion.",
+        "Both evidence spans are exact."
+      ]
+    },
+    "human_decision": "accepted",
+    "accepted_gold_checksum": "97185d8146f8f18d53385dd33c532612ebdcaba1e48307271c33e9cf79301a1c",
+    "proposed_gold_checksum": "97185d8146f8f18d53385dd33c532612ebdcaba1e48307271c33e9cf79301a1c",
+    "human_review": {
+      "reviewer_role": "project_owner",
+      "decision_source": "explicit_user_acceptance",
+      "reviewed_at": "2026-08-06T14:35:26Z",
+      "acceptance_scope": "all_25_revised_gold_records",
+      "decision_reason": "Accepted as proposed after frontier critique."
+    },
+    "judge_execution": {
+      "kind": "codex_internal",
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "high",
+      "critique_artifact_checksum": "853aca7ebdaa8be1678264c4fe99c0a1e633d2157ea1240a2ff16dce019934f6",
+      "provider_attempt": {
+        "requested": "openai:gpt-5.6-sol-high",
+        "status": "blocked",
+        "status_reason": "missing_credentials:openai",
+        "record_count": 0
+      },
+      "model_selection_user_supplied": true
+    },
+    "human_revision": null
+  },
+  {
+    "schema_version": "observation_ledger.adjudication.v1",
+    "case_id": "obs-sr-006",
+    "judge_model": "codex:gpt-5.6-sol-high",
+    "judge_critique": {
+      "acceptable_as_proposed": true,
+      "issues": [],
+      "recommended_changes": [],
+      "strengths": [
+        "The statement label and custom constraint facet retain the current-sprint scope.",
+        "The summaries and limitation do not convert the temporary constraint into a permanent policy.",
+        "The gold correctly forbids inferring an environment change or production applicability.",
+        "Both evidence spans are exact."
+      ]
+    },
+    "human_decision": "accepted",
+    "accepted_gold_checksum": "d9664ce4f3c68754e463a516d8b44b183302cd7e850832eb9699f8e218f0cf2d",
+    "proposed_gold_checksum": "d9664ce4f3c68754e463a516d8b44b183302cd7e850832eb9699f8e218f0cf2d",
+    "human_review": {
+      "reviewer_role": "project_owner",
+      "decision_source": "explicit_user_acceptance",
+      "reviewed_at": "2026-08-06T14:35:26Z",
+      "acceptance_scope": "all_25_revised_gold_records",
+      "decision_reason": "Accepted as proposed after frontier critique."
+    },
+    "judge_execution": {
+      "kind": "codex_internal",
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "high",
+      "critique_artifact_checksum": "853aca7ebdaa8be1678264c4fe99c0a1e633d2157ea1240a2ff16dce019934f6",
+      "provider_attempt": {
+        "requested": "openai:gpt-5.6-sol-high",
+        "status": "blocked",
+        "status_reason": "missing_credentials:openai",
+        "record_count": 0
+      },
+      "model_selection_user_supplied": true
+    },
+    "human_revision": null
+  },
+  {
+    "schema_version": "observation_ledger.adjudication.v1",
+    "case_id": "obs-sr-007",
+    "judge_model": "codex:gpt-5.6-sol-high",
+    "judge_critique": {
+      "acceptable_as_proposed": false,
+      "issues": [
+        "The required limitation is benchmark-meta commentary rather than an evidence or semantic limitation suitable for the observation bundle.",
+        "Requiring the model to say that the case evaluates observation authoring is not derivable from the admissible event and conflicts with the evidence-bound output boundary."
+      ],
+      "recommended_changes": [
+        "Replace the required limitation with: \"No prior semantic object was supplied, so this event alone does not warrant a Revision.\"",
+        "Alternatively, leave required_limitations empty while retaining revisions_expected as an empty array."
+      ],
+      "strengths": [
+        "Statement is an appropriately conservative label for the observed correction.",
+        "The correction facet accurately preserves Monday as replaced by Tuesday.",
+        "The gold correctly distinguishes a planned deployment day from a completed deployment.",
+        "Both evidence spans are exact."
+      ]
+    },
+    "human_decision": "revised",
+    "accepted_gold_checksum": "84269452cb190c21637efb6bbe3237a6fa58aa6414565b40f840fe97618d67d2",
+    "proposed_gold_checksum": "c3270c4f3b3db267ef2d1a3cdfe68c053cd0b9ccc946163ad6e065ecdc7ad7c2",
+    "human_review": {
+      "reviewer_role": "project_owner",
+      "decision_source": "explicit_user_acceptance",
+      "reviewed_at": "2026-08-06T14:35:26Z",
+      "acceptance_scope": "all_25_revised_gold_records",
+      "decision_reason": "Accepted after applying the judge-recommended evidence-bound corrections."
+    },
+    "judge_execution": {
+      "kind": "codex_internal",
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "high",
+      "critique_artifact_checksum": "853aca7ebdaa8be1678264c4fe99c0a1e633d2157ea1240a2ff16dce019934f6",
+      "provider_attempt": {
+        "requested": "openai:gpt-5.6-sol-high",
+        "status": "blocked",
+        "status_reason": "missing_credentials:openai",
+        "record_count": 0
+      },
+      "model_selection_user_supplied": true
+    },
+    "human_revision": {
+      "changes": [
+        {
+          "path": "/semantic_expectations/required_limitations/0",
+          "before": "This case evaluates observation authoring only; claim revision resolution is out of scope.",
+          "after": "No prior semantic object was supplied, so this event alone does not warrant a Revision."
+        }
+      ]
+    }
+  },
+  {
+    "schema_version": "observation_ledger.adjudication.v1",
+    "case_id": "obs-sr-008",
+    "judge_model": "codex:gpt-5.6-sol-high",
+    "judge_critique": {
+      "acceptable_as_proposed": true,
+      "issues": [],
+      "recommended_changes": [],
+      "strengths": [
+        "The preferred statement label is justified by the substantive answer, while request remains an acceptable alternative for the mixed turn.",
+        "The checkpoint facet is grounded only in the agent's explicit current-state statement.",
+        "Retrieval ineligibility and zero assertions are reasonable for a transient status exchange.",
+        "Both evidence spans are exact."
+      ]
+    },
+    "human_decision": "accepted",
+    "accepted_gold_checksum": "2ce8fd1a4a1e7572ab13046c3cdd68e68914c48365311198a219103fa3a451ad",
+    "proposed_gold_checksum": "2ce8fd1a4a1e7572ab13046c3cdd68e68914c48365311198a219103fa3a451ad",
+    "human_review": {
+      "reviewer_role": "project_owner",
+      "decision_source": "explicit_user_acceptance",
+      "reviewed_at": "2026-08-06T14:35:26Z",
+      "acceptance_scope": "all_25_revised_gold_records",
+      "decision_reason": "Accepted as proposed after frontier critique."
+    },
+    "judge_execution": {
+      "kind": "codex_internal",
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "high",
+      "critique_artifact_checksum": "853aca7ebdaa8be1678264c4fe99c0a1e633d2157ea1240a2ff16dce019934f6",
+      "provider_attempt": {
+        "requested": "openai:gpt-5.6-sol-high",
+        "status": "blocked",
+        "status_reason": "missing_credentials:openai",
+        "record_count": 0
+      },
+      "model_selection_user_supplied": true
+    },
+    "human_revision": null
+  },
+  {
+    "schema_version": "observation_ledger.adjudication.v1",
+    "case_id": "obs-sr-009",
+    "judge_model": "codex:gpt-5.6-sol-high",
+    "judge_critique": {
+      "acceptable_as_proposed": true,
+      "issues": [],
+      "recommended_changes": [],
+      "strengths": [
+        "The statement label and hypothesis facet retain the conditional structure.",
+        "The limitation explicitly separates the prediction from observed traffic or queue behavior.",
+        "The forbidden propositions prevent upgrading a hypothetical outcome into a measurement.",
+        "Both evidence spans are exact."
+      ]
+    },
+    "human_decision": "accepted",
+    "accepted_gold_checksum": "cca4d944ae579d783f2d75a340fcd1d8eb98b42c4bf7d1d66d15b1ab12872925",
+    "proposed_gold_checksum": "cca4d944ae579d783f2d75a340fcd1d8eb98b42c4bf7d1d66d15b1ab12872925",
+    "human_review": {
+      "reviewer_role": "project_owner",
+      "decision_source": "explicit_user_acceptance",
+      "reviewed_at": "2026-08-06T14:35:26Z",
+      "acceptance_scope": "all_25_revised_gold_records",
+      "decision_reason": "Accepted as proposed after frontier critique."
+    },
+    "judge_execution": {
+      "kind": "codex_internal",
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "high",
+      "critique_artifact_checksum": "853aca7ebdaa8be1678264c4fe99c0a1e633d2157ea1240a2ff16dce019934f6",
+      "provider_attempt": {
+        "requested": "openai:gpt-5.6-sol-high",
+        "status": "blocked",
+        "status_reason": "missing_credentials:openai",
+        "record_count": 0
+      },
+      "model_selection_user_supplied": true
+    },
+    "human_revision": null
+  },
+  {
+    "schema_version": "observation_ledger.adjudication.v1",
+    "case_id": "obs-sr-010",
+    "judge_model": "codex:gpt-5.6-sol-high",
+    "judge_critique": {
+      "acceptable_as_proposed": true,
+      "issues": [],
+      "recommended_changes": [],
+      "strengths": [
+        "The attribution chain from the user to Sam to the vendor is preserved.",
+        "The limitation prevents hearsay from becoming direct vendor confirmation.",
+        "The forbidden propositions correctly reject assumptions about Sam's authority and the exception's current validity.",
+        "Both evidence spans are exact."
+      ]
+    },
+    "human_decision": "accepted",
+    "accepted_gold_checksum": "45b56b75f8730d93207d1c19292c0026ca219ddaf3afc7ae55077e955baac4e4",
+    "proposed_gold_checksum": "45b56b75f8730d93207d1c19292c0026ca219ddaf3afc7ae55077e955baac4e4",
+    "human_review": {
+      "reviewer_role": "project_owner",
+      "decision_source": "explicit_user_acceptance",
+      "reviewed_at": "2026-08-06T14:35:26Z",
+      "acceptance_scope": "all_25_revised_gold_records",
+      "decision_reason": "Accepted as proposed after frontier critique."
+    },
+    "judge_execution": {
+      "kind": "codex_internal",
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "high",
+      "critique_artifact_checksum": "853aca7ebdaa8be1678264c4fe99c0a1e633d2157ea1240a2ff16dce019934f6",
+      "provider_attempt": {
+        "requested": "openai:gpt-5.6-sol-high",
+        "status": "blocked",
+        "status_reason": "missing_credentials:openai",
+        "record_count": 0
+      },
+      "model_selection_user_supplied": true
+    },
+    "human_revision": null
+  },
+  {
+    "schema_version": "observation_ledger.adjudication.v1",
+    "case_id": "obs-sr-011",
+    "judge_model": "codex:gpt-5.6-sol-high",
+    "judge_critique": {
+      "acceptable_as_proposed": true,
+      "issues": [],
+      "recommended_changes": [],
+      "strengths": [
+        "The negative preference is accurately represented without broadening it beyond routine job completions.",
+        "The gold does not infer that notification settings changed.",
+        "The supported optional assertion remains attributable to the user and preserves the notification type.",
+        "Both evidence spans are exact."
+      ]
+    },
+    "human_decision": "accepted",
+    "accepted_gold_checksum": "565c8c91e8597e02eda64a448432695a12241337d10b7b6cc32beb9f5359e2bc",
+    "proposed_gold_checksum": "565c8c91e8597e02eda64a448432695a12241337d10b7b6cc32beb9f5359e2bc",
+    "human_review": {
+      "reviewer_role": "project_owner",
+      "decision_source": "explicit_user_acceptance",
+      "reviewed_at": "2026-08-06T14:35:26Z",
+      "acceptance_scope": "all_25_revised_gold_records",
+      "decision_reason": "Accepted as proposed after frontier critique."
+    },
+    "judge_execution": {
+      "kind": "codex_internal",
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "high",
+      "critique_artifact_checksum": "853aca7ebdaa8be1678264c4fe99c0a1e633d2157ea1240a2ff16dce019934f6",
+      "provider_attempt": {
+        "requested": "openai:gpt-5.6-sol-high",
+        "status": "blocked",
+        "status_reason": "missing_credentials:openai",
+        "record_count": 0
+      },
+      "model_selection_user_supplied": true
+    },
+    "human_revision": null
+  },
+  {
+    "schema_version": "observation_ledger.adjudication.v1",
+    "case_id": "obs-sr-012",
+    "judge_model": "codex:gpt-5.6-sol-high",
+    "judge_critique": {
+      "acceptable_as_proposed": false,
+      "issues": [
+        "The acceptable-label boundary is too narrow: the user explicitly evaluates cache invalidation as annoying, which directly supports the architecture's reflection label.",
+        "The rationale itself characterizes the event as evaluative sentiment, undermining the exclusion of reflection."
+      ],
+      "recommended_changes": [
+        "Add \"reflection\" to acceptable_labels.",
+        "Prefer reflection, or retain statement as preferred while explicitly accepting reflection as a faithful richer label.",
+        "Keep retrieval_eligible false and assertions optional because the utterance has little durable propositional value."
+      ],
+      "strengths": [
+        "The gold correctly treats the interrogative form as rhetorical rather than an information request.",
+        "The summaries preserve the user's frustration and the agent's interpretation.",
+        "The forbidden propositions avoid inventing a fix request or cache failure.",
+        "Both evidence spans are exact."
+      ]
+    },
+    "human_decision": "revised",
+    "accepted_gold_checksum": "5d687901efcc7187648bc0d6b071cb6a15f91532fcbb18818d880b7b43d8b6fe",
+    "proposed_gold_checksum": "11cee42bf2dbb4ac8396606bd029234c536ce91615543b2882e992a16db821c8",
+    "human_review": {
+      "reviewer_role": "project_owner",
+      "decision_source": "explicit_user_acceptance",
+      "reviewed_at": "2026-08-06T14:35:26Z",
+      "acceptance_scope": "all_25_revised_gold_records",
+      "decision_reason": "Accepted after applying the judge-recommended evidence-bound corrections."
+    },
+    "judge_execution": {
+      "kind": "codex_internal",
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "high",
+      "critique_artifact_checksum": "853aca7ebdaa8be1678264c4fe99c0a1e633d2157ea1240a2ff16dce019934f6",
+      "provider_attempt": {
+        "requested": "openai:gpt-5.6-sol-high",
+        "status": "blocked",
+        "status_reason": "missing_credentials:openai",
+        "record_count": 0
+      },
+      "model_selection_user_supplied": true
+    },
+    "human_revision": {
+      "changes": [
+        {
+          "path": "/acceptable_labels",
+          "before": [
+            "statement"
+          ],
+          "after": [
+            "statement",
+            "reflection"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "schema_version": "observation_ledger.adjudication.v1",
+    "case_id": "obs-sr-013",
+    "judge_model": "codex:gpt-5.6-sol-high",
+    "judge_critique": {
+      "acceptable_as_proposed": true,
+      "issues": [],
+      "recommended_changes": [],
+      "strengths": [
+        "The gold distinguishes quoted ticket content from a user-issued execution request.",
+        "The limitation correctly preserves the authorization boundary.",
+        "The forbidden propositions prevent upgrading the quotation into backup completion or service restart.",
+        "Both evidence spans are exact."
+      ]
+    },
+    "human_decision": "accepted",
+    "accepted_gold_checksum": "916ac6569f944bcdb5bda5063bdd13ac479737f5355844cacb1130629a757cdf",
+    "proposed_gold_checksum": "916ac6569f944bcdb5bda5063bdd13ac479737f5355844cacb1130629a757cdf",
+    "human_review": {
+      "reviewer_role": "project_owner",
+      "decision_source": "explicit_user_acceptance",
+      "reviewed_at": "2026-08-06T14:35:26Z",
+      "acceptance_scope": "all_25_revised_gold_records",
+      "decision_reason": "Accepted as proposed after frontier critique."
+    },
+    "judge_execution": {
+      "kind": "codex_internal",
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "high",
+      "critique_artifact_checksum": "853aca7ebdaa8be1678264c4fe99c0a1e633d2157ea1240a2ff16dce019934f6",
+      "provider_attempt": {
+        "requested": "openai:gpt-5.6-sol-high",
+        "status": "blocked",
+        "status_reason": "missing_credentials:openai",
+        "record_count": 0
+      },
+      "model_selection_user_supplied": true
+    },
+    "human_revision": null
+  },
+  {
+    "schema_version": "observation_ledger.adjudication.v1",
+    "case_id": "obs-sr-014",
+    "judge_model": "codex:gpt-5.6-sol-high",
+    "judge_critique": {
+      "acceptable_as_proposed": true,
+      "issues": [],
+      "recommended_changes": [],
+      "strengths": [
+        "Request is the unambiguous primary label.",
+        "The summaries distinguish the requested test run from the agent's acknowledgment that nothing has run.",
+        "The limitation and forbidden propositions comprehensively prevent requested work from becoming a result.",
+        "Both evidence spans are exact."
+      ]
+    },
+    "human_decision": "accepted",
+    "accepted_gold_checksum": "6438b100c333424ba4313869dfe4f5d25784af0aab2f34b0a70c4228e85b1263",
+    "proposed_gold_checksum": "6438b100c333424ba4313869dfe4f5d25784af0aab2f34b0a70c4228e85b1263",
+    "human_review": {
+      "reviewer_role": "project_owner",
+      "decision_source": "explicit_user_acceptance",
+      "reviewed_at": "2026-08-06T14:35:26Z",
+      "acceptance_scope": "all_25_revised_gold_records",
+      "decision_reason": "Accepted as proposed after frontier critique."
+    },
+    "judge_execution": {
+      "kind": "codex_internal",
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "high",
+      "critique_artifact_checksum": "853aca7ebdaa8be1678264c4fe99c0a1e633d2157ea1240a2ff16dce019934f6",
+      "provider_attempt": {
+        "requested": "openai:gpt-5.6-sol-high",
+        "status": "blocked",
+        "status_reason": "missing_credentials:openai",
+        "record_count": 0
+      },
+      "model_selection_user_supplied": true
+    },
+    "human_revision": null
+  },
+  {
+    "schema_version": "observation_ledger.adjudication.v1",
+    "case_id": "obs-sr-015",
+    "judge_model": "codex:gpt-5.6-sol-high",
+    "judge_critique": {
+      "acceptable_as_proposed": true,
+      "issues": [],
+      "recommended_changes": [],
+      "strengths": [
+        "The gold records an information request without inventing a deployment failure cause.",
+        "The agent's future inspection is represented as intent rather than completed inspection.",
+        "Retrieval ineligibility and zero assertions are reasonable because the event contains no answer.",
+        "Both evidence spans are exact."
+      ]
+    },
+    "human_decision": "accepted",
+    "accepted_gold_checksum": "2a34f31b4e2f029cdf44b0e860f86cf1136ec5e3a6a7165e41c06f5a8a1f8f84",
+    "proposed_gold_checksum": "2a34f31b4e2f029cdf44b0e860f86cf1136ec5e3a6a7165e41c06f5a8a1f8f84",
+    "human_review": {
+      "reviewer_role": "project_owner",
+      "decision_source": "explicit_user_acceptance",
+      "reviewed_at": "2026-08-06T14:35:26Z",
+      "acceptance_scope": "all_25_revised_gold_records",
+      "decision_reason": "Accepted as proposed after frontier critique."
+    },
+    "judge_execution": {
+      "kind": "codex_internal",
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "high",
+      "critique_artifact_checksum": "853aca7ebdaa8be1678264c4fe99c0a1e633d2157ea1240a2ff16dce019934f6",
+      "provider_attempt": {
+        "requested": "openai:gpt-5.6-sol-high",
+        "status": "blocked",
+        "status_reason": "missing_credentials:openai",
+        "record_count": 0
+      },
+      "model_selection_user_supplied": true
+    },
+    "human_revision": null
+  },
+  {
+    "schema_version": "observation_ledger.adjudication.v1",
+    "case_id": "obs-sr-016",
+    "judge_model": "codex:gpt-5.6-sol-high",
+    "judge_critique": {
+      "acceptable_as_proposed": true,
+      "issues": [],
+      "recommended_changes": [],
+      "strengths": [
+        "The permission or guidance question is correctly labeled as a request.",
+        "The limitation preserves the distinction between asking whether deletion is permissible and authorizing deletion.",
+        "The forbidden propositions prevent claims of safety, authorization, or performed deletion.",
+        "Both evidence spans are exact."
+      ]
+    },
+    "human_decision": "accepted",
+    "accepted_gold_checksum": "2603e6a0fd53344ed4c7de8cd1ecfb118ea26f3f99067886a6645fb596b88a10",
+    "proposed_gold_checksum": "2603e6a0fd53344ed4c7de8cd1ecfb118ea26f3f99067886a6645fb596b88a10",
+    "human_review": {
+      "reviewer_role": "project_owner",
+      "decision_source": "explicit_user_acceptance",
+      "reviewed_at": "2026-08-06T14:35:26Z",
+      "acceptance_scope": "all_25_revised_gold_records",
+      "decision_reason": "Accepted as proposed after frontier critique."
+    },
+    "judge_execution": {
+      "kind": "codex_internal",
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "high",
+      "critique_artifact_checksum": "853aca7ebdaa8be1678264c4fe99c0a1e633d2157ea1240a2ff16dce019934f6",
+      "provider_attempt": {
+        "requested": "openai:gpt-5.6-sol-high",
+        "status": "blocked",
+        "status_reason": "missing_credentials:openai",
+        "record_count": 0
+      },
+      "model_selection_user_supplied": true
+    },
+    "human_revision": null
+  },
+  {
+    "schema_version": "observation_ledger.adjudication.v1",
+    "case_id": "obs-sr-017",
+    "judge_model": "codex:gpt-5.6-sol-high",
+    "judge_critique": {
+      "acceptable_as_proposed": true,
+      "issues": [],
+      "recommended_changes": [],
+      "strengths": [
+        "The gold preserves the reminder as requested future work and explicitly records that it was not scheduled.",
+        "The relative date remains unnormalized because speaker-local calendar context is not evidenced.",
+        "The forbidden propositions prevent scheduling and credential rotation from being treated as completed.",
+        "Both evidence spans are exact."
+      ]
+    },
+    "human_decision": "accepted",
+    "accepted_gold_checksum": "bb6845cbdf1301f40d726fdd833e9093cb29e10a92dd2cba60de3bcebec5dc39",
+    "proposed_gold_checksum": "bb6845cbdf1301f40d726fdd833e9093cb29e10a92dd2cba60de3bcebec5dc39",
+    "human_review": {
+      "reviewer_role": "project_owner",
+      "decision_source": "explicit_user_acceptance",
+      "reviewed_at": "2026-08-06T14:35:26Z",
+      "acceptance_scope": "all_25_revised_gold_records",
+      "decision_reason": "Accepted as proposed after frontier critique."
+    },
+    "judge_execution": {
+      "kind": "codex_internal",
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "high",
+      "critique_artifact_checksum": "853aca7ebdaa8be1678264c4fe99c0a1e633d2157ea1240a2ff16dce019934f6",
+      "provider_attempt": {
+        "requested": "openai:gpt-5.6-sol-high",
+        "status": "blocked",
+        "status_reason": "missing_credentials:openai",
+        "record_count": 0
+      },
+      "model_selection_user_supplied": true
+    },
+    "human_revision": null
+  },
+  {
+    "schema_version": "observation_ledger.adjudication.v1",
+    "case_id": "obs-sr-018",
+    "judge_model": "codex:gpt-5.6-sol-high",
+    "judge_critique": {
+      "acceptable_as_proposed": true,
+      "issues": [],
+      "recommended_changes": [],
+      "strengths": [
+        "The request label and summaries preserve both conditional branches.",
+        "The limitation correctly makes execution dependent on a test result absent from the event.",
+        "The forbidden propositions prevent either branch from being upgraded into an observed outcome.",
+        "Both evidence spans are exact."
+      ]
+    },
+    "human_decision": "accepted",
+    "accepted_gold_checksum": "738662c524939146a2f622048816146e925e87fb2cc5394bd84377fc4eebc098",
+    "proposed_gold_checksum": "738662c524939146a2f622048816146e925e87fb2cc5394bd84377fc4eebc098",
+    "human_review": {
+      "reviewer_role": "project_owner",
+      "decision_source": "explicit_user_acceptance",
+      "reviewed_at": "2026-08-06T14:35:26Z",
+      "acceptance_scope": "all_25_revised_gold_records",
+      "decision_reason": "Accepted as proposed after frontier critique."
+    },
+    "judge_execution": {
+      "kind": "codex_internal",
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "high",
+      "critique_artifact_checksum": "853aca7ebdaa8be1678264c4fe99c0a1e633d2157ea1240a2ff16dce019934f6",
+      "provider_attempt": {
+        "requested": "openai:gpt-5.6-sol-high",
+        "status": "blocked",
+        "status_reason": "missing_credentials:openai",
+        "record_count": 0
+      },
+      "model_selection_user_supplied": true
+    },
+    "human_revision": null
+  },
+  {
+    "schema_version": "observation_ledger.adjudication.v1",
+    "case_id": "obs-sr-019",
+    "judge_model": "codex:gpt-5.6-sol-high",
+    "judge_critique": {
+      "acceptable_as_proposed": true,
+      "issues": [],
+      "recommended_changes": [],
+      "strengths": [
+        "The multi-step comparison and recommendation request is decomposed accurately.",
+        "The agent's statement that analysis is pending is preserved.",
+        "The gold forbids inventing a recommendation or fully specified workload.",
+        "Both evidence spans are exact."
+      ]
+    },
+    "human_decision": "accepted",
+    "accepted_gold_checksum": "bccd1d29a473985ce08e80bfbfeea1a8ef6d179c4e759e0723f2c0032c74d4ba",
+    "proposed_gold_checksum": "bccd1d29a473985ce08e80bfbfeea1a8ef6d179c4e759e0723f2c0032c74d4ba",
+    "human_review": {
+      "reviewer_role": "project_owner",
+      "decision_source": "explicit_user_acceptance",
+      "reviewed_at": "2026-08-06T14:35:26Z",
+      "acceptance_scope": "all_25_revised_gold_records",
+      "decision_reason": "Accepted as proposed after frontier critique."
+    },
+    "judge_execution": {
+      "kind": "codex_internal",
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "high",
+      "critique_artifact_checksum": "853aca7ebdaa8be1678264c4fe99c0a1e633d2157ea1240a2ff16dce019934f6",
+      "provider_attempt": {
+        "requested": "openai:gpt-5.6-sol-high",
+        "status": "blocked",
+        "status_reason": "missing_credentials:openai",
+        "record_count": 0
+      },
+      "model_selection_user_supplied": true
+    },
+    "human_revision": null
+  },
+  {
+    "schema_version": "observation_ledger.adjudication.v1",
+    "case_id": "obs-sr-020",
+    "judge_model": "codex:gpt-5.6-sol-high",
+    "judge_critique": {
+      "acceptable_as_proposed": true,
+      "issues": [],
+      "recommended_changes": [],
+      "strengths": [
+        "Request is a defensible primary label because the agent's clarification question is the operative semantic act.",
+        "The summaries retain both the user's reported need and the unresolved target region.",
+        "The forbidden propositions prevent any inferred selection or completed update.",
+        "Both evidence spans are exact."
+      ]
+    },
+    "human_decision": "accepted",
+    "accepted_gold_checksum": "285c326e77dd04fe128f772d337f1b68a0d924f1eb009e2bda49b57c906b93f5",
+    "proposed_gold_checksum": "285c326e77dd04fe128f772d337f1b68a0d924f1eb009e2bda49b57c906b93f5",
+    "human_review": {
+      "reviewer_role": "project_owner",
+      "decision_source": "explicit_user_acceptance",
+      "reviewed_at": "2026-08-06T14:35:26Z",
+      "acceptance_scope": "all_25_revised_gold_records",
+      "decision_reason": "Accepted as proposed after frontier critique."
+    },
+    "judge_execution": {
+      "kind": "codex_internal",
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "high",
+      "critique_artifact_checksum": "853aca7ebdaa8be1678264c4fe99c0a1e633d2157ea1240a2ff16dce019934f6",
+      "provider_attempt": {
+        "requested": "openai:gpt-5.6-sol-high",
+        "status": "blocked",
+        "status_reason": "missing_credentials:openai",
+        "record_count": 0
+      },
+      "model_selection_user_supplied": true
+    },
+    "human_revision": null
+  },
+  {
+    "schema_version": "observation_ledger.adjudication.v1",
+    "case_id": "obs-sr-021",
+    "judge_model": "codex:gpt-5.6-sol-high",
+    "judge_critique": {
+      "acceptable_as_proposed": true,
+      "issues": [],
+      "recommended_changes": [],
+      "strengths": [
+        "The prohibition is correctly represented as a future-directed request and scoped to this report.",
+        "The custom facet captures the distribution restriction without claiming technical enforcement.",
+        "The limitation and forbidden propositions prevent inferred access-control changes or broader policy scope.",
+        "Both evidence spans are exact."
+      ]
+    },
+    "human_decision": "accepted",
+    "accepted_gold_checksum": "8c7a27d7cb11734cf048418e8efc4cc457f8676c040f9a79de9404db94806fc7",
+    "proposed_gold_checksum": "8c7a27d7cb11734cf048418e8efc4cc457f8676c040f9a79de9404db94806fc7",
+    "human_review": {
+      "reviewer_role": "project_owner",
+      "decision_source": "explicit_user_acceptance",
+      "reviewed_at": "2026-08-06T14:35:26Z",
+      "acceptance_scope": "all_25_revised_gold_records",
+      "decision_reason": "Accepted as proposed after frontier critique."
+    },
+    "judge_execution": {
+      "kind": "codex_internal",
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "high",
+      "critique_artifact_checksum": "853aca7ebdaa8be1678264c4fe99c0a1e633d2157ea1240a2ff16dce019934f6",
+      "provider_attempt": {
+        "requested": "openai:gpt-5.6-sol-high",
+        "status": "blocked",
+        "status_reason": "missing_credentials:openai",
+        "record_count": 0
+      },
+      "model_selection_user_supplied": true
+    },
+    "human_revision": null
+  },
+  {
+    "schema_version": "observation_ledger.adjudication.v1",
+    "case_id": "obs-sr-022",
+    "judge_model": "codex:gpt-5.6-sol-high",
+    "judge_critique": {
+      "acceptable_as_proposed": true,
+      "issues": [],
+      "recommended_changes": [],
+      "strengths": [
+        "The indirect polite construction is correctly classified as a request.",
+        "The summaries preserve both the requested work and the agent's interpretation.",
+        "The limitation and forbidden propositions prevent the pending summary from becoming completed work.",
+        "Both evidence spans are exact."
+      ]
+    },
+    "human_decision": "accepted",
+    "accepted_gold_checksum": "7c99ed0887a0a5f986199f372bd3ba393d09cca7838fe3be2123c5b79ed051cf",
+    "proposed_gold_checksum": "7c99ed0887a0a5f986199f372bd3ba393d09cca7838fe3be2123c5b79ed051cf",
+    "human_review": {
+      "reviewer_role": "project_owner",
+      "decision_source": "explicit_user_acceptance",
+      "reviewed_at": "2026-08-06T14:35:26Z",
+      "acceptance_scope": "all_25_revised_gold_records",
+      "decision_reason": "Accepted as proposed after frontier critique."
+    },
+    "judge_execution": {
+      "kind": "codex_internal",
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "high",
+      "critique_artifact_checksum": "853aca7ebdaa8be1678264c4fe99c0a1e633d2157ea1240a2ff16dce019934f6",
+      "provider_attempt": {
+        "requested": "openai:gpt-5.6-sol-high",
+        "status": "blocked",
+        "status_reason": "missing_credentials:openai",
+        "record_count": 0
+      },
+      "model_selection_user_supplied": true
+    },
+    "human_revision": null
+  },
+  {
+    "schema_version": "observation_ledger.adjudication.v1",
+    "case_id": "obs-sr-023",
+    "judge_model": "codex:gpt-5.6-sol-high",
+    "judge_critique": {
+      "acceptable_as_proposed": true,
+      "issues": [],
+      "recommended_changes": [],
+      "strengths": [
+        "The choice question is correctly labeled as a recommendation request.",
+        "The gold preserves the agent's stated need for workload and deployment constraints.",
+        "The limitation and forbidden propositions keep the database choice unresolved and avoid universal claims.",
+        "Both evidence spans are exact."
+      ]
+    },
+    "human_decision": "accepted",
+    "accepted_gold_checksum": "963f442123472eee7d534d943605242bf5a5d268e512d42619efac4ea5828778",
+    "proposed_gold_checksum": "963f442123472eee7d534d943605242bf5a5d268e512d42619efac4ea5828778",
+    "human_review": {
+      "reviewer_role": "project_owner",
+      "decision_source": "explicit_user_acceptance",
+      "reviewed_at": "2026-08-06T14:35:26Z",
+      "acceptance_scope": "all_25_revised_gold_records",
+      "decision_reason": "Accepted as proposed after frontier critique."
+    },
+    "judge_execution": {
+      "kind": "codex_internal",
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "high",
+      "critique_artifact_checksum": "853aca7ebdaa8be1678264c4fe99c0a1e633d2157ea1240a2ff16dce019934f6",
+      "provider_attempt": {
+        "requested": "openai:gpt-5.6-sol-high",
+        "status": "blocked",
+        "status_reason": "missing_credentials:openai",
+        "record_count": 0
+      },
+      "model_selection_user_supplied": true
+    },
+    "human_revision": null
+  },
+  {
+    "schema_version": "observation_ledger.adjudication.v1",
+    "case_id": "obs-sr-024",
+    "judge_model": "codex:gpt-5.6-sol-high",
+    "judge_critique": {
+      "acceptable_as_proposed": true,
+      "issues": [],
+      "recommended_changes": [],
+      "strengths": [
+        "Request is appropriately primary for the mixed state report and constrained instruction.",
+        "The execution-constraint facet accurately permits staging and excludes production.",
+        "The limitation preserves attribution for the staging-only occurrence claim.",
+        "The forbidden propositions prevent reproduction, production access, or independent verification from being invented.",
+        "Both evidence spans are exact."
+      ]
+    },
+    "human_decision": "accepted",
+    "accepted_gold_checksum": "f1d58e34eb695dd01af1fe227d15189ac57d6bfabcd787d1471b05ec9c33ee9c",
+    "proposed_gold_checksum": "f1d58e34eb695dd01af1fe227d15189ac57d6bfabcd787d1471b05ec9c33ee9c",
+    "human_review": {
+      "reviewer_role": "project_owner",
+      "decision_source": "explicit_user_acceptance",
+      "reviewed_at": "2026-08-06T14:35:26Z",
+      "acceptance_scope": "all_25_revised_gold_records",
+      "decision_reason": "Accepted as proposed after frontier critique."
+    },
+    "judge_execution": {
+      "kind": "codex_internal",
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "high",
+      "critique_artifact_checksum": "853aca7ebdaa8be1678264c4fe99c0a1e633d2157ea1240a2ff16dce019934f6",
+      "provider_attempt": {
+        "requested": "openai:gpt-5.6-sol-high",
+        "status": "blocked",
+        "status_reason": "missing_credentials:openai",
+        "record_count": 0
+      },
+      "model_selection_user_supplied": true
+    },
+    "human_revision": null
+  },
+  {
+    "schema_version": "observation_ledger.adjudication.v1",
+    "case_id": "obs-sr-025",
+    "judge_model": "codex:gpt-5.6-sol-high",
+    "judge_critique": {
+      "acceptable_as_proposed": false,
+      "issues": [
+        "The required limitation identifies missing date and timezone but omits the equally material AM/PM ambiguity in \"at four.\"",
+        "Without a meridiem, the deadline cannot be normalized even if a date and timezone later become available."
+      ],
+      "recommended_changes": [
+        "Replace the limitation with: \"The deadline is relative and lacks an explicit date, timezone, and AM/PM designation.\"",
+        "Retain the prohibition against converting the deadline to a specific timestamp."
+      ],
+      "strengths": [
+        "Request is correctly primary for the mixed context-and-instruction turn.",
+        "The summaries preserve the user's stated departure context, relative deadline, and unsent report state.",
+        "The gold does not upgrade the delivery request into completed sending.",
+        "Both evidence spans are exact."
+      ]
+    },
+    "human_decision": "revised",
+    "accepted_gold_checksum": "31730ebf65b03427c83003e91c17ca5958361b6126d23c19b8d4e114b0476771",
+    "proposed_gold_checksum": "88b7557439d25cf452f1238efdb6921082279089478892d299d6c4b100aead28",
+    "human_review": {
+      "reviewer_role": "project_owner",
+      "decision_source": "explicit_user_acceptance",
+      "reviewed_at": "2026-08-06T14:35:26Z",
+      "acceptance_scope": "all_25_revised_gold_records",
+      "decision_reason": "Accepted after applying the judge-recommended evidence-bound corrections."
+    },
+    "judge_execution": {
+      "kind": "codex_internal",
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "high",
+      "critique_artifact_checksum": "853aca7ebdaa8be1678264c4fe99c0a1e633d2157ea1240a2ff16dce019934f6",
+      "provider_attempt": {
+        "requested": "openai:gpt-5.6-sol-high",
+        "status": "blocked",
+        "status_reason": "missing_credentials:openai",
+        "record_count": 0
+      },
+      "model_selection_user_supplied": true
+    },
+    "human_revision": {
+      "changes": [
+        {
+          "path": "/semantic_expectations/label_rationale",
+          "before": "The user supplies context and requests delivery before a relative deadline. Request is primary, and the time must not be normalized without date or timezone evidence.",
+          "after": "The user supplies context and requests delivery before a relative deadline. Request is primary, and the time must not be normalized without date, timezone, or AM/PM evidence."
+        },
+        {
+          "path": "/semantic_expectations/required_limitations/0",
+          "before": "The deadline is relative and lacks a date and timezone.",
+          "after": "The deadline is relative and lacks an explicit date, timezone, and AM/PM designation."
+        }
+      ]
+    }
+  }
+]

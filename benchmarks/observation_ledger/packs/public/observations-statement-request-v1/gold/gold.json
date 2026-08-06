@@ -1,0 +1,1476 @@
+[
+  {
+    "schema_version": "observation_ledger.gold.v1",
+    "case_id": "obs-sr-001",
+    "semantic_expectations": {
+      "preferred_primary_label": "statement",
+      "label_rationale": "The user states a durable communication preference; the agent commits to following it without proving a permanent setting change.",
+      "acceptable_facets": [
+        {
+          "kind": "preference",
+          "value": "concise outcome-first status updates",
+          "evidence_refs": [
+            "ev-001-user"
+          ]
+        },
+        {
+          "kind": "commitment",
+          "value": "keep future status updates concise and outcome-first",
+          "evidence_refs": [
+            "ev-001-agent"
+          ]
+        }
+      ],
+      "forbidden_facets": [],
+      "required_summary_meanings": [
+        "The user stated a preference for concise, outcome-first status updates.",
+        "The agent committed to keeping future status updates concise and outcome-first."
+      ],
+      "retrieval_eligible": true,
+      "assertion_expectation": {
+        "required": false,
+        "empty_is_valid": true,
+        "supported_if_authored": [
+          "The user prefers concise, outcome-first status updates."
+        ]
+      },
+      "associations_expected": [],
+      "revisions_expected": [],
+      "required_limitations": []
+    },
+    "acceptable_labels": [
+      "statement"
+    ],
+    "supported_propositions": [
+      "The user stated a preference for concise, outcome-first status updates.",
+      "The agent acknowledged the stated communication preference."
+    ],
+    "forbidden_propositions": [
+      "The user's preference was inferred from writing style rather than stated.",
+      "A permanent system setting was changed.",
+      "The user requested a specific status update in this event."
+    ],
+    "evidence_spans": [
+      {
+        "evidence_id": "ev-001-user",
+        "source_event_id": "event-sr-001",
+        "start": 6,
+        "end": 73,
+        "quote": "I prefer status updates that are concise and lead with the outcome."
+      },
+      {
+        "evidence_id": "ev-001-agent",
+        "source_event_id": "event-sr-001",
+        "start": 81,
+        "end": 153,
+        "quote": "Understood. I will keep future status updates concise and outcome-first."
+      }
+    ]
+  },
+  {
+    "schema_version": "observation_ledger.gold.v1",
+    "case_id": "obs-sr-002",
+    "semantic_expectations": {
+      "preferred_primary_label": "statement",
+      "label_rationale": "The user reports a current incident; the observation must preserve attribution and must not upgrade the report into independently verified service truth.",
+      "acceptable_facets": [
+        {
+          "kind": "incident",
+          "value": "reported repeated staging API 503 responses",
+          "evidence_refs": [
+            "ev-002-user"
+          ]
+        }
+      ],
+      "forbidden_facets": [],
+      "required_summary_meanings": [
+        "The user reported three staging API 503 responses that morning.",
+        "The agent explicitly said the service had not yet been checked."
+      ],
+      "retrieval_eligible": true,
+      "assertion_expectation": {
+        "required": false,
+        "empty_is_valid": true,
+        "supported_if_authored": [
+          "The user reported repeated staging API 503 responses."
+        ]
+      },
+      "associations_expected": [],
+      "revisions_expected": [],
+      "required_limitations": [
+        "The service state is user-reported and not independently verified in the event."
+      ]
+    },
+    "acceptable_labels": [
+      "statement"
+    ],
+    "supported_propositions": [
+      "The user reported three staging API 503 responses that morning.",
+      "The agent explicitly said the service had not yet been checked."
+    ],
+    "forbidden_propositions": [
+      "Core Memory independently verified three 503 responses.",
+      "The production API was failing.",
+      "The incident was resolved."
+    ],
+    "evidence_spans": [
+      {
+        "evidence_id": "ev-002-user",
+        "source_event_id": "event-sr-002",
+        "start": 6,
+        "end": 71,
+        "quote": "The staging API has returned 503 errors three times this morning."
+      },
+      {
+        "evidence_id": "ev-002-agent",
+        "source_event_id": "event-sr-002",
+        "start": 79,
+        "end": 160,
+        "quote": "I have not checked the service yet, so I will treat that as your incident report."
+      }
+    ]
+  },
+  {
+    "schema_version": "observation_ledger.gold.v1",
+    "case_id": "obs-sr-003",
+    "semantic_expectations": {
+      "preferred_primary_label": "statement",
+      "label_rationale": "The user offers a hedged hypothesis, not a proven causal explanation.",
+      "acceptable_facets": [
+        {
+          "kind": "hypothesis",
+          "value": "connection pool may contribute to latency",
+          "evidence_refs": [
+            "ev-003-user"
+          ]
+        }
+      ],
+      "forbidden_facets": [],
+      "required_summary_meanings": [
+        "The user hypothesized that the new connection pool might be causing the latency spike.",
+        "The agent said traces would be needed for verification."
+      ],
+      "retrieval_eligible": true,
+      "assertion_expectation": {
+        "required": false,
+        "empty_is_valid": true,
+        "supported_if_authored": [
+          "The user holds a tentative hypothesis about the connection pool and latency."
+        ]
+      },
+      "associations_expected": [],
+      "revisions_expected": [],
+      "required_limitations": [
+        "The proposed causal link is explicitly uncertain and unverified."
+      ]
+    },
+    "acceptable_labels": [
+      "statement"
+    ],
+    "supported_propositions": [
+      "The user hypothesized that the new connection pool might be causing the latency spike.",
+      "The agent said traces would be needed for verification."
+    ],
+    "forbidden_propositions": [
+      "The new connection pool caused the latency spike.",
+      "Traces confirmed the hypothesis.",
+      "The agent rejected the hypothesis."
+    ],
+    "evidence_spans": [
+      {
+        "evidence_id": "ev-003-user",
+        "source_event_id": "event-sr-003",
+        "start": 6,
+        "end": 73,
+        "quote": "I think the new connection pool might be causing the latency spike."
+      },
+      {
+        "evidence_id": "ev-003-agent",
+        "source_event_id": "event-sr-003",
+        "start": 81,
+        "end": 137,
+        "quote": "That is a hypothesis; we would need traces to verify it."
+      }
+    ]
+  },
+  {
+    "schema_version": "observation_ledger.gold.v1",
+    "case_id": "obs-sr-004",
+    "semantic_expectations": {
+      "preferred_primary_label": "statement",
+      "label_rationale": "The user states an explicit operating constraint; the event does not establish its legal source or universal applicability.",
+      "acceptable_facets": [
+        {
+          "kind": "custom",
+          "value": {
+            "name": "constraint",
+            "text": "customer prompts remain in the United States"
+          },
+          "evidence_refs": [
+            "ev-004-user"
+          ]
+        }
+      ],
+      "forbidden_facets": [],
+      "required_summary_meanings": [
+        "The user stated that customer prompts cannot be stored outside the United States.",
+        "The agent acknowledged the statement as a deployment constraint."
+      ],
+      "retrieval_eligible": true,
+      "assertion_expectation": {
+        "required": false,
+        "empty_is_valid": true,
+        "supported_if_authored": [
+          "Customer prompts are subject to a user-stated United States storage constraint."
+        ]
+      },
+      "associations_expected": [],
+      "revisions_expected": [],
+      "required_limitations": [
+        "The evidence states the constraint but does not identify its legal or policy provenance."
+      ]
+    },
+    "acceptable_labels": [
+      "statement"
+    ],
+    "supported_propositions": [
+      "The user stated that customer prompts cannot be stored outside the United States.",
+      "The agent acknowledged the statement as a deployment constraint."
+    ],
+    "forbidden_propositions": [
+      "A specific law was cited as the source of the constraint.",
+      "The constraint applies to every company and jurisdiction.",
+      "A deployment configuration was changed."
+    ],
+    "evidence_spans": [
+      {
+        "evidence_id": "ev-004-user",
+        "source_event_id": "event-sr-004",
+        "start": 6,
+        "end": 66,
+        "quote": "Customer prompts cannot be stored outside the United States."
+      },
+      {
+        "evidence_id": "ev-004-agent",
+        "source_event_id": "event-sr-004",
+        "start": 74,
+        "end": 131,
+        "quote": "Understood; I will treat that as a deployment constraint."
+      }
+    ]
+  },
+  {
+    "schema_version": "observation_ledger.gold.v1",
+    "case_id": "obs-sr-005",
+    "semantic_expectations": {
+      "preferred_primary_label": "statement",
+      "label_rationale": "The user gives an attributed explanation; the observation may record the account but cannot independently establish causation or vendor fault.",
+      "acceptable_facets": [],
+      "forbidden_facets": [],
+      "required_summary_meanings": [
+        "The user attributed the missed deadline to a vendor export arriving a day late.",
+        "The agent said the explanation would be recorded as the user's account rather than a verified cause."
+      ],
+      "retrieval_eligible": true,
+      "assertion_expectation": {
+        "required": false,
+        "empty_is_valid": true,
+        "supported_if_authored": [
+          "The user attributes the missed deadline to a late vendor export."
+        ]
+      },
+      "associations_expected": [],
+      "revisions_expected": [],
+      "required_limitations": [
+        "Causation and vendor responsibility are attributed to the user and remain unverified."
+      ]
+    },
+    "acceptable_labels": [
+      "statement"
+    ],
+    "supported_propositions": [
+      "The user attributed the missed deadline to a vendor export arriving a day late.",
+      "The agent said the explanation would be recorded as the user's account rather than a verified cause."
+    ],
+    "forbidden_propositions": [
+      "The vendor was independently proven responsible for the missed deadline.",
+      "The export arrived exactly twenty-four hours late.",
+      "The deadline was subsequently met."
+    ],
+    "evidence_spans": [
+      {
+        "evidence_id": "ev-005-user",
+        "source_event_id": "event-sr-005",
+        "start": 6,
+        "end": 79,
+        "quote": "I missed the deadline because the vendor delivered the export a day late."
+      },
+      {
+        "evidence_id": "ev-005-agent",
+        "source_event_id": "event-sr-005",
+        "start": 87,
+        "end": 170,
+        "quote": "Thanks for explaining. I will record that as your account, not as a verified cause."
+      }
+    ]
+  },
+  {
+    "schema_version": "observation_ledger.gold.v1",
+    "case_id": "obs-sr-006",
+    "semantic_expectations": {
+      "preferred_primary_label": "statement",
+      "label_rationale": "The user states a time-bounded operating constraint, and the summary must retain the sprint scope.",
+      "acceptable_facets": [
+        {
+          "kind": "custom",
+          "value": {
+            "name": "constraint",
+            "scope": "current sprint",
+            "text": "staging feature flags stay enabled"
+          },
+          "evidence_refs": [
+            "ev-006-user"
+          ]
+        }
+      ],
+      "forbidden_facets": [],
+      "required_summary_meanings": [
+        "The user stated that staging feature flags need to remain enabled for the current sprint.",
+        "The agent acknowledged the constraint as limited to the current sprint."
+      ],
+      "retrieval_eligible": true,
+      "assertion_expectation": {
+        "required": false,
+        "empty_is_valid": true,
+        "supported_if_authored": [
+          "For the current sprint, the user requires staging feature flags to remain enabled."
+        ]
+      },
+      "associations_expected": [],
+      "revisions_expected": [],
+      "required_limitations": [
+        "The constraint is explicitly scoped to the current sprint."
+      ]
+    },
+    "acceptable_labels": [
+      "statement"
+    ],
+    "supported_propositions": [
+      "The user stated that staging feature flags need to remain enabled for the current sprint.",
+      "The agent acknowledged the constraint as limited to the current sprint."
+    ],
+    "forbidden_propositions": [
+      "Feature flags must remain enabled permanently.",
+      "Production feature flags were enabled.",
+      "The feature flags were changed during the event."
+    ],
+    "evidence_spans": [
+      {
+        "evidence_id": "ev-006-user",
+        "source_event_id": "event-sr-006",
+        "start": 6,
+        "end": 69,
+        "quote": "For this sprint, feature flags need to stay enabled in staging."
+      },
+      {
+        "evidence_id": "ev-006-agent",
+        "source_event_id": "event-sr-006",
+        "start": 77,
+        "end": 128,
+        "quote": "I will treat that as the current sprint constraint."
+      }
+    ]
+  },
+  {
+    "schema_version": "observation_ledger.gold.v1",
+    "case_id": "obs-sr-007",
+    "semantic_expectations": {
+      "preferred_primary_label": "statement",
+      "label_rationale": "The event observes a correction statement. It does not prove deployment occurred or resolve a claim chain in this observation-only case.",
+      "acceptable_facets": [
+        {
+          "kind": "correction",
+          "value": {
+            "replaces": "Monday",
+            "with": "Tuesday"
+          },
+          "evidence_refs": [
+            "ev-007-user"
+          ]
+        }
+      ],
+      "forbidden_facets": [],
+      "required_summary_meanings": [
+        "The user corrected the planned deployment day from Monday to Tuesday.",
+        "The agent acknowledged the correction."
+      ],
+      "retrieval_eligible": true,
+      "assertion_expectation": {
+        "required": false,
+        "empty_is_valid": true,
+        "supported_if_authored": [
+          "The user states that the deployment is planned for Tuesday rather than Monday."
+        ]
+      },
+      "associations_expected": [],
+      "revisions_expected": [],
+      "required_limitations": [
+        "No prior semantic object was supplied, so this event alone does not warrant a Revision."
+      ]
+    },
+    "acceptable_labels": [
+      "statement"
+    ],
+    "supported_propositions": [
+      "The user corrected the planned deployment day from Monday to Tuesday.",
+      "The agent acknowledged the correction."
+    ],
+    "forbidden_propositions": [
+      "The deployment occurred on Tuesday.",
+      "A prior claim was mechanically superseded without a revision record.",
+      "The deployment time of day was specified."
+    ],
+    "evidence_spans": [
+      {
+        "evidence_id": "ev-007-user",
+        "source_event_id": "event-sr-007",
+        "start": 6,
+        "end": 68,
+        "quote": "Correction: the deployment is planned for Tuesday, not Monday."
+      },
+      {
+        "evidence_id": "ev-007-agent",
+        "source_event_id": "event-sr-007",
+        "start": 76,
+        "end": 129,
+        "quote": "Understood: you corrected the planned day to Tuesday."
+      }
+    ]
+  },
+  {
+    "schema_version": "observation_ledger.gold.v1",
+    "case_id": "obs-sr-008",
+    "semantic_expectations": {
+      "preferred_primary_label": "statement",
+      "label_rationale": "Although the user asks a question, the interaction's substantive observed state is the agent's explicit answer. Statement is preferred; request is tolerable because the event contains a direct information request.",
+      "acceptable_facets": [
+        {
+          "kind": "checkpoint",
+          "value": "migration tests not yet run",
+          "evidence_refs": [
+            "ev-008-agent"
+          ]
+        }
+      ],
+      "forbidden_facets": [],
+      "required_summary_meanings": [
+        "The user asked whether the migration tests had been run.",
+        "The agent stated that the migration tests had not yet been run."
+      ],
+      "retrieval_eligible": false,
+      "assertion_expectation": {
+        "required": false,
+        "empty_is_valid": true,
+        "supported_if_authored": []
+      },
+      "associations_expected": [],
+      "revisions_expected": [],
+      "required_limitations": [
+        "The event contains both a request and an answer; statement is preferred because the answer supplies the substantive current state."
+      ]
+    },
+    "acceptable_labels": [
+      "statement",
+      "request"
+    ],
+    "supported_propositions": [
+      "The user asked whether the migration tests had been run.",
+      "The agent stated that the migration tests had not yet been run."
+    ],
+    "forbidden_propositions": [
+      "The migration tests passed.",
+      "The migration tests failed.",
+      "The agent ran the tests during the event."
+    ],
+    "evidence_spans": [
+      {
+        "evidence_id": "ev-008-user",
+        "source_event_id": "event-sr-008",
+        "start": 6,
+        "end": 43,
+        "quote": "Have you run the migration tests yet?"
+      },
+      {
+        "evidence_id": "ev-008-agent",
+        "source_event_id": "event-sr-008",
+        "start": 51,
+        "end": 90,
+        "quote": "I have not run the migration tests yet."
+      }
+    ]
+  },
+  {
+    "schema_version": "observation_ledger.gold.v1",
+    "case_id": "obs-sr-009",
+    "semantic_expectations": {
+      "preferred_primary_label": "statement",
+      "label_rationale": "The user states a conditional prediction. Neither the condition nor the predicted result is observed as having occurred.",
+      "acceptable_facets": [
+        {
+          "kind": "hypothesis",
+          "value": {
+            "condition": "traffic doubles",
+            "prediction": "current queue falls behind"
+          },
+          "evidence_refs": [
+            "ev-009-user"
+          ]
+        }
+      ],
+      "forbidden_facets": [],
+      "required_summary_meanings": [
+        "The user predicted that the current queue would fall behind if traffic doubled.",
+        "The agent characterized the statement as a conditional prediction rather than a measured result."
+      ],
+      "retrieval_eligible": true,
+      "assertion_expectation": {
+        "required": false,
+        "empty_is_valid": true,
+        "supported_if_authored": [
+          "The user expects queue lag under a hypothetical doubling of traffic."
+        ]
+      },
+      "associations_expected": [],
+      "revisions_expected": [],
+      "required_limitations": [
+        "The statement is conditional and is not evidence that either the condition or outcome occurred."
+      ]
+    },
+    "acceptable_labels": [
+      "statement"
+    ],
+    "supported_propositions": [
+      "The user predicted that the current queue would fall behind if traffic doubled.",
+      "The agent characterized the statement as a conditional prediction rather than a measured result."
+    ],
+    "forbidden_propositions": [
+      "Traffic doubled.",
+      "The queue fell behind.",
+      "The prediction was validated by measurements."
+    ],
+    "evidence_spans": [
+      {
+        "evidence_id": "ev-009-user",
+        "source_event_id": "event-sr-009",
+        "start": 6,
+        "end": 68,
+        "quote": "If traffic doubles, I expect the current queue to fall behind."
+      },
+      {
+        "evidence_id": "ev-009-agent",
+        "source_event_id": "event-sr-009",
+        "start": 76,
+        "end": 144,
+        "quote": "I will keep that as a conditional prediction, not a measured result."
+      }
+    ]
+  },
+  {
+    "schema_version": "observation_ledger.gold.v1",
+    "case_id": "obs-sr-010",
+    "semantic_expectations": {
+      "preferred_primary_label": "statement",
+      "label_rationale": "The user reports what another person said. The observation must preserve the attribution chain and must not promote hearsay to vendor-confirmed truth.",
+      "acceptable_facets": [],
+      "forbidden_facets": [],
+      "required_summary_meanings": [
+        "The user reported that Sam said the vendor approved the security exception.",
+        "The agent said the report would not be treated as vendor confirmation."
+      ],
+      "retrieval_eligible": true,
+      "assertion_expectation": {
+        "required": false,
+        "empty_is_valid": true,
+        "supported_if_authored": [
+          "The user reports that Sam said the vendor approved the security exception."
+        ]
+      },
+      "associations_expected": [],
+      "revisions_expected": [],
+      "required_limitations": [
+        "The approval is second-hand and not directly evidenced by the vendor."
+      ]
+    },
+    "acceptable_labels": [
+      "statement"
+    ],
+    "supported_propositions": [
+      "The user reported that Sam said the vendor approved the security exception.",
+      "The agent said the report would not be treated as vendor confirmation."
+    ],
+    "forbidden_propositions": [
+      "The vendor directly confirmed the security exception.",
+      "Sam is an authorized vendor representative.",
+      "The security exception is currently valid."
+    ],
+    "evidence_spans": [
+      {
+        "evidence_id": "ev-010-user",
+        "source_event_id": "event-sr-010",
+        "start": 6,
+        "end": 61,
+        "quote": "Sam told me the vendor approved the security exception."
+      },
+      {
+        "evidence_id": "ev-010-agent",
+        "source_event_id": "event-sr-010",
+        "start": 69,
+        "end": 140,
+        "quote": "I will record that as a second-hand report, not as vendor confirmation."
+      }
+    ]
+  },
+  {
+    "schema_version": "observation_ledger.gold.v1",
+    "case_id": "obs-sr-011",
+    "semantic_expectations": {
+      "preferred_primary_label": "statement",
+      "label_rationale": "The user states an explicit negative preference; it is not itself a command proving notification settings changed.",
+      "acceptable_facets": [
+        {
+          "kind": "preference",
+          "value": "no automatic email for routine job completions",
+          "evidence_refs": [
+            "ev-011-user"
+          ]
+        }
+      ],
+      "forbidden_facets": [],
+      "required_summary_meanings": [
+        "The user stated a preference against automatic email notifications for routine job completions.",
+        "The agent acknowledged the notification preference."
+      ],
+      "retrieval_eligible": true,
+      "assertion_expectation": {
+        "required": false,
+        "empty_is_valid": true,
+        "supported_if_authored": [
+          "The user prefers not to receive automatic emails for routine job completions."
+        ]
+      },
+      "associations_expected": [],
+      "revisions_expected": [],
+      "required_limitations": [
+        "The preference is limited to routine job completions."
+      ]
+    },
+    "acceptable_labels": [
+      "statement"
+    ],
+    "supported_propositions": [
+      "The user stated a preference against automatic email notifications for routine job completions.",
+      "The agent acknowledged the notification preference."
+    ],
+    "forbidden_propositions": [
+      "All email notifications are disabled.",
+      "Notification settings were changed during the event.",
+      "The preference applies to failure alerts."
+    ],
+    "evidence_spans": [
+      {
+        "evidence_id": "ev-011-user",
+        "source_event_id": "event-sr-011",
+        "start": 6,
+        "end": 78,
+        "quote": "I do not want automatic email notifications for routine job completions."
+      },
+      {
+        "evidence_id": "ev-011-agent",
+        "source_event_id": "event-sr-011",
+        "start": 86,
+        "end": 148,
+        "quote": "Understood. I will preserve that as a notification preference."
+      }
+    ]
+  },
+  {
+    "schema_version": "observation_ledger.gold.v1",
+    "case_id": "obs-sr-012",
+    "semantic_expectations": {
+      "preferred_primary_label": "statement",
+      "label_rationale": "The interrogative form is rhetorical. The event expresses sentiment about difficulty rather than requesting an answer.",
+      "acceptable_facets": [],
+      "forbidden_facets": [],
+      "required_summary_meanings": [
+        "The user rhetorically expressed frustration with cache invalidation.",
+        "The agent interpreted the utterance as non-requesting."
+      ],
+      "retrieval_eligible": false,
+      "assertion_expectation": {
+        "required": false,
+        "empty_is_valid": true,
+        "supported_if_authored": []
+      },
+      "associations_expected": [],
+      "revisions_expected": [],
+      "required_limitations": [
+        "The utterance has question form but functions as a rhetorical statement."
+      ]
+    },
+    "acceptable_labels": [
+      "statement",
+      "reflection"
+    ],
+    "supported_propositions": [
+      "The user rhetorically expressed frustration with cache invalidation.",
+      "The agent interpreted the utterance as non-requesting."
+    ],
+    "forbidden_propositions": [
+      "The user requested an explanation of cache invalidation.",
+      "The user asked the agent to fix the cache.",
+      "Cache invalidation failed."
+    ],
+    "evidence_spans": [
+      {
+        "evidence_id": "ev-012-user",
+        "source_event_id": "event-sr-012",
+        "start": 6,
+        "end": 57,
+        "quote": "Who knew cache invalidation would be this annoying?"
+      },
+      {
+        "evidence_id": "ev-012-agent",
+        "source_event_id": "event-sr-012",
+        "start": 65,
+        "end": 138,
+        "quote": "That sounds rhetorical; I do not see a request for action or information."
+      }
+    ]
+  },
+  {
+    "schema_version": "observation_ledger.gold.v1",
+    "case_id": "obs-sr-013",
+    "semantic_expectations": {
+      "preferred_primary_label": "statement",
+      "label_rationale": "The user reports text contained in a ticket. A quoted imperative is not automatically a request from the user to the agent.",
+      "acceptable_facets": [],
+      "forbidden_facets": [],
+      "required_summary_meanings": [
+        "The user stated that the ticket contains an instruction to restart the service after the backup completes.",
+        "The agent noted that the user had not requested execution."
+      ],
+      "retrieval_eligible": true,
+      "assertion_expectation": {
+        "required": false,
+        "empty_is_valid": true,
+        "supported_if_authored": [
+          "The user reports that the ticket contains a conditional restart instruction."
+        ]
+      },
+      "associations_expected": [],
+      "revisions_expected": [],
+      "required_limitations": [
+        "The instruction is quoted source content, not an authorized execution request in this event."
+      ]
+    },
+    "acceptable_labels": [
+      "statement"
+    ],
+    "supported_propositions": [
+      "The user stated that the ticket contains an instruction to restart the service after the backup completes.",
+      "The agent noted that the user had not requested execution."
+    ],
+    "forbidden_propositions": [
+      "The user instructed the agent to restart the service.",
+      "The backup completed.",
+      "The service was restarted."
+    ],
+    "evidence_spans": [
+      {
+        "evidence_id": "ev-013-user",
+        "source_event_id": "event-sr-013",
+        "start": 6,
+        "end": 72,
+        "quote": "The ticket says, \"Restart the service after the backup completes.\""
+      },
+      {
+        "evidence_id": "ev-013-agent",
+        "source_event_id": "event-sr-013",
+        "start": 80,
+        "end": 150,
+        "quote": "I see the quoted instruction, but you have not asked me to execute it."
+      }
+    ]
+  },
+  {
+    "schema_version": "observation_ledger.gold.v1",
+    "case_id": "obs-sr-014",
+    "semantic_expectations": {
+      "preferred_primary_label": "request",
+      "label_rationale": "The user directly asks the agent to perform work. The agent acknowledges without claiming completion.",
+      "acceptable_facets": [],
+      "forbidden_facets": [],
+      "required_summary_meanings": [
+        "The user requested that the migration package unit tests be run.",
+        "The agent acknowledged that no tests had run yet."
+      ],
+      "retrieval_eligible": true,
+      "assertion_expectation": {
+        "required": false,
+        "empty_is_valid": true,
+        "supported_if_authored": []
+      },
+      "associations_expected": [],
+      "revisions_expected": [],
+      "required_limitations": [
+        "The event records a pending request, not an action result."
+      ]
+    },
+    "acceptable_labels": [
+      "request"
+    ],
+    "supported_propositions": [
+      "The user requested that the migration package unit tests be run.",
+      "The agent acknowledged that no tests had run yet."
+    ],
+    "forbidden_propositions": [
+      "The unit tests ran.",
+      "The unit tests passed.",
+      "The unit tests failed."
+    ],
+    "evidence_spans": [
+      {
+        "evidence_id": "ev-014-user",
+        "source_event_id": "event-sr-014",
+        "start": 6,
+        "end": 51,
+        "quote": "Run the unit tests for the migration package."
+      },
+      {
+        "evidence_id": "ev-014-agent",
+        "source_event_id": "event-sr-014",
+        "start": 59,
+        "end": 107,
+        "quote": "I understand the request; no tests have run yet."
+      }
+    ]
+  },
+  {
+    "schema_version": "observation_ledger.gold.v1",
+    "case_id": "obs-sr-015",
+    "semantic_expectations": {
+      "preferred_primary_label": "request",
+      "label_rationale": "The user asks for information. The agent commits only to inspection and supplies no failure explanation in the event.",
+      "acceptable_facets": [],
+      "forbidden_facets": [],
+      "required_summary_meanings": [
+        "The user requested information about what failed in the last deployment.",
+        "The agent said evidence would be inspected before answering."
+      ],
+      "retrieval_eligible": false,
+      "assertion_expectation": {
+        "required": false,
+        "empty_is_valid": true,
+        "supported_if_authored": []
+      },
+      "associations_expected": [],
+      "revisions_expected": [],
+      "required_limitations": [
+        "The event contains no answer to the information request."
+      ]
+    },
+    "acceptable_labels": [
+      "request"
+    ],
+    "supported_propositions": [
+      "The user requested information about what failed in the last deployment.",
+      "The agent said evidence would be inspected before answering."
+    ],
+    "forbidden_propositions": [
+      "A database migration failed.",
+      "The deployment failure cause was known.",
+      "The deployment evidence had already been inspected."
+    ],
+    "evidence_spans": [
+      {
+        "evidence_id": "ev-015-user",
+        "source_event_id": "event-sr-015",
+        "start": 6,
+        "end": 41,
+        "quote": "What failed in the last deployment?"
+      },
+      {
+        "evidence_id": "ev-015-agent",
+        "source_event_id": "event-sr-015",
+        "start": 49,
+        "end": 105,
+        "quote": "I will inspect the deployment evidence before answering."
+      }
+    ]
+  },
+  {
+    "schema_version": "observation_ledger.gold.v1",
+    "case_id": "obs-sr-016",
+    "semantic_expectations": {
+      "preferred_primary_label": "request",
+      "label_rationale": "The user asks for permission or guidance. The question does not authorize deletion and no deletion occurs.",
+      "acceptable_facets": [],
+      "forbidden_facets": [],
+      "required_summary_meanings": [
+        "The user asked whether the old release branch could be deleted.",
+        "The agent stated that no branch had been deleted."
+      ],
+      "retrieval_eligible": false,
+      "assertion_expectation": {
+        "required": false,
+        "empty_is_valid": true,
+        "supported_if_authored": []
+      },
+      "associations_expected": [],
+      "revisions_expected": [],
+      "required_limitations": [
+        "The request seeks permission or guidance and is not itself deletion authorization."
+      ]
+    },
+    "acceptable_labels": [
+      "request"
+    ],
+    "supported_propositions": [
+      "The user asked whether the old release branch could be deleted.",
+      "The agent stated that no branch had been deleted."
+    ],
+    "forbidden_propositions": [
+      "The user authorized deletion of the branch.",
+      "The old release branch was deleted.",
+      "Deleting the branch is safe."
+    ],
+    "evidence_spans": [
+      {
+        "evidence_id": "ev-016-user",
+        "source_event_id": "event-sr-016",
+        "start": 6,
+        "end": 42,
+        "quote": "Can I delete the old release branch?"
+      },
+      {
+        "evidence_id": "ev-016-agent",
+        "source_event_id": "event-sr-016",
+        "start": 50,
+        "end": 106,
+        "quote": "I can explain the risks, but no branch has been deleted."
+      }
+    ]
+  },
+  {
+    "schema_version": "observation_ledger.gold.v1",
+    "case_id": "obs-sr-017",
+    "semantic_expectations": {
+      "preferred_primary_label": "request",
+      "label_rationale": "The user requests a future action with a relative date. The event does not establish a resolved calendar date or successful scheduling.",
+      "acceptable_facets": [],
+      "forbidden_facets": [],
+      "required_summary_meanings": [
+        "The user requested a reminder next Tuesday to rotate staging credentials.",
+        "The agent acknowledged that the reminder had not yet been scheduled."
+      ],
+      "retrieval_eligible": true,
+      "assertion_expectation": {
+        "required": false,
+        "empty_is_valid": true,
+        "supported_if_authored": []
+      },
+      "associations_expected": [],
+      "revisions_expected": [],
+      "required_limitations": [
+        "The relative date remains as stated because the event provides no deterministic calendar resolution."
+      ]
+    },
+    "acceptable_labels": [
+      "request"
+    ],
+    "supported_propositions": [
+      "The user requested a reminder next Tuesday to rotate staging credentials.",
+      "The agent acknowledged that the reminder had not yet been scheduled."
+    ],
+    "forbidden_propositions": [
+      "A reminder was scheduled.",
+      "The staging credentials were rotated.",
+      "The exact calendar date of next Tuesday was resolved in the event."
+    ],
+    "evidence_spans": [
+      {
+        "evidence_id": "ev-017-user",
+        "source_event_id": "event-sr-017",
+        "start": 6,
+        "end": 63,
+        "quote": "Remind me next Tuesday to rotate the staging credentials."
+      },
+      {
+        "evidence_id": "ev-017-agent",
+        "source_event_id": "event-sr-017",
+        "start": 71,
+        "end": 148,
+        "quote": "I understand the future reminder request; no reminder has been scheduled yet."
+      }
+    ]
+  },
+  {
+    "schema_version": "observation_ledger.gold.v1",
+    "case_id": "obs-sr-018",
+    "semantic_expectations": {
+      "preferred_primary_label": "request",
+      "label_rationale": "The user requests future work conditional on test results. The annotation must preserve both branches without claiming either occurred.",
+      "acceptable_facets": [],
+      "forbidden_facets": [],
+      "required_summary_meanings": [
+        "The user requested opening the pull request if tests pass.",
+        "The user requested stopping and reporting failures if tests do not pass.",
+        "The agent stated that neither condition had been evaluated."
+      ],
+      "retrieval_eligible": true,
+      "assertion_expectation": {
+        "required": false,
+        "empty_is_valid": true,
+        "supported_if_authored": []
+      },
+      "associations_expected": [],
+      "revisions_expected": [],
+      "required_limitations": [
+        "Execution depends on a future test result that is absent from the event."
+      ]
+    },
+    "acceptable_labels": [
+      "request"
+    ],
+    "supported_propositions": [
+      "The user requested opening the pull request if tests pass.",
+      "The user requested stopping and reporting failures if tests do not pass.",
+      "The agent stated that neither condition had been evaluated."
+    ],
+    "forbidden_propositions": [
+      "The tests passed.",
+      "A pull request was opened.",
+      "The tests failed."
+    ],
+    "evidence_spans": [
+      {
+        "evidence_id": "ev-018-user",
+        "source_event_id": "event-sr-018",
+        "start": 6,
+        "end": 87,
+        "quote": "If the tests pass, open the pull request; otherwise stop and report the failures."
+      },
+      {
+        "evidence_id": "ev-018-agent",
+        "source_event_id": "event-sr-018",
+        "start": 95,
+        "end": 175,
+        "quote": "I understand the two conditional branches; neither condition has been evaluated."
+      }
+    ]
+  },
+  {
+    "schema_version": "observation_ledger.gold.v1",
+    "case_id": "obs-sr-019",
+    "semantic_expectations": {
+      "preferred_primary_label": "request",
+      "label_rationale": "The user asks for a multi-step analysis and recommendation. No comparison result or recommendation exists yet.",
+      "acceptable_facets": [],
+      "forbidden_facets": [],
+      "required_summary_meanings": [
+        "The user requested a comparison of SQLite and PostgreSQL for the workload.",
+        "The user requested a recommendation that includes tradeoffs.",
+        "The agent stated that the analysis had not yet been performed."
+      ],
+      "retrieval_eligible": true,
+      "assertion_expectation": {
+        "required": false,
+        "empty_is_valid": true,
+        "supported_if_authored": []
+      },
+      "associations_expected": [],
+      "revisions_expected": [],
+      "required_limitations": [
+        "The requested analysis and recommendation are pending."
+      ]
+    },
+    "acceptable_labels": [
+      "request"
+    ],
+    "supported_propositions": [
+      "The user requested a comparison of SQLite and PostgreSQL for the workload.",
+      "The user requested a recommendation that includes tradeoffs.",
+      "The agent stated that the analysis had not yet been performed."
+    ],
+    "forbidden_propositions": [
+      "PostgreSQL was recommended.",
+      "SQLite was recommended.",
+      "The workload requirements were fully specified."
+    ],
+    "evidence_spans": [
+      {
+        "evidence_id": "ev-019-user",
+        "source_event_id": "event-sr-019",
+        "start": 6,
+        "end": 93,
+        "quote": "Compare SQLite and PostgreSQL for this workload, then recommend one with the tradeoffs."
+      },
+      {
+        "evidence_id": "ev-019-agent",
+        "source_event_id": "event-sr-019",
+        "start": 101,
+        "end": 195,
+        "quote": "I understand the comparison and recommendation request; I have not performed the analysis yet."
+      }
+    ]
+  },
+  {
+    "schema_version": "observation_ledger.gold.v1",
+    "case_id": "obs-sr-020",
+    "semantic_expectations": {
+      "preferred_primary_label": "request",
+      "label_rationale": "The agent asks the user for missing information. The primary observed semantic act is the agent's clarification request.",
+      "acceptable_facets": [],
+      "forbidden_facets": [],
+      "required_summary_meanings": [
+        "The user stated that the deployment region needs updating.",
+        "The agent requested clarification about which region to use."
+      ],
+      "retrieval_eligible": false,
+      "assertion_expectation": {
+        "required": false,
+        "empty_is_valid": true,
+        "supported_if_authored": []
+      },
+      "associations_expected": [],
+      "revisions_expected": [],
+      "required_limitations": [
+        "The target region is unresolved pending the user's answer."
+      ]
+    },
+    "acceptable_labels": [
+      "request"
+    ],
+    "supported_propositions": [
+      "The user stated that the deployment region needs updating.",
+      "The agent requested clarification about which region to use."
+    ],
+    "forbidden_propositions": [
+      "The deployment region was updated.",
+      "A target region was selected.",
+      "The agent inferred the target region."
+    ],
+    "evidence_spans": [
+      {
+        "evidence_id": "ev-020-user",
+        "source_event_id": "event-sr-020",
+        "start": 6,
+        "end": 43,
+        "quote": "The deployment region needs updating."
+      },
+      {
+        "evidence_id": "ev-020-agent",
+        "source_event_id": "event-sr-020",
+        "start": 51,
+        "end": 77,
+        "quote": "Which region should I use?"
+      }
+    ]
+  },
+  {
+    "schema_version": "observation_ledger.gold.v1",
+    "case_id": "obs-sr-021",
+    "semantic_expectations": {
+      "preferred_primary_label": "request",
+      "label_rationale": "The user requests a prohibition on future distribution. The acknowledgement does not prove technical access controls were changed.",
+      "acceptable_facets": [
+        {
+          "kind": "custom",
+          "value": {
+            "name": "prohibition",
+            "text": "do not publish outside the project team"
+          },
+          "evidence_refs": [
+            "ev-021-user"
+          ]
+        }
+      ],
+      "forbidden_facets": [],
+      "required_summary_meanings": [
+        "The user requested that the report not be published outside the project team.",
+        "The agent acknowledged the distribution restriction."
+      ],
+      "retrieval_eligible": true,
+      "assertion_expectation": {
+        "required": false,
+        "empty_is_valid": true,
+        "supported_if_authored": [
+          "The user imposed a distribution restriction on this report."
+        ]
+      },
+      "associations_expected": [],
+      "revisions_expected": [],
+      "required_limitations": [
+        "The request does not itself prove enforcement by technical access controls."
+      ]
+    },
+    "acceptable_labels": [
+      "request"
+    ],
+    "supported_propositions": [
+      "The user requested that the report not be published outside the project team.",
+      "The agent acknowledged the distribution restriction."
+    ],
+    "forbidden_propositions": [
+      "Repository permissions were changed.",
+      "The report had already been published.",
+      "Every project artifact is subject to the same restriction."
+    ],
+    "evidence_spans": [
+      {
+        "evidence_id": "ev-021-user",
+        "source_event_id": "event-sr-021",
+        "start": 6,
+        "end": 58,
+        "quote": "Do not publish this report outside the project team."
+      },
+      {
+        "evidence_id": "ev-021-agent",
+        "source_event_id": "event-sr-021",
+        "start": 66,
+        "end": 169,
+        "quote": "Understood. I will treat that as a distribution restriction, not evidence that access controls changed."
+      }
+    ]
+  },
+  {
+    "schema_version": "observation_ledger.gold.v1",
+    "case_id": "obs-sr-022",
+    "semantic_expectations": {
+      "preferred_primary_label": "request",
+      "label_rationale": "The user uses an indirect polite construction that functions as a request for work.",
+      "acceptable_facets": [],
+      "forbidden_facets": [],
+      "required_summary_meanings": [
+        "The user indirectly requested a summary of open review comments before continuing.",
+        "The agent interpreted the utterance as a request."
+      ],
+      "retrieval_eligible": false,
+      "assertion_expectation": {
+        "required": false,
+        "empty_is_valid": true,
+        "supported_if_authored": []
+      },
+      "associations_expected": [],
+      "revisions_expected": [],
+      "required_limitations": [
+        "The requested summary has not yet been produced."
+      ]
+    },
+    "acceptable_labels": [
+      "request"
+    ],
+    "supported_propositions": [
+      "The user indirectly requested a summary of open review comments before continuing.",
+      "The agent interpreted the utterance as a request."
+    ],
+    "forbidden_propositions": [
+      "The review comments were summarized.",
+      "There were no open review comments.",
+      "The user merely stated a preference with no requested action."
+    ],
+    "evidence_spans": [
+      {
+        "evidence_id": "ev-022-user",
+        "source_event_id": "event-sr-022",
+        "start": 6,
+        "end": 82,
+        "quote": "It would help if you summarized the open review comments before we continue."
+      },
+      {
+        "evidence_id": "ev-022-agent",
+        "source_event_id": "event-sr-022",
+        "start": 90,
+        "end": 150,
+        "quote": "I understand that as a request for a review-comment summary."
+      }
+    ]
+  },
+  {
+    "schema_version": "observation_ledger.gold.v1",
+    "case_id": "obs-sr-023",
+    "semantic_expectations": {
+      "preferred_primary_label": "request",
+      "label_rationale": "The user asks for a choice or recommendation. The agent requests more evidence and does not select an option.",
+      "acceptable_facets": [],
+      "forbidden_facets": [],
+      "required_summary_meanings": [
+        "The user requested guidance on choosing SQLite or PostgreSQL for the local-first ledger.",
+        "The agent said workload and deployment constraints were needed before making a recommendation."
+      ],
+      "retrieval_eligible": true,
+      "assertion_expectation": {
+        "required": false,
+        "empty_is_valid": true,
+        "supported_if_authored": []
+      },
+      "associations_expected": [],
+      "revisions_expected": [],
+      "required_limitations": [
+        "The choice remains unresolved because relevant constraints are missing."
+      ]
+    },
+    "acceptable_labels": [
+      "request"
+    ],
+    "supported_propositions": [
+      "The user requested guidance on choosing SQLite or PostgreSQL for the local-first ledger.",
+      "The agent said workload and deployment constraints were needed before making a recommendation."
+    ],
+    "forbidden_propositions": [
+      "SQLite was selected.",
+      "PostgreSQL was selected.",
+      "One database is universally better for local-first systems."
+    ],
+    "evidence_spans": [
+      {
+        "evidence_id": "ev-023-user",
+        "source_event_id": "event-sr-023",
+        "start": 6,
+        "end": 68,
+        "quote": "Should we use SQLite or PostgreSQL for the local-first ledger?"
+      },
+      {
+        "evidence_id": "ev-023-agent",
+        "source_event_id": "event-sr-023",
+        "start": 76,
+        "end": 157,
+        "quote": "I need the workload and deployment constraints before recommending either option."
+      }
+    ]
+  },
+  {
+    "schema_version": "observation_ledger.gold.v1",
+    "case_id": "obs-sr-024",
+    "semantic_expectations": {
+      "preferred_primary_label": "request",
+      "label_rationale": "The event contains a reported state followed by an explicit constrained action request. Request is primary because it directs future work.",
+      "acceptable_facets": [
+        {
+          "kind": "custom",
+          "value": {
+            "name": "execution_constraint",
+            "allowed_environment": "staging",
+            "forbidden_environment": "production"
+          },
+          "evidence_refs": [
+            "ev-024-user"
+          ]
+        }
+      ],
+      "forbidden_facets": [],
+      "required_summary_meanings": [
+        "The user reported that the bug only occurs in staging.",
+        "The user requested reproduction in staging and prohibited reproduction in production.",
+        "The agent stated that reproduction had not been run."
+      ],
+      "retrieval_eligible": true,
+      "assertion_expectation": {
+        "required": false,
+        "empty_is_valid": true,
+        "supported_if_authored": [
+          "The requested reproduction is constrained to staging and excludes production."
+        ]
+      },
+      "associations_expected": [],
+      "revisions_expected": [],
+      "required_limitations": [
+        "The staging-only occurrence is user-reported and not independently verified."
+      ]
+    },
+    "acceptable_labels": [
+      "request"
+    ],
+    "supported_propositions": [
+      "The user reported that the bug only occurs in staging.",
+      "The user requested reproduction in staging and prohibited reproduction in production.",
+      "The agent stated that reproduction had not been run."
+    ],
+    "forbidden_propositions": [
+      "The bug was reproduced.",
+      "The bug cannot occur in production as independently verified truth.",
+      "Production was accessed."
+    ],
+    "evidence_spans": [
+      {
+        "evidence_id": "ev-024-user",
+        "source_event_id": "event-sr-024",
+        "start": 6,
+        "end": 77,
+        "quote": "The bug only happens in staging. Reproduce it there, not in production."
+      },
+      {
+        "evidence_id": "ev-024-agent",
+        "source_event_id": "event-sr-024",
+        "start": 85,
+        "end": 155,
+        "quote": "I understand the staging-only reproduction request; I have not run it."
+      }
+    ]
+  },
+  {
+    "schema_version": "observation_ledger.gold.v1",
+    "case_id": "obs-sr-025",
+    "semantic_expectations": {
+      "preferred_primary_label": "request",
+      "label_rationale": "The user supplies context and requests delivery before a relative deadline. Request is primary, and the time must not be normalized without date, timezone, or AM/PM evidence.",
+      "acceptable_facets": [],
+      "forbidden_facets": [],
+      "required_summary_meanings": [
+        "The user stated that they were leaving at four.",
+        "The user requested that the report be sent before then.",
+        "The agent stated that the report had not been sent."
+      ],
+      "retrieval_eligible": true,
+      "assertion_expectation": {
+        "required": false,
+        "empty_is_valid": true,
+        "supported_if_authored": []
+      },
+      "associations_expected": [],
+      "revisions_expected": [],
+      "required_limitations": [
+        "The deadline is relative and lacks an explicit date, timezone, and AM/PM designation."
+      ]
+    },
+    "acceptable_labels": [
+      "request"
+    ],
+    "supported_propositions": [
+      "The user stated that they were leaving at four.",
+      "The user requested that the report be sent before then.",
+      "The agent stated that the report had not been sent."
+    ],
+    "forbidden_propositions": [
+      "The report was sent.",
+      "The deadline was converted to a specific timestamp.",
+      "The user's timezone was known."
+    ],
+    "evidence_spans": [
+      {
+        "evidence_id": "ev-025-user",
+        "source_event_id": "event-sr-025",
+        "start": 6,
+        "end": 59,
+        "quote": "I am leaving at four; send me the report before then."
+      },
+      {
+        "evidence_id": "ev-025-agent",
+        "source_event_id": "event-sr-025",
+        "start": 67,
+        "end": 137,
+        "quote": "I understand the deadline-bound request; the report has not been sent."
+      }
+    ]
+  }
+]
