@@ -269,6 +269,16 @@
       "errors": ["401 unauthorized", "400 invalid_tenant_id"]
     },
     {
+      "method": "GET",
+      "path": "/v1/memory/projection/junction-roadmap/attribution",
+      "authRequired": "conditional",
+      "requestSchema": "query params",
+      "requiredFields": [],
+      "notes": ["Read-only watershed attribution over the maintenance-built roadmap.", "terminal_junction_ids, allowed_source_ids, and denied_source_ids are comma-separated lists.", "Source-scoped alternatives are removed before attribution and excluded identifiers are not exposed."],
+      "response": {"ok": "bool", "present": "bool", "schema_version": "core_memory.roadmap_watershed_attribution.v1", "terminal_junction_ids": "array", "root_junctions": "array", "influence_breakdown": "array", "paths": "array", "roadmap_meta": "object", "diagnostics": "object", "limitations": "array"},
+      "errors": ["401 unauthorized", "400 invalid_tenant_id"]
+    },
+    {
       "method": "POST",
       "path": "/v1/memory/maintain",
       "authRequired": "conditional",

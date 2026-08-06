@@ -85,6 +85,7 @@ Convenience package-root aliases are also exported:
 - `core_memory.memory_trace`
 - `core_memory.memory_execute`
 - `core_memory.junction_roadmap_status`
+- `core_memory.junction_roadmap_attribution`
 - `core_memory.refresh_junction_roadmap`
 
 ## Async job/queue operations (canonical ops surface)
@@ -183,6 +184,7 @@ HTTP memory read surfaces:
 - `GET /v1/memory/projection/storylines?kinds=&min_length=&include_superseded=` — storyline projection over worldline backbones plus accepted overlays
 - `GET /v1/memory/projection/junctions?include_beads=` — claims-first junction identities, corpus-calibrated embedding/entity thresholds, per-bead corroboration counts, and the PER stitching density gate. This read uses cached semantic vectors only and never invokes an embedding provider.
 - `GET /v1/memory/projection/junction-roadmap?include_graph=` — maintenance-built junction roadmap metadata and, when requested, sampled vertices plus bounded nondominated segment alternatives. This read never rebuilds the projection inline.
+- `GET /v1/memory/projection/junction-roadmap/attribution?terminal_junction_ids=&allowed_source_ids=&denied_source_ids=` — read-only watershed attribution over the maintenance-built roadmap; influence accumulates on junction identities and source-scoped alternatives are removed before ranking.
 - `GET /v1/soul/files?subject=` / `GET /v1/soul/files/{file_name}?subject=` / `GET /v1/soul/files/{file_name}/entries?subject=` — read-only SOUL projections and folded structured entry provenance for host self-model views.
 - `GET /v1/soul/summary?subject=` — read-only continuity measurement summary for light-cone breadth, observed-vs-endorsed divergence, and persistent tensions. Measurements are not evidence and never mutate SOUL, beads, claims, associations, myelination, or Dreamer state.
 - `GET /v1/memory/semantic-task-runs` / `GET /v1/memory/semantic-task-runs/summary` — semantic operator receipts and aggregate activity telemetry for task/status/model-tier observability. Receipts are audit metadata and never apply graph, SOUL, or bead changes.

@@ -2410,6 +2410,36 @@ async def memory_projection_junction_roadmap(
     )
 
 
+@app.get("/v1/memory/projection/junction-roadmap/attribution")
+async def memory_projection_junction_roadmap_attribution(
+    root: Optional[str] = None,
+    terminal_junction_ids: Optional[str] = None,
+    max_depth: int = 4,
+    max_junctions: int = 8,
+    allowed_source_ids: Optional[str] = None,
+    denied_source_ids: Optional[str] = None,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    """Read-only watershed attribution over the maintenance-built roadmap."""
+
+    _check_auth(authorization, x_memory_token)
+    from core_memory.retrieval.roadmap import junction_roadmap_attribution
+
+    terminals = [value.strip() for value in str(terminal_junction_ids or "").split(",") if value.strip()] or None
+    allowed = [value.strip() for value in str(allowed_source_ids or "").split(",") if value.strip()] or None
+    denied = [value.strip() for value in str(denied_source_ids or "").split(",") if value.strip()] or None
+    return junction_roadmap_attribution(
+        _resolve_root(root, x_tenant_id),
+        terminal_junction_ids=terminals,
+        max_depth=int(max_depth),
+        max_junctions=int(max_junctions),
+        allowed_source_ids=allowed,
+        denied_source_ids=denied,
+    )
+
+
 @app.get("/v1/memory/projection/storylines")
 async def memory_projection_storylines(
     root: Optional[str] = None,

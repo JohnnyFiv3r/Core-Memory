@@ -7,6 +7,7 @@ cache structural facts, but it never authors associations or semantic meaning.
 from __future__ import annotations
 
 import hashlib
+import heapq
 import json
 import math
 import time
@@ -34,6 +35,8 @@ DEFAULT_MAX_PARTITIONS = 32
 DEFAULT_MAX_RESULTS_PER_PARTITION = 2
 DEFAULT_SOFT_ALTERNATIVES_PER_PAIR = 64
 DEFAULT_HARD_ALTERNATIVES_PER_PAIR = 128
+ROADMAP_WATERSHED_ATTRIBUTION_SCHEMA = "core_memory.roadmap_watershed_attribution.v1"
+DEFAULT_ATTRIBUTION_DECAY = 0.80
 
 _GENERIC_LABEL_TOKENS = {
     "company",
@@ -212,6 +215,17 @@ def _stable_refs(values: Iterable[Any]) -> list[str]:
     return sorted(refs)
 
 
+def _clean_text(value: Any) -> str:
+    return str(value or "").strip()
+
+
+def _float_value(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except Exception:
+        return default
+
+
 def edge_cost_row(
     edge: Mapping[str, Any],
     *,
@@ -374,6 +388,290 @@ def retain_nondominated_alternatives(
         "partition_count": len(partitions),
         "truncated": len(retained) < sum(len(rows) for rows in partitions.values()),
         "alternatives": retained,
+    }
+
+
+def _alternative_source_ids(alternative: Mapping[str, Any]) -> set[str]:
+    signature = dict(alternative.get("dynamic_cost_signature") or {})
+    sources = {_clean_text(value) for value in signature.get("source_footprint") or [] if _clean_text(value)}
+    for row in alternative.get("edge_cost_rows") or []:
+        if not isinstance(row, dict):
+            continue
+        refs = dict(row.get("dynamic_refs") or {})
+        sources.update(_clean_text(value) for value in refs.get("source_ids") or [] if _clean_text(value))
+    return sources
+
+
+def _alternative_allowed(
+    alternative: Mapping[str, Any],
+    *,
+    allowed_source_ids: set[str],
+    denied_source_ids: set[str],
+) -> bool:
+    sources = _alternative_source_ids(alternative)
+    if denied_source_ids and sources.intersection(denied_source_ids):
+        return False
+    if allowed_source_ids and not sources.intersection(allowed_source_ids):
+        return False
+    return True
+
+
+def _alternative_floor_cost(alternative: Mapping[str, Any]) -> float:
+    rows = [row for row in alternative.get("edge_cost_rows") or [] if isinstance(row, dict)]
+    if rows:
+        return round(sum(max(0.001, _float_value(row.get("cached_floor_cost"), 0.001)) for row in rows), 6)
+    return round(max(0.001, _float_value(alternative.get("cached_floor_subtotal"), 0.001)), 6)
+
+
+def _vertex_summary(vertex: Mapping[str, Any], *, include_bead_ids: bool = True) -> dict[str, Any]:
+    out = {
+        "junction_id": _clean_text(vertex.get("id")),
+        "tier": _clean_text(vertex.get("tier")),
+        "key": _clean_text(vertex.get("key")),
+        "label": _clean_text(vertex.get("label")),
+        "support": int(vertex.get("support") or len(vertex.get("bead_ids") or [])),
+        "sampling_score": round(_float_value(vertex.get("sampling_score")), 6),
+    }
+    if include_bead_ids:
+        out["bead_ids"] = list(
+            dict.fromkeys(_clean_text(value) for value in vertex.get("bead_ids") or [] if _clean_text(value))
+        )
+    return out
+
+
+def _roadmap_terminals(
+    vertex_ids: set[str],
+    incoming: Mapping[str, list[dict[str, Any]]],
+    outgoing: Mapping[str, list[dict[str, Any]]],
+    terminal_junction_ids: Iterable[str] | None,
+) -> tuple[list[str], str, list[str]]:
+    requested = [_clean_text(value) for value in terminal_junction_ids or [] if _clean_text(value)]
+    if requested:
+        known = [value for value in dict.fromkeys(requested) if value in vertex_ids]
+        limitations = [] if len(known) == len(set(requested)) else ["terminal_junction_not_found"]
+        return known, "explicit_terminal_junctions", limitations
+    sinks = sorted(
+        vertex_id
+        for vertex_id in vertex_ids
+        if incoming.get(vertex_id) and not outgoing.get(vertex_id)
+    )
+    if sinks:
+        return sinks, "inferred_sink_junctions", []
+    downstream_vertices = sorted(vertex_id for vertex_id in vertex_ids if incoming.get(vertex_id))
+    limitations = [] if downstream_vertices else ["no_terminal_junctions"]
+    return downstream_vertices, "inferred_downstream_junctions", limitations
+
+
+def roadmap_watershed_attribution(
+    roadmap: Mapping[str, Any],
+    *,
+    terminal_junction_ids: Iterable[str] | None = None,
+    max_depth: int = 4,
+    max_junctions: int = 8,
+    allowed_source_ids: Iterable[str] | None = None,
+    denied_source_ids: Iterable[str] | None = None,
+    decay: float = DEFAULT_ATTRIBUTION_DECAY,
+    max_paths: int = 200,
+) -> dict[str, Any]:
+    """Propagate upstream influence mass over a persisted junction roadmap.
+
+    This is a read-only attribution projection. It ranks junction identities
+    using only cached observed segment alternatives; it never authors or heals
+    associations.
+    """
+
+    vertices = [
+        dict(row)
+        for row in roadmap.get("vertices") or []
+        if isinstance(row, dict) and _clean_text(row.get("id"))
+    ]
+    edges = [
+        dict(row)
+        for row in roadmap.get("edges") or []
+        if isinstance(row, dict)
+        and _clean_text(row.get("start_junction_id"))
+        and _clean_text(row.get("end_junction_id"))
+    ]
+    vertex_by_id = {_clean_text(vertex.get("id")): vertex for vertex in vertices}
+    vertex_ids = set(vertex_by_id)
+    allowed = {_clean_text(value) for value in allowed_source_ids or [] if _clean_text(value)}
+    denied = {_clean_text(value) for value in denied_source_ids or [] if _clean_text(value)}
+    incoming: dict[str, list[dict[str, Any]]] = {}
+    outgoing: dict[str, list[dict[str, Any]]] = {}
+    transitions: list[dict[str, Any]] = []
+    excluded_alternatives = 0
+
+    for edge in edges:
+        start_id = _clean_text(edge.get("start_junction_id"))
+        end_id = _clean_text(edge.get("end_junction_id"))
+        scoped_alternatives = []
+        for alternative in edge.get("alternatives") or []:
+            if not isinstance(alternative, dict):
+                continue
+            if not _alternative_allowed(
+                alternative,
+                allowed_source_ids=allowed,
+                denied_source_ids=denied,
+            ):
+                excluded_alternatives += 1
+                continue
+            scoped_alternatives.append(alternative)
+        if not scoped_alternatives:
+            continue
+        for alternative in sorted(
+            scoped_alternatives,
+            key=lambda row: (_alternative_floor_cost(row), _clean_text(row.get("segment_id"))),
+        ):
+            transition = {
+                "roadmap_edge_id": _clean_text(edge.get("roadmap_edge_id")),
+                "start_junction_id": start_id,
+                "end_junction_id": end_id,
+                "segment_id": _clean_text(alternative.get("segment_id")),
+                "cost": _alternative_floor_cost(alternative),
+                "bead_ids": list(alternative.get("bead_ids") or []),
+            }
+            transitions.append(transition)
+            incoming.setdefault(end_id, []).append(transition)
+            outgoing.setdefault(start_id, []).append(transition)
+
+    terminals, terminal_mode, terminal_limitations = _roadmap_terminals(
+        vertex_ids,
+        incoming,
+        outgoing,
+        terminal_junction_ids,
+    )
+    influence: dict[str, float] = {}
+    path_count: dict[str, int] = {}
+    best_cost: dict[str, float] = {}
+    max_seen_depth: dict[str, int] = {}
+    path_records: list[dict[str, Any]] = []
+    expansions = 0
+    depth_limit = max(1, int(max_depth))
+    path_limit = max(1, int(max_paths))
+    decay_factor = max(0.0, min(1.0, float(decay)))
+
+    queue: list[tuple[float, int, str, str, list[str], list[dict[str, Any]], set[str]]] = []
+    counter = 0
+    for terminal_id in terminals:
+        counter += 1
+        heapq.heappush(queue, (0.0, counter, terminal_id, terminal_id, [terminal_id], [], {terminal_id}))
+
+    while queue and len(path_records) < path_limit:
+        current_cost, _counter, terminal_id, current_id, junction_path, segment_path, visited = heapq.heappop(queue)
+        if len(segment_path) >= depth_limit:
+            continue
+        for transition in incoming.get(current_id) or []:
+            upstream_id = _clean_text(transition.get("start_junction_id"))
+            if not upstream_id or upstream_id in visited:
+                continue
+            next_cost = current_cost + float(transition.get("cost") or 0.0)
+            next_depth = len(segment_path) + 1
+            next_junction_path = [upstream_id, *junction_path]
+            next_segment_path = [transition, *segment_path]
+            mass = math.exp(-max(0.0, next_cost)) * (decay_factor ** max(0, next_depth - 1))
+            influence[upstream_id] = influence.get(upstream_id, 0.0) + mass
+            path_count[upstream_id] = path_count.get(upstream_id, 0) + 1
+            best_cost[upstream_id] = min(best_cost.get(upstream_id, float("inf")), next_cost)
+            max_seen_depth[upstream_id] = max(max_seen_depth.get(upstream_id, 0), next_depth)
+            path_records.append(
+                {
+                    "terminal_junction_id": terminal_id,
+                    "junction_ids": next_junction_path,
+                    "roadmap_edge_ids": [
+                        _clean_text(row.get("roadmap_edge_id"))
+                        for row in next_segment_path
+                        if _clean_text(row.get("roadmap_edge_id"))
+                    ],
+                    "segment_ids": [
+                        _clean_text(row.get("segment_id"))
+                        for row in next_segment_path
+                        if _clean_text(row.get("segment_id"))
+                    ],
+                    "depth": next_depth,
+                    "cost": round(next_cost, 6),
+                    "influence_mass": round(mass, 6),
+                }
+            )
+            expansions += 1
+            counter += 1
+            heapq.heappush(
+                queue,
+                (
+                    next_cost,
+                    counter,
+                    terminal_id,
+                    upstream_id,
+                    next_junction_path,
+                    next_segment_path,
+                    {*visited, upstream_id},
+                ),
+            )
+
+    max_influence = max(influence.values() or [1.0])
+    root_junctions = []
+    include_bead_ids = not (allowed or denied)
+    for junction_id, raw_score in sorted(influence.items(), key=lambda item: (-item[1], item[0])):
+        normalized = raw_score / max_influence if max_influence else 0.0
+        depth = int(max_seen_depth.get(junction_id) or 0)
+        paths = int(path_count.get(junction_id) or 0)
+        depth_bonus = min(0.12, 0.03 * depth)
+        convergence_bonus = min(0.16, 0.04 * max(0, paths - 1))
+        root_score = max(0.0, min(1.0, normalized + depth_bonus + convergence_bonus - (0.03 * max(0, depth - 5))))
+        root_junctions.append(
+            {
+                **_vertex_summary(
+                    vertex_by_id.get(junction_id) or {"id": junction_id},
+                    include_bead_ids=include_bead_ids,
+                ),
+                "score": round(root_score, 6),
+                "influence": round(normalized, 6),
+                "raw_influence": round(raw_score, 6),
+                "best_path_cost": round(best_cost.get(junction_id, 0.0), 6),
+                "path_count": paths,
+                "depth": depth,
+                "convergence_bonus": round(convergence_bonus, 6),
+            }
+        )
+
+    ranked_paths = sorted(
+        path_records,
+        key=lambda row: (
+            -float(row.get("influence_mass") or 0.0),
+            float(row.get("cost") or 0.0),
+            tuple(row.get("junction_ids") or []),
+        ),
+    )[: max(1, int(max_junctions)) * 3]
+    limitations = list(dict.fromkeys([*terminal_limitations]))
+    if excluded_alternatives:
+        limitations.append("source_scope_excluded_roadmap_alternatives")
+    if queue and len(path_records) >= path_limit:
+        limitations.append("roadmap_attribution_path_cap")
+
+    return {
+        "ok": True,
+        "present": True,
+        "schema_version": ROADMAP_WATERSHED_ATTRIBUTION_SCHEMA,
+        "mode": "upstream_roadmap_watershed",
+        "terminal_mode": terminal_mode,
+        "terminal_junction_ids": terminals,
+        "root_junctions": root_junctions[: max(1, int(max_junctions))],
+        "influence_breakdown": [
+            {"junction_id": junction_id, "influence": round(score / max_influence if max_influence else 0.0, 6)}
+            for junction_id, score in sorted(influence.items(), key=lambda item: (-item[1], item[0]))
+        ],
+        "paths": ranked_paths,
+        "roadmap_meta": dict(roadmap.get("roadmap_meta") or {}),
+        "limitations": sorted(set(limitation for limitation in limitations if limitation)),
+        "diagnostics": {
+            "vertex_count": len(vertices),
+            "roadmap_edge_count": len(edges),
+            "scoped_transition_count": len(transitions),
+            "scope_excluded_alternative_count": int(excluded_alternatives),
+            "terminal_count": len(terminals),
+            "expansions": int(expansions),
+            "max_depth": depth_limit,
+            "max_junctions": max(1, int(max_junctions)),
+        },
     }
 
 
@@ -593,9 +891,11 @@ __all__ = [
     "DEFAULT_MAX_VERTICES",
     "DEFAULT_NEIGHBORS_PER_VERTEX",
     "DEFAULT_SOFT_ALTERNATIVES_PER_PAIR",
+    "ROADMAP_WATERSHED_ATTRIBUTION_SCHEMA",
     "build_junction_roadmap",
     "edge_cost_row",
     "retain_nondominated_alternatives",
     "roadmap_input_revision",
+    "roadmap_watershed_attribution",
     "sample_junction_identities",
 ]

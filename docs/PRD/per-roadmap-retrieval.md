@@ -1021,6 +1021,17 @@ segment search. `tests/test_roadmap_planner.py` covers these behaviors. This
 planner remains read-only; it does not establish Phase 6 watershed attribution
 or Phase 7 seam healing/writeback/path promotion.
 
+### Phase 6 implementation note
+
+Roadmap watershed attribution is exposed as a read-only projection over the
+maintenance-built roadmap. It propagates upstream influence mass across directed
+roadmap segment alternatives and accumulates scores on junction identities,
+while preserving bead-level root-cause attribution as the compatibility path.
+Source-scoped alternatives are removed before ranking and only exclusion counts
+are reported. This surface does not author associations, heal seams, emit
+myelination rewards, or promote storyline paths; those remain Phase 7 feedback
+and governance work.
+
 1. **Vertex budget** — `max_vertices` scaling with workspace size; PALMER's
    roadmaps are dense, ours will be sparse and should stay small initially.
 2. **Junction cost weights** per tier (§1) — conservative constants first, tuned
