@@ -76,6 +76,8 @@ def benchmark_tags_for_hypothesis(hypothesis_type: str) -> list[str]:
         return ["causal_mechanism", "current_state_factual", "entity_coreference"]
     if ht in {"transferable_lesson_candidate", "abstraction_candidate", "precedent_candidate"}:
         return ["causal_mechanism"]
+    if ht == "seam_healing_candidate":
+        return ["causal_mechanism"]
     if ht == "proposed_theme_candidate":
         return ["causal_mechanism"]
     return ["causal_mechanism", "current_state_factual"]

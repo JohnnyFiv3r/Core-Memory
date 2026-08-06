@@ -3,8 +3,9 @@
 Date: 2026-07-26
 
 Status: Partially implemented — Phases 1–6 shipped on the default branch;
-Phase 7 remains draft / unimplemented (implementation and test evidence in the
-Phasing table)
+Phase 7 has candidate-only seam-healing proposal support. PER-linked
+`validated_outcome` writeback and stitched-path promotion remain future work
+(implementation and test evidence in the Phasing table).
 
 Audience: Core Memory-native implementation agent
 
@@ -836,7 +837,7 @@ answer.**
 | 4 | Roadmap build job on the maintenance cadence; per-pair nondominated alternatives; complete component ledger; `roadmap_meta` | Phase 2 | **Shipped** — `core_memory/graph/roadmap.py`, `core_memory/persistence/junction_roadmap.py`, `core_memory/retrieval/roadmap.py`; `tests/test_junction_roadmap.py` |
 | 5 | Query-time planning, source-scope filtering, dynamic cost hydration, weighted virtual-source/segment-state search, exact `advances_goal` evidence terminals, stitching, seam marking | Phases 3-4 | **Shipped** — `core_memory/retrieval/roadmap_planner.py`, `core_memory/retrieval/tools/memory.py`, `/v1/memory/plan` in `core_memory/integrations/http/server.py`; `tests/test_roadmap_planner.py` |
 | 6 | Watershed attribution over the roadmap | Phase 4 | **Shipped** — `core_memory/graph/roadmap.py`, `core_memory/retrieval/roadmap.py`, and `/v1/memory/projection/junction-roadmap/attribution` in `core_memory/integrations/http/server.py`; `tests/test_junction_roadmap.py` and `tests/test_http_contract_async_ops.py` cover roadmap-watershed attribution, source scoping, stale receipts, and the HTTP contract |
-| 7 | Seam healing with all three guardrails; `validated_outcome` writeback; path promotion | Phase 5 + host-application feedback surface | **Draft / unimplemented on the default branch** — `core_memory/retrieval/roadmap_planner.py` is read-only and reports seams without writing; `tests/test_roadmap_planner.py` covers seam metadata only. Generic rewards in `core_memory/persistence/myelination_rewards.py` are not PER seam healing or path promotion |
+| 7 | Seam healing with all three guardrails; `validated_outcome` writeback; path promotion | Phase 5 + host-application feedback surface | **Partially shipped** — `maintain(action="propose_seam_healing_candidates")` turns a validated stitched plan into pending Dreamer candidates with `origin: "stitch_healed"` provenance and no direct graph write. `tests/test_seam_healing_candidates.py` covers candidate creation, dedupe, authority, and no-write guardrails. PER-linked rewards and path promotion remain unimplemented |
 
 **Gate before Phase 2.** Phase 1 produces a junction-density diagnostic:
 distribution of `|N(a)|` across the corpus, counted claims-first. If most
@@ -1034,6 +1035,16 @@ input limitations remain visible on the attribution receipt. This surface does
 not author associations, heal seams, emit
 myelination rewards, or promote storyline paths; those remain Phase 7 feedback
 and governance work.
+
+### Phase 7 implementation note
+
+The first Phase 7 slice ships the guarded feedback entrypoint only:
+`maintain(action="propose_seam_healing_candidates")` accepts a validated
+stitched plan receipt and writes pending Dreamer review candidates tagged
+`origin: "stitch_healed"`, including the source path id and junction tier. It
+does not append associations, emit `validated_outcome` rewards, or promote a
+stitched path to a storyline backbone. Answer-level validation is accepted only
+as a weaker signal and mints candidates at a reduced prior.
 
 1. **Vertex budget** — `max_vertices` scaling with workspace size; PALMER's
    roadmaps are dense, ours will be sparse and should stay small initially.

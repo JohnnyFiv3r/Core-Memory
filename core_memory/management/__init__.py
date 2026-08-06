@@ -68,6 +68,7 @@ ACTION_POLICIES: dict[str, ActionPolicy] = {
     "decide_dreamer_candidate": ActionPolicy(
         ("decide_dreamer_candidate", "user_confirmed", "admin_repair"), True, True
     ),
+    "propose_seam_healing_candidates": ActionPolicy(("submit_seam_healing_candidate", "admin_repair"), True, True),
     "submit_entity_merge_proposal": ActionPolicy(("submit_entity_merge_proposal", "admin_repair"), True, True),
     "apply_reviewed_proposal": ActionPolicy(("apply_reviewed_proposal", "user_confirmed", "admin_repair"), True, True),
     "refresh_myelination": ActionPolicy(("refresh_myelination", "queue_ops", "admin_repair"), True, True),
@@ -162,6 +163,11 @@ def _normalize_action(action: str) -> str:
         "apply_associations": "apply_association_proposals",
         "list_dreamer": "list_dreamer_candidates",
         "decide_dreamer": "decide_dreamer_candidate",
+        "seam_healing": "propose_seam_healing_candidates",
+        "propose_seam_healing": "propose_seam_healing_candidates",
+        "submit_seam_healing": "propose_seam_healing_candidates",
+        "submit_seam_healing_candidates": "propose_seam_healing_candidates",
+        "submit_seam_healing_proposal": "propose_seam_healing_candidates",
         "submit_entity_merge": "submit_entity_merge_proposal",
         "decide_proposal": "apply_reviewed_proposal",
         "myelination": "myelination_status",
@@ -393,6 +399,44 @@ def _validate_judged_associations(rows: list[dict[str, Any]]) -> list[dict[str, 
     return errors
 
 
+def _seam_healing_plan_payload(proposal: dict[str, Any], targets: dict[str, Any]) -> dict[str, Any]:
+    for value in (
+        proposal.get("plan"),
+        targets.get("plan"),
+        proposal.get("stitched_plan"),
+        targets.get("stitched_plan"),
+        proposal.get("plan_receipt"),
+        targets.get("plan_receipt"),
+        proposal,
+        targets,
+    ):
+        if not isinstance(value, dict):
+            continue
+        if isinstance(value.get("plan"), dict):
+            return dict(value)
+        if _clean_str(value.get("schema_version")) == "core_memory.stitched_plan.v1":
+            return dict(value)
+    return {}
+
+
+def _seam_healing_validation_payload(
+    proposal: dict[str, Any],
+    targets: dict[str, Any],
+    decision: dict[str, Any],
+) -> dict[str, Any]:
+    for value in (
+        decision.get("validation"),
+        proposal.get("validation"),
+        targets.get("validation"),
+        decision.get("validation_receipt"),
+        proposal.get("validation_receipt"),
+        targets.get("validation_receipt"),
+    ):
+        if isinstance(value, dict):
+            return dict(value)
+    return {}
+
+
 def _validate_action(
     action: str,
     *,
@@ -471,6 +515,15 @@ def _validate_action(
             errors.append(_validation_error("targets.candidate_id", "candidate_id_required"))
         if _clean_str(decision.get("decision") or targets.get("decision")).lower() not in {"accept", "reject"}:
             errors.append(_validation_error("decision.decision", "accept_or_reject_required"))
+    elif action == "propose_seam_healing_candidates":
+        from core_memory.runtime.dreamer.seam_healing import validate_seam_healing_request
+
+        errors.extend(
+            validate_seam_healing_request(
+                plan=_seam_healing_plan_payload(proposal, targets),
+                validation=_seam_healing_validation_payload(proposal, targets, decision),
+            )
+        )
     elif action == "submit_entity_merge_proposal":
         if not _clean_str(proposal.get("source_entity_id")):
             errors.append(_validation_error("proposal.source_entity_id", "source_entity_id_required"))
@@ -1307,6 +1360,26 @@ def maintain(
             resolution=_clean_str(decision_d.get("resolution") or targets_d.get("resolution")) or None,
             scope_a=_clean_str(decision_d.get("scope_a") or targets_d.get("scope_a")) or None,
             scope_b=_clean_str(decision_d.get("scope_b") or targets_d.get("scope_b")) or None,
+        )
+        return _augment(out, action=action_n, authority=authority_d)
+
+    if action_n == "propose_seam_healing_candidates":
+        from core_memory.runtime.dreamer.seam_healing import propose_seam_healing_candidates
+
+        out = propose_seam_healing_candidates(
+            root=root_final,
+            plan=_seam_healing_plan_payload(proposal_d, targets_d),
+            validation=_seam_healing_validation_payload(proposal_d, targets_d, decision_d),
+            reviewer=_clean_str(authority_d.get("actor")),
+            notes=_clean_str(decision_d.get("notes") or proposal_d.get("notes")),
+            relationship=_clean_str(
+                proposal_d.get("relationship") or targets_d.get("relationship") or "associated_with"
+            ),
+            run_metadata={
+                "run_id": _clean_str(proposal_d.get("run_id") or targets_d.get("run_id") or idempotency_key),
+                "session_id": _clean_str(scope_d.get("session_id") or targets_d.get("session_id")),
+                "flush_tx_id": _clean_str(scope_d.get("flush_tx_id") or targets_d.get("flush_tx_id")),
+            },
         )
         return _augment(out, action=action_n, authority=authority_d)
 

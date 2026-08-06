@@ -399,6 +399,8 @@ def _junction_match(
             "tier": "exact_bead",
             "is_seam": False,
             "junction_cost": 0.0,
+            "left_bead_id": left_bead_id,
+            "right_bead_id": right_bead_id,
         }
     if not left_junction_id or left_junction_id != right_junction_id:
         return None
@@ -412,6 +414,8 @@ def _junction_match(
         "tier": tier,
         "is_seam": True,
         "junction_cost": float(JUNCTION_COSTS.get(tier, JUNCTION_COSTS["embedding"])),
+        "left_bead_id": left_bead_id,
+        "right_bead_id": right_bead_id,
     }
 
 
@@ -435,6 +439,8 @@ def _anchor_match(
         "is_seam": True,
         "junction_cost": float(JUNCTION_COSTS.get(tier, JUNCTION_COSTS["embedding"])),
         "anchor_bead_id": anchor_id,
+        "left_bead_id": anchor_id,
+        "right_bead_id": entry_id,
     }
 
 

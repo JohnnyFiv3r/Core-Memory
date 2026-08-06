@@ -158,6 +158,11 @@ Layer-aware actions are intentionally narrow: use `myelination_status` and
 `decide_dreamer_candidate` for Dreamer decisions; `propose_soul_update`,
 `approve_soul_update`, `reject_soul_update`, `inspect_soul`, and `soul_history`
 for SOUL. SOUL actions write structured revision records, not markdown directly.
+When a host validates a stitched roadmap answer, use
+`maintain(action="propose_seam_healing_candidates")` with the stitched `plan`
+receipt and a validation receipt. Core Memory will create pending Dreamer
+candidates tagged `origin: "stitch_healed"` and will not write graph
+associations directly; answer-level-only validation receives a reduced prior.
 For association coverage, use `association_coverage_summary` and
 `list_association_candidates` for read-only review queues, `association_run` to
 enqueue or execute coverage sweeps, and `decide_association_candidate` to apply
