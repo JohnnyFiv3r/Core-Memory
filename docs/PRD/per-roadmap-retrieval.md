@@ -2,9 +2,9 @@
 
 Date: 2026-07-26
 
-Status: Partially implemented — Phases 1–5 shipped on the default branch;
-Phases 6–7 remain draft / unimplemented (implementation and test evidence in
-the Phasing table)
+Status: Partially implemented — Phases 1–6 shipped on the default branch;
+Phase 7 remains draft / unimplemented (implementation and test evidence in the
+Phasing table)
 
 Audience: Core Memory-native implementation agent
 
@@ -23,8 +23,8 @@ Related host-application docs:
 
 This PRD specifies two capabilities reconciled with the causal root-cause
 retrieval PRD rather than built alongside it. The junction/PER foundations,
-durable roadmap, and query-time planner are now merged; roadmap watershed
-attribution and seam-healing feedback remain design only.
+durable roadmap, query-time planner, and roadmap watershed attribution are now
+merged; seam-healing feedback remains design only.
 
 1. **PER (`segment_between`)** — given two anchors, return the best
    *actually-observed* bead chain connecting their junction neighbourhoods.
@@ -835,7 +835,7 @@ answer.**
 | 3 | Register canonical `advances_goal`; semantic producer; normal judge/write path; cursor-based `supports`-seeded backfill | Existing Goal Bead lifecycle + association judge | **Shipped** — `core_memory/runtime/goals/progress.py`, `core_memory/runtime/associations/coverage.py`, `core_memory/integrations/http/server.py`; `tests/test_goal_progress.py`, `tests/test_http_goal_progress.py` |
 | 4 | Roadmap build job on the maintenance cadence; per-pair nondominated alternatives; complete component ledger; `roadmap_meta` | Phase 2 | **Shipped** — `core_memory/graph/roadmap.py`, `core_memory/persistence/junction_roadmap.py`, `core_memory/retrieval/roadmap.py`; `tests/test_junction_roadmap.py` |
 | 5 | Query-time planning, source-scope filtering, dynamic cost hydration, weighted virtual-source/segment-state search, exact `advances_goal` evidence terminals, stitching, seam marking | Phases 3-4 | **Shipped** — `core_memory/retrieval/roadmap_planner.py`, `core_memory/retrieval/tools/memory.py`, `/v1/memory/plan` in `core_memory/integrations/http/server.py`; `tests/test_roadmap_planner.py` |
-| 6 | Watershed attribution over the roadmap | Phase 4 | **Draft / unimplemented on the default branch** — `core_memory/retrieval/roadmap_planner.py` returns existing bead-level `root_cause_attribution`; `tests/test_roadmap_planner.py` has no roadmap-watershed contract |
+| 6 | Watershed attribution over the roadmap | Phase 4 | **Shipped** — `core_memory/graph/roadmap.py`, `core_memory/retrieval/roadmap.py`, and `/v1/memory/projection/junction-roadmap/attribution` in `core_memory/integrations/http/server.py`; `tests/test_junction_roadmap.py` and `tests/test_http_contract_async_ops.py` cover roadmap-watershed attribution, source scoping, stale receipts, and the HTTP contract |
 | 7 | Seam healing with all three guardrails; `validated_outcome` writeback; path promotion | Phase 5 + host-application feedback surface | **Draft / unimplemented on the default branch** — `core_memory/retrieval/roadmap_planner.py` is read-only and reports seams without writing; `tests/test_roadmap_planner.py` covers seam metadata only. Generic rewards in `core_memory/persistence/myelination_rewards.py` are not PER seam healing or path promotion |
 
 **Gate before Phase 2.** Phase 1 produces a junction-density diagnostic:
@@ -1018,8 +1018,8 @@ scope before ranking, hydrates dynamic per-edge costs, charges initial and
 transition seam costs, requires exact scoped destination or `advances_goal`
 evidence terminals, emits stitched/seam receipts, and falls back to bounded
 segment search. `tests/test_roadmap_planner.py` covers these behaviors. This
-planner remains read-only; it does not establish Phase 6 watershed attribution
-or Phase 7 seam healing/writeback/path promotion.
+planner remains read-only; it does not establish Phase 7 seam
+healing/writeback/path promotion.
 
 ### Phase 6 implementation note
 
