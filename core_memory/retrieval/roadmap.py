@@ -93,6 +93,16 @@ def junction_roadmap_attribution(
     out["stale"] = bool(roadmap.get("stale"))
     out["current_input_revision"] = roadmap.get("current_input_revision")
     out["manifest_path"] = roadmap.get("manifest_path")
+    out["limitations"] = sorted(
+        set(
+            str(value)
+            for value in [
+                *(roadmap.get("limitations") or []),
+                *(out.get("limitations") or []),
+            ]
+            if str(value)
+        )
+    )
     return out
 
 

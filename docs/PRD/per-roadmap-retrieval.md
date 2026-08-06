@@ -1027,8 +1027,11 @@ Roadmap watershed attribution is exposed as a read-only projection over the
 maintenance-built roadmap. It propagates upstream influence mass across directed
 roadmap segment alternatives and accumulates scores on junction identities,
 while preserving bead-level root-cause attribution as the compatibility path.
-Source-scoped alternatives are removed before ranking and only exclusion counts
-are reported. This surface does not author associations, heal seams, emit
+Only complete bounded causal histories contribute influence; partial prefixes
+do not count as independent histories. Source scope is applied to every cached
+edge row before ranking, and only exclusion counts are reported. Stale roadmap
+input limitations remain visible on the attribution receipt. This surface does
+not author associations, heal seams, emit
 myelination rewards, or promote storyline paths; those remain Phase 7 feedback
 and governance work.
 

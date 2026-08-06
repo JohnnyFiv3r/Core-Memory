@@ -402,17 +402,40 @@ def _alternative_source_ids(alternative: Mapping[str, Any]) -> set[str]:
     return sources
 
 
+def _alternative_source_rows(alternative: Mapping[str, Any]) -> list[set[str]]:
+    rows: list[set[str]] = []
+    for row in alternative.get("edge_cost_rows") or []:
+        if not isinstance(row, Mapping):
+            continue
+        refs = row.get("dynamic_refs") or {}
+        rows.append(
+            {
+                _clean_text(value)
+                for value in refs.get("source_ids") or []
+                if _clean_text(value)
+            }
+        )
+    return rows
+
+
 def _alternative_allowed(
     alternative: Mapping[str, Any],
     *,
     allowed_source_ids: set[str],
     denied_source_ids: set[str],
 ) -> bool:
-    sources = _alternative_source_ids(alternative)
-    if denied_source_ids and sources.intersection(denied_source_ids):
+    rows = _alternative_source_rows(alternative)
+    if any(sources.intersection(denied_source_ids) for sources in rows):
         return False
-    if allowed_source_ids and not sources.intersection(allowed_source_ids):
+    if allowed_source_ids and (
+        not rows
+        or any(not sources.intersection(allowed_source_ids) for sources in rows)
+    ):
         return False
+    if not rows and denied_source_ids:
+        sources = _alternative_source_ids(alternative)
+        if sources.intersection(denied_source_ids):
+            return False
     return True
 
 
@@ -540,14 +563,11 @@ def roadmap_watershed_attribution(
         outgoing,
         terminal_junction_ids,
     )
-    influence: dict[str, float] = {}
-    path_count: dict[str, int] = {}
-    best_cost: dict[str, float] = {}
-    max_seen_depth: dict[str, int] = {}
     path_records: list[dict[str, Any]] = []
     expansions = 0
     depth_limit = max(1, int(max_depth))
     path_limit = max(1, int(max_paths))
+    expansion_limit = max(path_limit, path_limit * depth_limit * 4)
     decay_factor = max(0.0, min(1.0, float(decay)))
 
     queue: list[tuple[float, int, str, str, list[str], list[dict[str, Any]], set[str]]] = []
@@ -556,42 +576,65 @@ def roadmap_watershed_attribution(
         counter += 1
         heapq.heappush(queue, (0.0, counter, terminal_id, terminal_id, [terminal_id], [], {terminal_id}))
 
-    while queue and len(path_records) < path_limit:
+    while queue and len(path_records) < path_limit and expansions < expansion_limit:
         current_cost, _counter, terminal_id, current_id, junction_path, segment_path, visited = heapq.heappop(queue)
         if len(segment_path) >= depth_limit:
+            if segment_path:
+                path_records.append(
+                    {
+                        "terminal_junction_id": terminal_id,
+                        "junction_ids": junction_path,
+                        "roadmap_edge_ids": [
+                            _clean_text(row.get("roadmap_edge_id"))
+                            for row in segment_path
+                            if _clean_text(row.get("roadmap_edge_id"))
+                        ],
+                        "segment_ids": [
+                            _clean_text(row.get("segment_id"))
+                            for row in segment_path
+                            if _clean_text(row.get("segment_id"))
+                        ],
+                        "depth": len(segment_path),
+                        "cost": round(current_cost, 6),
+                        "confidence": round(math.exp(-max(0.0, current_cost)), 6),
+                        "termination_reason": "depth_limit",
+                    }
+                )
             continue
-        for transition in incoming.get(current_id) or []:
+        candidates = [
+            transition
+            for transition in incoming.get(current_id) or []
+            if _clean_text(transition.get("start_junction_id"))
+            and _clean_text(transition.get("start_junction_id")) not in visited
+        ]
+        if not candidates:
+            if segment_path:
+                path_records.append(
+                    {
+                        "terminal_junction_id": terminal_id,
+                        "junction_ids": junction_path,
+                        "roadmap_edge_ids": [
+                            _clean_text(row.get("roadmap_edge_id"))
+                            for row in segment_path
+                            if _clean_text(row.get("roadmap_edge_id"))
+                        ],
+                        "segment_ids": [
+                            _clean_text(row.get("segment_id"))
+                            for row in segment_path
+                            if _clean_text(row.get("segment_id"))
+                        ],
+                        "depth": len(segment_path),
+                        "cost": round(current_cost, 6),
+                        "confidence": round(math.exp(-max(0.0, current_cost)), 6),
+                        "termination_reason": "upstream_exhausted",
+                    }
+                )
+            continue
+        for transition in candidates:
             upstream_id = _clean_text(transition.get("start_junction_id"))
-            if not upstream_id or upstream_id in visited:
-                continue
             next_cost = current_cost + float(transition.get("cost") or 0.0)
-            next_depth = len(segment_path) + 1
             next_junction_path = [upstream_id, *junction_path]
             next_segment_path = [transition, *segment_path]
-            mass = math.exp(-max(0.0, next_cost)) * (decay_factor ** max(0, next_depth - 1))
-            influence[upstream_id] = influence.get(upstream_id, 0.0) + mass
-            path_count[upstream_id] = path_count.get(upstream_id, 0) + 1
-            best_cost[upstream_id] = min(best_cost.get(upstream_id, float("inf")), next_cost)
-            max_seen_depth[upstream_id] = max(max_seen_depth.get(upstream_id, 0), next_depth)
-            path_records.append(
-                {
-                    "terminal_junction_id": terminal_id,
-                    "junction_ids": next_junction_path,
-                    "roadmap_edge_ids": [
-                        _clean_text(row.get("roadmap_edge_id"))
-                        for row in next_segment_path
-                        if _clean_text(row.get("roadmap_edge_id"))
-                    ],
-                    "segment_ids": [
-                        _clean_text(row.get("segment_id"))
-                        for row in next_segment_path
-                        if _clean_text(row.get("segment_id"))
-                    ],
-                    "depth": next_depth,
-                    "cost": round(next_cost, 6),
-                    "influence_mass": round(mass, 6),
-                }
-            )
             expansions += 1
             counter += 1
             heapq.heappush(
@@ -606,6 +649,30 @@ def roadmap_watershed_attribution(
                     {*visited, upstream_id},
                 ),
             )
+
+    influence: dict[str, float] = {}
+    path_count: dict[str, int] = {}
+    best_cost: dict[str, float] = {}
+    max_seen_depth: dict[str, int] = {}
+    for path in path_records:
+        confidence = float(path.get("confidence") or 0.0)
+        junction_ids = [
+            _clean_text(value)
+            for value in path.get("junction_ids") or []
+            if _clean_text(value)
+        ]
+        path_mass = 0.0
+        for depth, junction_id in enumerate(reversed(junction_ids[:-1]), start=1):
+            mass = confidence * (decay_factor ** max(0, depth - 1))
+            path_mass += mass
+            influence[junction_id] = influence.get(junction_id, 0.0) + mass
+            path_count[junction_id] = path_count.get(junction_id, 0) + 1
+            best_cost[junction_id] = min(
+                best_cost.get(junction_id, float("inf")),
+                float(path.get("cost") or 0.0),
+            )
+            max_seen_depth[junction_id] = max(max_seen_depth.get(junction_id, 0), depth)
+        path["influence_mass"] = round(path_mass, 6)
 
     max_influence = max(influence.values() or [1.0])
     root_junctions = []
@@ -644,7 +711,7 @@ def roadmap_watershed_attribution(
     limitations = list(dict.fromkeys([*terminal_limitations]))
     if excluded_alternatives:
         limitations.append("source_scope_excluded_roadmap_alternatives")
-    if queue and len(path_records) >= path_limit:
+    if queue and (len(path_records) >= path_limit or expansions >= expansion_limit):
         limitations.append("roadmap_attribution_path_cap")
 
     return {
@@ -668,6 +735,7 @@ def roadmap_watershed_attribution(
             "scoped_transition_count": len(transitions),
             "scope_excluded_alternative_count": int(excluded_alternatives),
             "terminal_count": len(terminals),
+            "complete_path_count": len(path_records),
             "expansions": int(expansions),
             "max_depth": depth_limit,
             "max_junctions": max(1, int(max_junctions)),

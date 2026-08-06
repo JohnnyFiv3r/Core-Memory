@@ -321,8 +321,105 @@ class TestJunctionRoadmap(unittest.TestCase):
         self.assertNotIn("cause-b", json.dumps(out))
         self.assertNotIn("source-b", json.dumps(out))
 
+    def test_watershed_attribution_rejects_mixed_source_alternatives(self):
+        with tempfile.TemporaryDirectory(prefix="cm-roadmap-") as td:
+            root = Path(td)
+            _write_roadmap_fixture(root)
+            roadmap = _build_roadmap(root, max_vertices=10, radius=4)
+            source_a = next(
+                alternative
+                for alternative in roadmap["edges"][0]["alternatives"]
+                if "source-a" in alternative["dynamic_cost_signature"]["source_footprint"]
+            )
+            source_a["edge_cost_rows"].append(
+                {
+                    "cached_floor_cost": 0.1,
+                    "dynamic_refs": {"source_ids": ["source-b"]},
+                }
+            )
+
+            out = roadmap_watershed_attribution(
+                roadmap,
+                terminal_junction_ids=["claim:acme:retention%20outcome"],
+                allowed_source_ids=["source-a"],
+                max_depth=2,
+            )
+
+        self.assertEqual([], out["root_junctions"])
+        self.assertEqual(0, out["diagnostics"]["scoped_transition_count"])
+        self.assertEqual(2, out["diagnostics"]["scope_excluded_alternative_count"])
+        self.assertNotIn("source-b", json.dumps(out))
+
+    def test_watershed_attribution_counts_complete_converging_histories(self):
+        def alternative(segment_id: str, cost: float) -> dict:
+            return {
+                "segment_id": segment_id,
+                "edge_cost_rows": [
+                    {
+                        "cached_floor_cost": cost,
+                        "dynamic_refs": {"source_ids": ["source-a"]},
+                    }
+                ],
+            }
+
+        roadmap = {
+            "vertices": [
+                {"id": "root-a", "tier": "claim_slot", "label": "Root A"},
+                {"id": "root-b", "tier": "claim_slot", "label": "Root B"},
+                {"id": "convergence", "tier": "claim_slot", "label": "Shared cause"},
+                {"id": "terminal", "tier": "claim_slot", "label": "Outcome"},
+            ],
+            "edges": [
+                {
+                    "roadmap_edge_id": "root-a-to-convergence",
+                    "start_junction_id": "root-a",
+                    "end_junction_id": "convergence",
+                    "alternatives": [alternative("segment-root-a", 0.1)],
+                },
+                {
+                    "roadmap_edge_id": "root-b-to-convergence",
+                    "start_junction_id": "root-b",
+                    "end_junction_id": "convergence",
+                    "alternatives": [alternative("segment-root-b", 0.1)],
+                },
+                {
+                    "roadmap_edge_id": "convergence-to-terminal",
+                    "start_junction_id": "convergence",
+                    "end_junction_id": "terminal",
+                    "alternatives": [alternative("segment-outcome", 0.1)],
+                },
+            ],
+        }
+
+        out = roadmap_watershed_attribution(
+            roadmap,
+            terminal_junction_ids=["terminal"],
+            max_depth=3,
+        )
+
+        convergence = next(
+            row for row in out["root_junctions"] if row["junction_id"] == "convergence"
+        )
+        self.assertEqual(2, convergence["path_count"])
+        self.assertEqual(0.04, convergence["convergence_bonus"])
+        self.assertEqual(2, out["diagnostics"]["complete_path_count"])
+        self.assertTrue(all(path["depth"] == 2 for path in out["paths"]))
+
+    def test_watershed_attribution_reports_missing_explicit_terminal(self):
+        out = roadmap_watershed_attribution(
+            {"vertices": [{"id": "known"}], "edges": []},
+            terminal_junction_ids=["missing"],
+        )
+
+        self.assertEqual([], out["terminal_junction_ids"])
+        self.assertEqual([], out["root_junctions"])
+        self.assertIn("terminal_junction_not_found", out["limitations"])
+
     def test_status_reports_when_persisted_inputs_are_stale(self):
-        from core_memory.retrieval.roadmap import junction_roadmap_status
+        from core_memory.retrieval.roadmap import (
+            junction_roadmap_attribution,
+            junction_roadmap_status,
+        )
 
         with tempfile.TemporaryDirectory(prefix="cm-roadmap-") as td:
             root = Path(td)
@@ -334,10 +431,13 @@ class TestJunctionRoadmap(unittest.TestCase):
             semantic_manifest.write_text('{"epoch": 2}', encoding="utf-8")
 
             stale = junction_roadmap_status(root)
+            attribution = junction_roadmap_attribution(root)
 
         self.assertFalse(current["stale"])
         self.assertTrue(stale["stale"])
         self.assertIn("junction_roadmap_inputs_changed", stale["limitations"])
+        self.assertTrue(attribution["stale"])
+        self.assertIn("junction_roadmap_inputs_changed", attribution["limitations"])
 
     def test_side_effect_processor_runs_the_persisted_builder(self):
         with tempfile.TemporaryDirectory(prefix="cm-roadmap-") as td:
