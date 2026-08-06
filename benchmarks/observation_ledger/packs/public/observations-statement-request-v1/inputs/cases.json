@@ -1,0 +1,1974 @@
+[
+  {
+    "schema_version": "observation_ledger.case.v1",
+    "case_id": "obs-sr-001",
+    "suite": "observations",
+    "behavioral_buckets": [
+      "statement_request",
+      "statement",
+      "preference",
+      "durable_context"
+    ],
+    "privacy_classification": "public",
+    "source_events": [
+      {
+        "event_id": "event-sr-001",
+        "tenant_id": "public-benchmark-tenant",
+        "event_time": "2026-08-01T10:00:00Z",
+        "source_kind": "conversation_turn",
+        "content": "User: I prefer status updates that are concise and lead with the outcome.\nAgent: Understood. I will keep future status updates concise and outcome-first."
+      }
+    ],
+    "admissible_evidence": [
+      {
+        "evidence_id": "ev-001-user",
+        "source_event_id": "event-sr-001",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "user",
+        "content": "I prefer status updates that are concise and lead with the outcome.",
+        "span": {
+          "start": 6,
+          "end": 73
+        }
+      },
+      {
+        "evidence_id": "ev-001-agent",
+        "source_event_id": "event-sr-001",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "agent",
+        "content": "Understood. I will keep future status updates concise and outcome-first.",
+        "span": {
+          "start": 81,
+          "end": 153
+        }
+      }
+    ],
+    "task_input": {
+      "tenant_id": "public-benchmark-tenant",
+      "task_type": "annotate_event",
+      "operation": "annotate_event.v1",
+      "prompt_version": "observation.statement_request.v1",
+      "instruction": "Author one evidence-bound ObservationBead and only warranted optional semantics."
+    },
+    "expected_structural_behavior": {
+      "output_contract": "core-memory.annotation-bundle.v1",
+      "required_output_fields": [
+        "primary_label",
+        "facets",
+        "title",
+        "summary",
+        "evidence_refs",
+        "retrieval_eligible",
+        "assertions",
+        "associations",
+        "revisions",
+        "limitations"
+      ],
+      "forbidden_output_fields": [
+        "gold",
+        "accepted_gold",
+        "adjudication",
+        "judge_critique",
+        "oracle_answer"
+      ],
+      "requires_citations": true,
+      "assertions_may_be_empty": true,
+      "exactly_one_observation_bead": true,
+      "source_event_lineage_count": 1
+    },
+    "evidence_checksum": "edde0ee01e165e8b3c26d2d5d2bddb3deb20a2a4ce29c61c14576fb35851bdc9"
+  },
+  {
+    "schema_version": "observation_ledger.case.v1",
+    "case_id": "obs-sr-002",
+    "suite": "observations",
+    "behavioral_buckets": [
+      "statement_request",
+      "statement",
+      "incident",
+      "reported_state"
+    ],
+    "privacy_classification": "public",
+    "source_events": [
+      {
+        "event_id": "event-sr-002",
+        "tenant_id": "public-benchmark-tenant",
+        "event_time": "2026-08-02T11:00:00Z",
+        "source_kind": "conversation_turn",
+        "content": "User: The staging API has returned 503 errors three times this morning.\nAgent: I have not checked the service yet, so I will treat that as your incident report."
+      }
+    ],
+    "admissible_evidence": [
+      {
+        "evidence_id": "ev-002-user",
+        "source_event_id": "event-sr-002",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "user",
+        "content": "The staging API has returned 503 errors three times this morning.",
+        "span": {
+          "start": 6,
+          "end": 71
+        }
+      },
+      {
+        "evidence_id": "ev-002-agent",
+        "source_event_id": "event-sr-002",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "agent",
+        "content": "I have not checked the service yet, so I will treat that as your incident report.",
+        "span": {
+          "start": 79,
+          "end": 160
+        }
+      }
+    ],
+    "task_input": {
+      "tenant_id": "public-benchmark-tenant",
+      "task_type": "annotate_event",
+      "operation": "annotate_event.v1",
+      "prompt_version": "observation.statement_request.v1",
+      "instruction": "Author one evidence-bound ObservationBead and only warranted optional semantics."
+    },
+    "expected_structural_behavior": {
+      "output_contract": "core-memory.annotation-bundle.v1",
+      "required_output_fields": [
+        "primary_label",
+        "facets",
+        "title",
+        "summary",
+        "evidence_refs",
+        "retrieval_eligible",
+        "assertions",
+        "associations",
+        "revisions",
+        "limitations"
+      ],
+      "forbidden_output_fields": [
+        "gold",
+        "accepted_gold",
+        "adjudication",
+        "judge_critique",
+        "oracle_answer"
+      ],
+      "requires_citations": true,
+      "assertions_may_be_empty": true,
+      "exactly_one_observation_bead": true,
+      "source_event_lineage_count": 1
+    },
+    "evidence_checksum": "af547a2eafe94cb29972a6266f5d14407c03c74ad1bd8b7b33e4b7710cfddef0"
+  },
+  {
+    "schema_version": "observation_ledger.case.v1",
+    "case_id": "obs-sr-003",
+    "suite": "observations",
+    "behavioral_buckets": [
+      "statement_request",
+      "statement",
+      "hypothesis",
+      "uncertainty"
+    ],
+    "privacy_classification": "public",
+    "source_events": [
+      {
+        "event_id": "event-sr-003",
+        "tenant_id": "public-benchmark-tenant",
+        "event_time": "2026-08-03T12:00:00Z",
+        "source_kind": "conversation_turn",
+        "content": "User: I think the new connection pool might be causing the latency spike.\nAgent: That is a hypothesis; we would need traces to verify it."
+      }
+    ],
+    "admissible_evidence": [
+      {
+        "evidence_id": "ev-003-user",
+        "source_event_id": "event-sr-003",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "user",
+        "content": "I think the new connection pool might be causing the latency spike.",
+        "span": {
+          "start": 6,
+          "end": 73
+        }
+      },
+      {
+        "evidence_id": "ev-003-agent",
+        "source_event_id": "event-sr-003",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "agent",
+        "content": "That is a hypothesis; we would need traces to verify it.",
+        "span": {
+          "start": 81,
+          "end": 137
+        }
+      }
+    ],
+    "task_input": {
+      "tenant_id": "public-benchmark-tenant",
+      "task_type": "annotate_event",
+      "operation": "annotate_event.v1",
+      "prompt_version": "observation.statement_request.v1",
+      "instruction": "Author one evidence-bound ObservationBead and only warranted optional semantics."
+    },
+    "expected_structural_behavior": {
+      "output_contract": "core-memory.annotation-bundle.v1",
+      "required_output_fields": [
+        "primary_label",
+        "facets",
+        "title",
+        "summary",
+        "evidence_refs",
+        "retrieval_eligible",
+        "assertions",
+        "associations",
+        "revisions",
+        "limitations"
+      ],
+      "forbidden_output_fields": [
+        "gold",
+        "accepted_gold",
+        "adjudication",
+        "judge_critique",
+        "oracle_answer"
+      ],
+      "requires_citations": true,
+      "assertions_may_be_empty": true,
+      "exactly_one_observation_bead": true,
+      "source_event_lineage_count": 1
+    },
+    "evidence_checksum": "762468b9d2b5732edf26907fa16a985fbaee1596cd448fe73473dd9c1348e697"
+  },
+  {
+    "schema_version": "observation_ledger.case.v1",
+    "case_id": "obs-sr-004",
+    "suite": "observations",
+    "behavioral_buckets": [
+      "statement_request",
+      "statement",
+      "constraint",
+      "policy_context"
+    ],
+    "privacy_classification": "public",
+    "source_events": [
+      {
+        "event_id": "event-sr-004",
+        "tenant_id": "public-benchmark-tenant",
+        "event_time": "2026-08-04T13:00:00Z",
+        "source_kind": "conversation_turn",
+        "content": "User: Customer prompts cannot be stored outside the United States.\nAgent: Understood; I will treat that as a deployment constraint."
+      }
+    ],
+    "admissible_evidence": [
+      {
+        "evidence_id": "ev-004-user",
+        "source_event_id": "event-sr-004",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "user",
+        "content": "Customer prompts cannot be stored outside the United States.",
+        "span": {
+          "start": 6,
+          "end": 66
+        }
+      },
+      {
+        "evidence_id": "ev-004-agent",
+        "source_event_id": "event-sr-004",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "agent",
+        "content": "Understood; I will treat that as a deployment constraint.",
+        "span": {
+          "start": 74,
+          "end": 131
+        }
+      }
+    ],
+    "task_input": {
+      "tenant_id": "public-benchmark-tenant",
+      "task_type": "annotate_event",
+      "operation": "annotate_event.v1",
+      "prompt_version": "observation.statement_request.v1",
+      "instruction": "Author one evidence-bound ObservationBead and only warranted optional semantics."
+    },
+    "expected_structural_behavior": {
+      "output_contract": "core-memory.annotation-bundle.v1",
+      "required_output_fields": [
+        "primary_label",
+        "facets",
+        "title",
+        "summary",
+        "evidence_refs",
+        "retrieval_eligible",
+        "assertions",
+        "associations",
+        "revisions",
+        "limitations"
+      ],
+      "forbidden_output_fields": [
+        "gold",
+        "accepted_gold",
+        "adjudication",
+        "judge_critique",
+        "oracle_answer"
+      ],
+      "requires_citations": true,
+      "assertions_may_be_empty": true,
+      "exactly_one_observation_bead": true,
+      "source_event_lineage_count": 1
+    },
+    "evidence_checksum": "3cb38dad123ac6ff34dd10060d3b6fa0641a7b9805169529a962114b6bf8d0df"
+  },
+  {
+    "schema_version": "observation_ledger.case.v1",
+    "case_id": "obs-sr-005",
+    "suite": "observations",
+    "behavioral_buckets": [
+      "statement_request",
+      "statement",
+      "explanation",
+      "attributed_account"
+    ],
+    "privacy_classification": "public",
+    "source_events": [
+      {
+        "event_id": "event-sr-005",
+        "tenant_id": "public-benchmark-tenant",
+        "event_time": "2026-08-01T14:00:00Z",
+        "source_kind": "conversation_turn",
+        "content": "User: I missed the deadline because the vendor delivered the export a day late.\nAgent: Thanks for explaining. I will record that as your account, not as a verified cause."
+      }
+    ],
+    "admissible_evidence": [
+      {
+        "evidence_id": "ev-005-user",
+        "source_event_id": "event-sr-005",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "user",
+        "content": "I missed the deadline because the vendor delivered the export a day late.",
+        "span": {
+          "start": 6,
+          "end": 79
+        }
+      },
+      {
+        "evidence_id": "ev-005-agent",
+        "source_event_id": "event-sr-005",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "agent",
+        "content": "Thanks for explaining. I will record that as your account, not as a verified cause.",
+        "span": {
+          "start": 87,
+          "end": 170
+        }
+      }
+    ],
+    "task_input": {
+      "tenant_id": "public-benchmark-tenant",
+      "task_type": "annotate_event",
+      "operation": "annotate_event.v1",
+      "prompt_version": "observation.statement_request.v1",
+      "instruction": "Author one evidence-bound ObservationBead and only warranted optional semantics."
+    },
+    "expected_structural_behavior": {
+      "output_contract": "core-memory.annotation-bundle.v1",
+      "required_output_fields": [
+        "primary_label",
+        "facets",
+        "title",
+        "summary",
+        "evidence_refs",
+        "retrieval_eligible",
+        "assertions",
+        "associations",
+        "revisions",
+        "limitations"
+      ],
+      "forbidden_output_fields": [
+        "gold",
+        "accepted_gold",
+        "adjudication",
+        "judge_critique",
+        "oracle_answer"
+      ],
+      "requires_citations": true,
+      "assertions_may_be_empty": true,
+      "exactly_one_observation_bead": true,
+      "source_event_lineage_count": 1
+    },
+    "evidence_checksum": "ee25514fdcd6aa5a23ba9b83f249dda4d5edccdb958591283094499f196e8e3d"
+  },
+  {
+    "schema_version": "observation_ledger.case.v1",
+    "case_id": "obs-sr-006",
+    "suite": "observations",
+    "behavioral_buckets": [
+      "statement_request",
+      "statement",
+      "time_bounded_constraint",
+      "state"
+    ],
+    "privacy_classification": "public",
+    "source_events": [
+      {
+        "event_id": "event-sr-006",
+        "tenant_id": "public-benchmark-tenant",
+        "event_time": "2026-08-02T15:00:00Z",
+        "source_kind": "conversation_turn",
+        "content": "User: For this sprint, feature flags need to stay enabled in staging.\nAgent: I will treat that as the current sprint constraint."
+      }
+    ],
+    "admissible_evidence": [
+      {
+        "evidence_id": "ev-006-user",
+        "source_event_id": "event-sr-006",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "user",
+        "content": "For this sprint, feature flags need to stay enabled in staging.",
+        "span": {
+          "start": 6,
+          "end": 69
+        }
+      },
+      {
+        "evidence_id": "ev-006-agent",
+        "source_event_id": "event-sr-006",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "agent",
+        "content": "I will treat that as the current sprint constraint.",
+        "span": {
+          "start": 77,
+          "end": 128
+        }
+      }
+    ],
+    "task_input": {
+      "tenant_id": "public-benchmark-tenant",
+      "task_type": "annotate_event",
+      "operation": "annotate_event.v1",
+      "prompt_version": "observation.statement_request.v1",
+      "instruction": "Author one evidence-bound ObservationBead and only warranted optional semantics."
+    },
+    "expected_structural_behavior": {
+      "output_contract": "core-memory.annotation-bundle.v1",
+      "required_output_fields": [
+        "primary_label",
+        "facets",
+        "title",
+        "summary",
+        "evidence_refs",
+        "retrieval_eligible",
+        "assertions",
+        "associations",
+        "revisions",
+        "limitations"
+      ],
+      "forbidden_output_fields": [
+        "gold",
+        "accepted_gold",
+        "adjudication",
+        "judge_critique",
+        "oracle_answer"
+      ],
+      "requires_citations": true,
+      "assertions_may_be_empty": true,
+      "exactly_one_observation_bead": true,
+      "source_event_lineage_count": 1
+    },
+    "evidence_checksum": "ab913b9987cb555477ff10596ae3bd325743a32e390f922e513a85de6daa6f69"
+  },
+  {
+    "schema_version": "observation_ledger.case.v1",
+    "case_id": "obs-sr-007",
+    "suite": "observations",
+    "behavioral_buckets": [
+      "statement_request",
+      "statement",
+      "correction",
+      "temporal_detail"
+    ],
+    "privacy_classification": "public",
+    "source_events": [
+      {
+        "event_id": "event-sr-007",
+        "tenant_id": "public-benchmark-tenant",
+        "event_time": "2026-08-03T16:00:00Z",
+        "source_kind": "conversation_turn",
+        "content": "User: Correction: the deployment is planned for Tuesday, not Monday.\nAgent: Understood: you corrected the planned day to Tuesday."
+      }
+    ],
+    "admissible_evidence": [
+      {
+        "evidence_id": "ev-007-user",
+        "source_event_id": "event-sr-007",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "user",
+        "content": "Correction: the deployment is planned for Tuesday, not Monday.",
+        "span": {
+          "start": 6,
+          "end": 68
+        }
+      },
+      {
+        "evidence_id": "ev-007-agent",
+        "source_event_id": "event-sr-007",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "agent",
+        "content": "Understood: you corrected the planned day to Tuesday.",
+        "span": {
+          "start": 76,
+          "end": 129
+        }
+      }
+    ],
+    "task_input": {
+      "tenant_id": "public-benchmark-tenant",
+      "task_type": "annotate_event",
+      "operation": "annotate_event.v1",
+      "prompt_version": "observation.statement_request.v1",
+      "instruction": "Author one evidence-bound ObservationBead and only warranted optional semantics."
+    },
+    "expected_structural_behavior": {
+      "output_contract": "core-memory.annotation-bundle.v1",
+      "required_output_fields": [
+        "primary_label",
+        "facets",
+        "title",
+        "summary",
+        "evidence_refs",
+        "retrieval_eligible",
+        "assertions",
+        "associations",
+        "revisions",
+        "limitations"
+      ],
+      "forbidden_output_fields": [
+        "gold",
+        "accepted_gold",
+        "adjudication",
+        "judge_critique",
+        "oracle_answer"
+      ],
+      "requires_citations": true,
+      "assertions_may_be_empty": true,
+      "exactly_one_observation_bead": true,
+      "source_event_lineage_count": 1
+    },
+    "evidence_checksum": "46a8757f1b11b710d3feba9142e73226b94bef7ee2a0a1f912cda151ba50284e"
+  },
+  {
+    "schema_version": "observation_ledger.case.v1",
+    "case_id": "obs-sr-008",
+    "suite": "observations",
+    "behavioral_buckets": [
+      "statement_request",
+      "statement",
+      "mixed_turn",
+      "agent_status"
+    ],
+    "privacy_classification": "public",
+    "source_events": [
+      {
+        "event_id": "event-sr-008",
+        "tenant_id": "public-benchmark-tenant",
+        "event_time": "2026-08-04T09:00:00Z",
+        "source_kind": "conversation_turn",
+        "content": "User: Have you run the migration tests yet?\nAgent: I have not run the migration tests yet."
+      }
+    ],
+    "admissible_evidence": [
+      {
+        "evidence_id": "ev-008-user",
+        "source_event_id": "event-sr-008",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "user",
+        "content": "Have you run the migration tests yet?",
+        "span": {
+          "start": 6,
+          "end": 43
+        }
+      },
+      {
+        "evidence_id": "ev-008-agent",
+        "source_event_id": "event-sr-008",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "agent",
+        "content": "I have not run the migration tests yet.",
+        "span": {
+          "start": 51,
+          "end": 90
+        }
+      }
+    ],
+    "task_input": {
+      "tenant_id": "public-benchmark-tenant",
+      "task_type": "annotate_event",
+      "operation": "annotate_event.v1",
+      "prompt_version": "observation.statement_request.v1",
+      "instruction": "Author one evidence-bound ObservationBead and only warranted optional semantics."
+    },
+    "expected_structural_behavior": {
+      "output_contract": "core-memory.annotation-bundle.v1",
+      "required_output_fields": [
+        "primary_label",
+        "facets",
+        "title",
+        "summary",
+        "evidence_refs",
+        "retrieval_eligible",
+        "assertions",
+        "associations",
+        "revisions",
+        "limitations"
+      ],
+      "forbidden_output_fields": [
+        "gold",
+        "accepted_gold",
+        "adjudication",
+        "judge_critique",
+        "oracle_answer"
+      ],
+      "requires_citations": true,
+      "assertions_may_be_empty": true,
+      "exactly_one_observation_bead": true,
+      "source_event_lineage_count": 1
+    },
+    "evidence_checksum": "598de4878169e19fc495aec3462d929cf558eee3fdd12605465ef04941feebd5"
+  },
+  {
+    "schema_version": "observation_ledger.case.v1",
+    "case_id": "obs-sr-009",
+    "suite": "observations",
+    "behavioral_buckets": [
+      "statement_request",
+      "statement",
+      "hypothesis",
+      "conditional_prediction"
+    ],
+    "privacy_classification": "public",
+    "source_events": [
+      {
+        "event_id": "event-sr-009",
+        "tenant_id": "public-benchmark-tenant",
+        "event_time": "2026-08-01T10:00:00Z",
+        "source_kind": "conversation_turn",
+        "content": "User: If traffic doubles, I expect the current queue to fall behind.\nAgent: I will keep that as a conditional prediction, not a measured result."
+      }
+    ],
+    "admissible_evidence": [
+      {
+        "evidence_id": "ev-009-user",
+        "source_event_id": "event-sr-009",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "user",
+        "content": "If traffic doubles, I expect the current queue to fall behind.",
+        "span": {
+          "start": 6,
+          "end": 68
+        }
+      },
+      {
+        "evidence_id": "ev-009-agent",
+        "source_event_id": "event-sr-009",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "agent",
+        "content": "I will keep that as a conditional prediction, not a measured result.",
+        "span": {
+          "start": 76,
+          "end": 144
+        }
+      }
+    ],
+    "task_input": {
+      "tenant_id": "public-benchmark-tenant",
+      "task_type": "annotate_event",
+      "operation": "annotate_event.v1",
+      "prompt_version": "observation.statement_request.v1",
+      "instruction": "Author one evidence-bound ObservationBead and only warranted optional semantics."
+    },
+    "expected_structural_behavior": {
+      "output_contract": "core-memory.annotation-bundle.v1",
+      "required_output_fields": [
+        "primary_label",
+        "facets",
+        "title",
+        "summary",
+        "evidence_refs",
+        "retrieval_eligible",
+        "assertions",
+        "associations",
+        "revisions",
+        "limitations"
+      ],
+      "forbidden_output_fields": [
+        "gold",
+        "accepted_gold",
+        "adjudication",
+        "judge_critique",
+        "oracle_answer"
+      ],
+      "requires_citations": true,
+      "assertions_may_be_empty": true,
+      "exactly_one_observation_bead": true,
+      "source_event_lineage_count": 1
+    },
+    "evidence_checksum": "aa286a6fb9cd59bd209a64a0cda3aa94287a79c31cf3d2ab3da6d5018d8a4d96"
+  },
+  {
+    "schema_version": "observation_ledger.case.v1",
+    "case_id": "obs-sr-010",
+    "suite": "observations",
+    "behavioral_buckets": [
+      "statement_request",
+      "statement",
+      "hearsay",
+      "source_attribution"
+    ],
+    "privacy_classification": "public",
+    "source_events": [
+      {
+        "event_id": "event-sr-010",
+        "tenant_id": "public-benchmark-tenant",
+        "event_time": "2026-08-02T11:00:00Z",
+        "source_kind": "conversation_turn",
+        "content": "User: Sam told me the vendor approved the security exception.\nAgent: I will record that as a second-hand report, not as vendor confirmation."
+      }
+    ],
+    "admissible_evidence": [
+      {
+        "evidence_id": "ev-010-user",
+        "source_event_id": "event-sr-010",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "user",
+        "content": "Sam told me the vendor approved the security exception.",
+        "span": {
+          "start": 6,
+          "end": 61
+        }
+      },
+      {
+        "evidence_id": "ev-010-agent",
+        "source_event_id": "event-sr-010",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "agent",
+        "content": "I will record that as a second-hand report, not as vendor confirmation.",
+        "span": {
+          "start": 69,
+          "end": 140
+        }
+      }
+    ],
+    "task_input": {
+      "tenant_id": "public-benchmark-tenant",
+      "task_type": "annotate_event",
+      "operation": "annotate_event.v1",
+      "prompt_version": "observation.statement_request.v1",
+      "instruction": "Author one evidence-bound ObservationBead and only warranted optional semantics."
+    },
+    "expected_structural_behavior": {
+      "output_contract": "core-memory.annotation-bundle.v1",
+      "required_output_fields": [
+        "primary_label",
+        "facets",
+        "title",
+        "summary",
+        "evidence_refs",
+        "retrieval_eligible",
+        "assertions",
+        "associations",
+        "revisions",
+        "limitations"
+      ],
+      "forbidden_output_fields": [
+        "gold",
+        "accepted_gold",
+        "adjudication",
+        "judge_critique",
+        "oracle_answer"
+      ],
+      "requires_citations": true,
+      "assertions_may_be_empty": true,
+      "exactly_one_observation_bead": true,
+      "source_event_lineage_count": 1
+    },
+    "evidence_checksum": "22d6352f6df106d7a39283e0dc508a2aca3d5978878bfa160f755faebaf9c23d"
+  },
+  {
+    "schema_version": "observation_ledger.case.v1",
+    "case_id": "obs-sr-011",
+    "suite": "observations",
+    "behavioral_buckets": [
+      "statement_request",
+      "statement",
+      "preference",
+      "negative_preference"
+    ],
+    "privacy_classification": "public",
+    "source_events": [
+      {
+        "event_id": "event-sr-011",
+        "tenant_id": "public-benchmark-tenant",
+        "event_time": "2026-08-03T12:00:00Z",
+        "source_kind": "conversation_turn",
+        "content": "User: I do not want automatic email notifications for routine job completions.\nAgent: Understood. I will preserve that as a notification preference."
+      }
+    ],
+    "admissible_evidence": [
+      {
+        "evidence_id": "ev-011-user",
+        "source_event_id": "event-sr-011",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "user",
+        "content": "I do not want automatic email notifications for routine job completions.",
+        "span": {
+          "start": 6,
+          "end": 78
+        }
+      },
+      {
+        "evidence_id": "ev-011-agent",
+        "source_event_id": "event-sr-011",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "agent",
+        "content": "Understood. I will preserve that as a notification preference.",
+        "span": {
+          "start": 86,
+          "end": 148
+        }
+      }
+    ],
+    "task_input": {
+      "tenant_id": "public-benchmark-tenant",
+      "task_type": "annotate_event",
+      "operation": "annotate_event.v1",
+      "prompt_version": "observation.statement_request.v1",
+      "instruction": "Author one evidence-bound ObservationBead and only warranted optional semantics."
+    },
+    "expected_structural_behavior": {
+      "output_contract": "core-memory.annotation-bundle.v1",
+      "required_output_fields": [
+        "primary_label",
+        "facets",
+        "title",
+        "summary",
+        "evidence_refs",
+        "retrieval_eligible",
+        "assertions",
+        "associations",
+        "revisions",
+        "limitations"
+      ],
+      "forbidden_output_fields": [
+        "gold",
+        "accepted_gold",
+        "adjudication",
+        "judge_critique",
+        "oracle_answer"
+      ],
+      "requires_citations": true,
+      "assertions_may_be_empty": true,
+      "exactly_one_observation_bead": true,
+      "source_event_lineage_count": 1
+    },
+    "evidence_checksum": "694f0ec44ce9d9cb65e998e096ba6e1d03edcacc7e8d0bb6100791cd84e1db0b"
+  },
+  {
+    "schema_version": "observation_ledger.case.v1",
+    "case_id": "obs-sr-012",
+    "suite": "observations",
+    "behavioral_buckets": [
+      "statement_request",
+      "statement",
+      "rhetorical_question",
+      "not_a_request"
+    ],
+    "privacy_classification": "public",
+    "source_events": [
+      {
+        "event_id": "event-sr-012",
+        "tenant_id": "public-benchmark-tenant",
+        "event_time": "2026-08-04T13:00:00Z",
+        "source_kind": "conversation_turn",
+        "content": "User: Who knew cache invalidation would be this annoying?\nAgent: That sounds rhetorical; I do not see a request for action or information."
+      }
+    ],
+    "admissible_evidence": [
+      {
+        "evidence_id": "ev-012-user",
+        "source_event_id": "event-sr-012",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "user",
+        "content": "Who knew cache invalidation would be this annoying?",
+        "span": {
+          "start": 6,
+          "end": 57
+        }
+      },
+      {
+        "evidence_id": "ev-012-agent",
+        "source_event_id": "event-sr-012",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "agent",
+        "content": "That sounds rhetorical; I do not see a request for action or information.",
+        "span": {
+          "start": 65,
+          "end": 138
+        }
+      }
+    ],
+    "task_input": {
+      "tenant_id": "public-benchmark-tenant",
+      "task_type": "annotate_event",
+      "operation": "annotate_event.v1",
+      "prompt_version": "observation.statement_request.v1",
+      "instruction": "Author one evidence-bound ObservationBead and only warranted optional semantics."
+    },
+    "expected_structural_behavior": {
+      "output_contract": "core-memory.annotation-bundle.v1",
+      "required_output_fields": [
+        "primary_label",
+        "facets",
+        "title",
+        "summary",
+        "evidence_refs",
+        "retrieval_eligible",
+        "assertions",
+        "associations",
+        "revisions",
+        "limitations"
+      ],
+      "forbidden_output_fields": [
+        "gold",
+        "accepted_gold",
+        "adjudication",
+        "judge_critique",
+        "oracle_answer"
+      ],
+      "requires_citations": true,
+      "assertions_may_be_empty": true,
+      "exactly_one_observation_bead": true,
+      "source_event_lineage_count": 1
+    },
+    "evidence_checksum": "a7e6a6d0b664205388b7d5b8f9c7f9b3343f143ffdc266e3328e38bbf43efbc9"
+  },
+  {
+    "schema_version": "observation_ledger.case.v1",
+    "case_id": "obs-sr-013",
+    "suite": "observations",
+    "behavioral_buckets": [
+      "statement_request",
+      "statement",
+      "quoted_imperative",
+      "not_a_request"
+    ],
+    "privacy_classification": "public",
+    "source_events": [
+      {
+        "event_id": "event-sr-013",
+        "tenant_id": "public-benchmark-tenant",
+        "event_time": "2026-08-01T14:00:00Z",
+        "source_kind": "conversation_turn",
+        "content": "User: The ticket says, \"Restart the service after the backup completes.\"\nAgent: I see the quoted instruction, but you have not asked me to execute it."
+      }
+    ],
+    "admissible_evidence": [
+      {
+        "evidence_id": "ev-013-user",
+        "source_event_id": "event-sr-013",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "user",
+        "content": "The ticket says, \"Restart the service after the backup completes.\"",
+        "span": {
+          "start": 6,
+          "end": 72
+        }
+      },
+      {
+        "evidence_id": "ev-013-agent",
+        "source_event_id": "event-sr-013",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "agent",
+        "content": "I see the quoted instruction, but you have not asked me to execute it.",
+        "span": {
+          "start": 80,
+          "end": 150
+        }
+      }
+    ],
+    "task_input": {
+      "tenant_id": "public-benchmark-tenant",
+      "task_type": "annotate_event",
+      "operation": "annotate_event.v1",
+      "prompt_version": "observation.statement_request.v1",
+      "instruction": "Author one evidence-bound ObservationBead and only warranted optional semantics."
+    },
+    "expected_structural_behavior": {
+      "output_contract": "core-memory.annotation-bundle.v1",
+      "required_output_fields": [
+        "primary_label",
+        "facets",
+        "title",
+        "summary",
+        "evidence_refs",
+        "retrieval_eligible",
+        "assertions",
+        "associations",
+        "revisions",
+        "limitations"
+      ],
+      "forbidden_output_fields": [
+        "gold",
+        "accepted_gold",
+        "adjudication",
+        "judge_critique",
+        "oracle_answer"
+      ],
+      "requires_citations": true,
+      "assertions_may_be_empty": true,
+      "exactly_one_observation_bead": true,
+      "source_event_lineage_count": 1
+    },
+    "evidence_checksum": "e4b7881411d0466367c1edfb5310c19aee92d45a83bd931ddecf276453c91121"
+  },
+  {
+    "schema_version": "observation_ledger.case.v1",
+    "case_id": "obs-sr-014",
+    "suite": "observations",
+    "behavioral_buckets": [
+      "statement_request",
+      "request",
+      "direct_action"
+    ],
+    "privacy_classification": "public",
+    "source_events": [
+      {
+        "event_id": "event-sr-014",
+        "tenant_id": "public-benchmark-tenant",
+        "event_time": "2026-08-02T15:00:00Z",
+        "source_kind": "conversation_turn",
+        "content": "User: Run the unit tests for the migration package.\nAgent: I understand the request; no tests have run yet."
+      }
+    ],
+    "admissible_evidence": [
+      {
+        "evidence_id": "ev-014-user",
+        "source_event_id": "event-sr-014",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "user",
+        "content": "Run the unit tests for the migration package.",
+        "span": {
+          "start": 6,
+          "end": 51
+        }
+      },
+      {
+        "evidence_id": "ev-014-agent",
+        "source_event_id": "event-sr-014",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "agent",
+        "content": "I understand the request; no tests have run yet.",
+        "span": {
+          "start": 59,
+          "end": 107
+        }
+      }
+    ],
+    "task_input": {
+      "tenant_id": "public-benchmark-tenant",
+      "task_type": "annotate_event",
+      "operation": "annotate_event.v1",
+      "prompt_version": "observation.statement_request.v1",
+      "instruction": "Author one evidence-bound ObservationBead and only warranted optional semantics."
+    },
+    "expected_structural_behavior": {
+      "output_contract": "core-memory.annotation-bundle.v1",
+      "required_output_fields": [
+        "primary_label",
+        "facets",
+        "title",
+        "summary",
+        "evidence_refs",
+        "retrieval_eligible",
+        "assertions",
+        "associations",
+        "revisions",
+        "limitations"
+      ],
+      "forbidden_output_fields": [
+        "gold",
+        "accepted_gold",
+        "adjudication",
+        "judge_critique",
+        "oracle_answer"
+      ],
+      "requires_citations": true,
+      "assertions_may_be_empty": true,
+      "exactly_one_observation_bead": true,
+      "source_event_lineage_count": 1
+    },
+    "evidence_checksum": "2de1847b2e02099557366f1f5b844beb9fb02e6cd9cb3d467ce186890b2e518a"
+  },
+  {
+    "schema_version": "observation_ledger.case.v1",
+    "case_id": "obs-sr-015",
+    "suite": "observations",
+    "behavioral_buckets": [
+      "statement_request",
+      "request",
+      "information_request"
+    ],
+    "privacy_classification": "public",
+    "source_events": [
+      {
+        "event_id": "event-sr-015",
+        "tenant_id": "public-benchmark-tenant",
+        "event_time": "2026-08-03T16:00:00Z",
+        "source_kind": "conversation_turn",
+        "content": "User: What failed in the last deployment?\nAgent: I will inspect the deployment evidence before answering."
+      }
+    ],
+    "admissible_evidence": [
+      {
+        "evidence_id": "ev-015-user",
+        "source_event_id": "event-sr-015",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "user",
+        "content": "What failed in the last deployment?",
+        "span": {
+          "start": 6,
+          "end": 41
+        }
+      },
+      {
+        "evidence_id": "ev-015-agent",
+        "source_event_id": "event-sr-015",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "agent",
+        "content": "I will inspect the deployment evidence before answering.",
+        "span": {
+          "start": 49,
+          "end": 105
+        }
+      }
+    ],
+    "task_input": {
+      "tenant_id": "public-benchmark-tenant",
+      "task_type": "annotate_event",
+      "operation": "annotate_event.v1",
+      "prompt_version": "observation.statement_request.v1",
+      "instruction": "Author one evidence-bound ObservationBead and only warranted optional semantics."
+    },
+    "expected_structural_behavior": {
+      "output_contract": "core-memory.annotation-bundle.v1",
+      "required_output_fields": [
+        "primary_label",
+        "facets",
+        "title",
+        "summary",
+        "evidence_refs",
+        "retrieval_eligible",
+        "assertions",
+        "associations",
+        "revisions",
+        "limitations"
+      ],
+      "forbidden_output_fields": [
+        "gold",
+        "accepted_gold",
+        "adjudication",
+        "judge_critique",
+        "oracle_answer"
+      ],
+      "requires_citations": true,
+      "assertions_may_be_empty": true,
+      "exactly_one_observation_bead": true,
+      "source_event_lineage_count": 1
+    },
+    "evidence_checksum": "5449cb0f07fdc0c44b97af83b28bd408e95829f02ce601ed42e0c733d7e4f45e"
+  },
+  {
+    "schema_version": "observation_ledger.case.v1",
+    "case_id": "obs-sr-016",
+    "suite": "observations",
+    "behavioral_buckets": [
+      "statement_request",
+      "request",
+      "permission_request"
+    ],
+    "privacy_classification": "public",
+    "source_events": [
+      {
+        "event_id": "event-sr-016",
+        "tenant_id": "public-benchmark-tenant",
+        "event_time": "2026-08-04T09:00:00Z",
+        "source_kind": "conversation_turn",
+        "content": "User: Can I delete the old release branch?\nAgent: I can explain the risks, but no branch has been deleted."
+      }
+    ],
+    "admissible_evidence": [
+      {
+        "evidence_id": "ev-016-user",
+        "source_event_id": "event-sr-016",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "user",
+        "content": "Can I delete the old release branch?",
+        "span": {
+          "start": 6,
+          "end": 42
+        }
+      },
+      {
+        "evidence_id": "ev-016-agent",
+        "source_event_id": "event-sr-016",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "agent",
+        "content": "I can explain the risks, but no branch has been deleted.",
+        "span": {
+          "start": 50,
+          "end": 106
+        }
+      }
+    ],
+    "task_input": {
+      "tenant_id": "public-benchmark-tenant",
+      "task_type": "annotate_event",
+      "operation": "annotate_event.v1",
+      "prompt_version": "observation.statement_request.v1",
+      "instruction": "Author one evidence-bound ObservationBead and only warranted optional semantics."
+    },
+    "expected_structural_behavior": {
+      "output_contract": "core-memory.annotation-bundle.v1",
+      "required_output_fields": [
+        "primary_label",
+        "facets",
+        "title",
+        "summary",
+        "evidence_refs",
+        "retrieval_eligible",
+        "assertions",
+        "associations",
+        "revisions",
+        "limitations"
+      ],
+      "forbidden_output_fields": [
+        "gold",
+        "accepted_gold",
+        "adjudication",
+        "judge_critique",
+        "oracle_answer"
+      ],
+      "requires_citations": true,
+      "assertions_may_be_empty": true,
+      "exactly_one_observation_bead": true,
+      "source_event_lineage_count": 1
+    },
+    "evidence_checksum": "02363b3668afbc7026ba21a67836caec969202faa653a483a4f36f0286a530db"
+  },
+  {
+    "schema_version": "observation_ledger.case.v1",
+    "case_id": "obs-sr-017",
+    "suite": "observations",
+    "behavioral_buckets": [
+      "statement_request",
+      "request",
+      "future_action",
+      "reminder"
+    ],
+    "privacy_classification": "public",
+    "source_events": [
+      {
+        "event_id": "event-sr-017",
+        "tenant_id": "public-benchmark-tenant",
+        "event_time": "2026-08-01T10:00:00Z",
+        "source_kind": "conversation_turn",
+        "content": "User: Remind me next Tuesday to rotate the staging credentials.\nAgent: I understand the future reminder request; no reminder has been scheduled yet."
+      }
+    ],
+    "admissible_evidence": [
+      {
+        "evidence_id": "ev-017-user",
+        "source_event_id": "event-sr-017",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "user",
+        "content": "Remind me next Tuesday to rotate the staging credentials.",
+        "span": {
+          "start": 6,
+          "end": 63
+        }
+      },
+      {
+        "evidence_id": "ev-017-agent",
+        "source_event_id": "event-sr-017",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "agent",
+        "content": "I understand the future reminder request; no reminder has been scheduled yet.",
+        "span": {
+          "start": 71,
+          "end": 148
+        }
+      }
+    ],
+    "task_input": {
+      "tenant_id": "public-benchmark-tenant",
+      "task_type": "annotate_event",
+      "operation": "annotate_event.v1",
+      "prompt_version": "observation.statement_request.v1",
+      "instruction": "Author one evidence-bound ObservationBead and only warranted optional semantics."
+    },
+    "expected_structural_behavior": {
+      "output_contract": "core-memory.annotation-bundle.v1",
+      "required_output_fields": [
+        "primary_label",
+        "facets",
+        "title",
+        "summary",
+        "evidence_refs",
+        "retrieval_eligible",
+        "assertions",
+        "associations",
+        "revisions",
+        "limitations"
+      ],
+      "forbidden_output_fields": [
+        "gold",
+        "accepted_gold",
+        "adjudication",
+        "judge_critique",
+        "oracle_answer"
+      ],
+      "requires_citations": true,
+      "assertions_may_be_empty": true,
+      "exactly_one_observation_bead": true,
+      "source_event_lineage_count": 1
+    },
+    "evidence_checksum": "5b0a1d4a4e8e8a5b4c119765e2cdd065314446a28d329b817f5980316c1cce4d"
+  },
+  {
+    "schema_version": "observation_ledger.case.v1",
+    "case_id": "obs-sr-018",
+    "suite": "observations",
+    "behavioral_buckets": [
+      "statement_request",
+      "request",
+      "conditional_action",
+      "branching_instruction"
+    ],
+    "privacy_classification": "public",
+    "source_events": [
+      {
+        "event_id": "event-sr-018",
+        "tenant_id": "public-benchmark-tenant",
+        "event_time": "2026-08-02T11:00:00Z",
+        "source_kind": "conversation_turn",
+        "content": "User: If the tests pass, open the pull request; otherwise stop and report the failures.\nAgent: I understand the two conditional branches; neither condition has been evaluated."
+      }
+    ],
+    "admissible_evidence": [
+      {
+        "evidence_id": "ev-018-user",
+        "source_event_id": "event-sr-018",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "user",
+        "content": "If the tests pass, open the pull request; otherwise stop and report the failures.",
+        "span": {
+          "start": 6,
+          "end": 87
+        }
+      },
+      {
+        "evidence_id": "ev-018-agent",
+        "source_event_id": "event-sr-018",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "agent",
+        "content": "I understand the two conditional branches; neither condition has been evaluated.",
+        "span": {
+          "start": 95,
+          "end": 175
+        }
+      }
+    ],
+    "task_input": {
+      "tenant_id": "public-benchmark-tenant",
+      "task_type": "annotate_event",
+      "operation": "annotate_event.v1",
+      "prompt_version": "observation.statement_request.v1",
+      "instruction": "Author one evidence-bound ObservationBead and only warranted optional semantics."
+    },
+    "expected_structural_behavior": {
+      "output_contract": "core-memory.annotation-bundle.v1",
+      "required_output_fields": [
+        "primary_label",
+        "facets",
+        "title",
+        "summary",
+        "evidence_refs",
+        "retrieval_eligible",
+        "assertions",
+        "associations",
+        "revisions",
+        "limitations"
+      ],
+      "forbidden_output_fields": [
+        "gold",
+        "accepted_gold",
+        "adjudication",
+        "judge_critique",
+        "oracle_answer"
+      ],
+      "requires_citations": true,
+      "assertions_may_be_empty": true,
+      "exactly_one_observation_bead": true,
+      "source_event_lineage_count": 1
+    },
+    "evidence_checksum": "6c8df1f4e84e827894b777108485d39879c68540a8cc495ca8f3bdf20ce7c293"
+  },
+  {
+    "schema_version": "observation_ledger.case.v1",
+    "case_id": "obs-sr-019",
+    "suite": "observations",
+    "behavioral_buckets": [
+      "statement_request",
+      "request",
+      "multi_step_request",
+      "comparison"
+    ],
+    "privacy_classification": "public",
+    "source_events": [
+      {
+        "event_id": "event-sr-019",
+        "tenant_id": "public-benchmark-tenant",
+        "event_time": "2026-08-03T12:00:00Z",
+        "source_kind": "conversation_turn",
+        "content": "User: Compare SQLite and PostgreSQL for this workload, then recommend one with the tradeoffs.\nAgent: I understand the comparison and recommendation request; I have not performed the analysis yet."
+      }
+    ],
+    "admissible_evidence": [
+      {
+        "evidence_id": "ev-019-user",
+        "source_event_id": "event-sr-019",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "user",
+        "content": "Compare SQLite and PostgreSQL for this workload, then recommend one with the tradeoffs.",
+        "span": {
+          "start": 6,
+          "end": 93
+        }
+      },
+      {
+        "evidence_id": "ev-019-agent",
+        "source_event_id": "event-sr-019",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "agent",
+        "content": "I understand the comparison and recommendation request; I have not performed the analysis yet.",
+        "span": {
+          "start": 101,
+          "end": 195
+        }
+      }
+    ],
+    "task_input": {
+      "tenant_id": "public-benchmark-tenant",
+      "task_type": "annotate_event",
+      "operation": "annotate_event.v1",
+      "prompt_version": "observation.statement_request.v1",
+      "instruction": "Author one evidence-bound ObservationBead and only warranted optional semantics."
+    },
+    "expected_structural_behavior": {
+      "output_contract": "core-memory.annotation-bundle.v1",
+      "required_output_fields": [
+        "primary_label",
+        "facets",
+        "title",
+        "summary",
+        "evidence_refs",
+        "retrieval_eligible",
+        "assertions",
+        "associations",
+        "revisions",
+        "limitations"
+      ],
+      "forbidden_output_fields": [
+        "gold",
+        "accepted_gold",
+        "adjudication",
+        "judge_critique",
+        "oracle_answer"
+      ],
+      "requires_citations": true,
+      "assertions_may_be_empty": true,
+      "exactly_one_observation_bead": true,
+      "source_event_lineage_count": 1
+    },
+    "evidence_checksum": "0d04f247e22f7b347eebd9dd9d5c5512155f44c831cba45def4e3383b4817bdc"
+  },
+  {
+    "schema_version": "observation_ledger.case.v1",
+    "case_id": "obs-sr-020",
+    "suite": "observations",
+    "behavioral_buckets": [
+      "statement_request",
+      "request",
+      "agent_request",
+      "clarification"
+    ],
+    "privacy_classification": "public",
+    "source_events": [
+      {
+        "event_id": "event-sr-020",
+        "tenant_id": "public-benchmark-tenant",
+        "event_time": "2026-08-04T13:00:00Z",
+        "source_kind": "conversation_turn",
+        "content": "User: The deployment region needs updating.\nAgent: Which region should I use?"
+      }
+    ],
+    "admissible_evidence": [
+      {
+        "evidence_id": "ev-020-user",
+        "source_event_id": "event-sr-020",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "user",
+        "content": "The deployment region needs updating.",
+        "span": {
+          "start": 6,
+          "end": 43
+        }
+      },
+      {
+        "evidence_id": "ev-020-agent",
+        "source_event_id": "event-sr-020",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "agent",
+        "content": "Which region should I use?",
+        "span": {
+          "start": 51,
+          "end": 77
+        }
+      }
+    ],
+    "task_input": {
+      "tenant_id": "public-benchmark-tenant",
+      "task_type": "annotate_event",
+      "operation": "annotate_event.v1",
+      "prompt_version": "observation.statement_request.v1",
+      "instruction": "Author one evidence-bound ObservationBead and only warranted optional semantics."
+    },
+    "expected_structural_behavior": {
+      "output_contract": "core-memory.annotation-bundle.v1",
+      "required_output_fields": [
+        "primary_label",
+        "facets",
+        "title",
+        "summary",
+        "evidence_refs",
+        "retrieval_eligible",
+        "assertions",
+        "associations",
+        "revisions",
+        "limitations"
+      ],
+      "forbidden_output_fields": [
+        "gold",
+        "accepted_gold",
+        "adjudication",
+        "judge_critique",
+        "oracle_answer"
+      ],
+      "requires_citations": true,
+      "assertions_may_be_empty": true,
+      "exactly_one_observation_bead": true,
+      "source_event_lineage_count": 1
+    },
+    "evidence_checksum": "a987124a541e586aa6aa16b7869bd9ef3e428291ee9074b8325f19a0bf6a08d6"
+  },
+  {
+    "schema_version": "observation_ledger.case.v1",
+    "case_id": "obs-sr-021",
+    "suite": "observations",
+    "behavioral_buckets": [
+      "statement_request",
+      "request",
+      "prohibition",
+      "negative_instruction"
+    ],
+    "privacy_classification": "public",
+    "source_events": [
+      {
+        "event_id": "event-sr-021",
+        "tenant_id": "public-benchmark-tenant",
+        "event_time": "2026-08-01T14:00:00Z",
+        "source_kind": "conversation_turn",
+        "content": "User: Do not publish this report outside the project team.\nAgent: Understood. I will treat that as a distribution restriction, not evidence that access controls changed."
+      }
+    ],
+    "admissible_evidence": [
+      {
+        "evidence_id": "ev-021-user",
+        "source_event_id": "event-sr-021",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "user",
+        "content": "Do not publish this report outside the project team.",
+        "span": {
+          "start": 6,
+          "end": 58
+        }
+      },
+      {
+        "evidence_id": "ev-021-agent",
+        "source_event_id": "event-sr-021",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "agent",
+        "content": "Understood. I will treat that as a distribution restriction, not evidence that access controls changed.",
+        "span": {
+          "start": 66,
+          "end": 169
+        }
+      }
+    ],
+    "task_input": {
+      "tenant_id": "public-benchmark-tenant",
+      "task_type": "annotate_event",
+      "operation": "annotate_event.v1",
+      "prompt_version": "observation.statement_request.v1",
+      "instruction": "Author one evidence-bound ObservationBead and only warranted optional semantics."
+    },
+    "expected_structural_behavior": {
+      "output_contract": "core-memory.annotation-bundle.v1",
+      "required_output_fields": [
+        "primary_label",
+        "facets",
+        "title",
+        "summary",
+        "evidence_refs",
+        "retrieval_eligible",
+        "assertions",
+        "associations",
+        "revisions",
+        "limitations"
+      ],
+      "forbidden_output_fields": [
+        "gold",
+        "accepted_gold",
+        "adjudication",
+        "judge_critique",
+        "oracle_answer"
+      ],
+      "requires_citations": true,
+      "assertions_may_be_empty": true,
+      "exactly_one_observation_bead": true,
+      "source_event_lineage_count": 1
+    },
+    "evidence_checksum": "5f72ba98cddaa3490e48d1bc75be45260720561036cbf75ec89d5c5ce1e5d6d3"
+  },
+  {
+    "schema_version": "observation_ledger.case.v1",
+    "case_id": "obs-sr-022",
+    "suite": "observations",
+    "behavioral_buckets": [
+      "statement_request",
+      "request",
+      "indirect_request",
+      "polite_form"
+    ],
+    "privacy_classification": "public",
+    "source_events": [
+      {
+        "event_id": "event-sr-022",
+        "tenant_id": "public-benchmark-tenant",
+        "event_time": "2026-08-02T15:00:00Z",
+        "source_kind": "conversation_turn",
+        "content": "User: It would help if you summarized the open review comments before we continue.\nAgent: I understand that as a request for a review-comment summary."
+      }
+    ],
+    "admissible_evidence": [
+      {
+        "evidence_id": "ev-022-user",
+        "source_event_id": "event-sr-022",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "user",
+        "content": "It would help if you summarized the open review comments before we continue.",
+        "span": {
+          "start": 6,
+          "end": 82
+        }
+      },
+      {
+        "evidence_id": "ev-022-agent",
+        "source_event_id": "event-sr-022",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "agent",
+        "content": "I understand that as a request for a review-comment summary.",
+        "span": {
+          "start": 90,
+          "end": 150
+        }
+      }
+    ],
+    "task_input": {
+      "tenant_id": "public-benchmark-tenant",
+      "task_type": "annotate_event",
+      "operation": "annotate_event.v1",
+      "prompt_version": "observation.statement_request.v1",
+      "instruction": "Author one evidence-bound ObservationBead and only warranted optional semantics."
+    },
+    "expected_structural_behavior": {
+      "output_contract": "core-memory.annotation-bundle.v1",
+      "required_output_fields": [
+        "primary_label",
+        "facets",
+        "title",
+        "summary",
+        "evidence_refs",
+        "retrieval_eligible",
+        "assertions",
+        "associations",
+        "revisions",
+        "limitations"
+      ],
+      "forbidden_output_fields": [
+        "gold",
+        "accepted_gold",
+        "adjudication",
+        "judge_critique",
+        "oracle_answer"
+      ],
+      "requires_citations": true,
+      "assertions_may_be_empty": true,
+      "exactly_one_observation_bead": true,
+      "source_event_lineage_count": 1
+    },
+    "evidence_checksum": "0e67c6ca8a19c0106ed1dcf850e6e90894cdb220fe8f532da9492dd1498e741b"
+  },
+  {
+    "schema_version": "observation_ledger.case.v1",
+    "case_id": "obs-sr-023",
+    "suite": "observations",
+    "behavioral_buckets": [
+      "statement_request",
+      "request",
+      "choice_request",
+      "recommendation"
+    ],
+    "privacy_classification": "public",
+    "source_events": [
+      {
+        "event_id": "event-sr-023",
+        "tenant_id": "public-benchmark-tenant",
+        "event_time": "2026-08-03T16:00:00Z",
+        "source_kind": "conversation_turn",
+        "content": "User: Should we use SQLite or PostgreSQL for the local-first ledger?\nAgent: I need the workload and deployment constraints before recommending either option."
+      }
+    ],
+    "admissible_evidence": [
+      {
+        "evidence_id": "ev-023-user",
+        "source_event_id": "event-sr-023",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "user",
+        "content": "Should we use SQLite or PostgreSQL for the local-first ledger?",
+        "span": {
+          "start": 6,
+          "end": 68
+        }
+      },
+      {
+        "evidence_id": "ev-023-agent",
+        "source_event_id": "event-sr-023",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "agent",
+        "content": "I need the workload and deployment constraints before recommending either option.",
+        "span": {
+          "start": 76,
+          "end": 157
+        }
+      }
+    ],
+    "task_input": {
+      "tenant_id": "public-benchmark-tenant",
+      "task_type": "annotate_event",
+      "operation": "annotate_event.v1",
+      "prompt_version": "observation.statement_request.v1",
+      "instruction": "Author one evidence-bound ObservationBead and only warranted optional semantics."
+    },
+    "expected_structural_behavior": {
+      "output_contract": "core-memory.annotation-bundle.v1",
+      "required_output_fields": [
+        "primary_label",
+        "facets",
+        "title",
+        "summary",
+        "evidence_refs",
+        "retrieval_eligible",
+        "assertions",
+        "associations",
+        "revisions",
+        "limitations"
+      ],
+      "forbidden_output_fields": [
+        "gold",
+        "accepted_gold",
+        "adjudication",
+        "judge_critique",
+        "oracle_answer"
+      ],
+      "requires_citations": true,
+      "assertions_may_be_empty": true,
+      "exactly_one_observation_bead": true,
+      "source_event_lineage_count": 1
+    },
+    "evidence_checksum": "7915bdd3c813f5dda9cff16533cb9c158a483a200358b40114802b810bdd4c5c"
+  },
+  {
+    "schema_version": "observation_ledger.case.v1",
+    "case_id": "obs-sr-024",
+    "suite": "observations",
+    "behavioral_buckets": [
+      "statement_request",
+      "request",
+      "mixed_statement_request",
+      "execution_constraint"
+    ],
+    "privacy_classification": "public",
+    "source_events": [
+      {
+        "event_id": "event-sr-024",
+        "tenant_id": "public-benchmark-tenant",
+        "event_time": "2026-08-04T09:00:00Z",
+        "source_kind": "conversation_turn",
+        "content": "User: The bug only happens in staging. Reproduce it there, not in production.\nAgent: I understand the staging-only reproduction request; I have not run it."
+      }
+    ],
+    "admissible_evidence": [
+      {
+        "evidence_id": "ev-024-user",
+        "source_event_id": "event-sr-024",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "user",
+        "content": "The bug only happens in staging. Reproduce it there, not in production.",
+        "span": {
+          "start": 6,
+          "end": 77
+        }
+      },
+      {
+        "evidence_id": "ev-024-agent",
+        "source_event_id": "event-sr-024",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "agent",
+        "content": "I understand the staging-only reproduction request; I have not run it.",
+        "span": {
+          "start": 85,
+          "end": 155
+        }
+      }
+    ],
+    "task_input": {
+      "tenant_id": "public-benchmark-tenant",
+      "task_type": "annotate_event",
+      "operation": "annotate_event.v1",
+      "prompt_version": "observation.statement_request.v1",
+      "instruction": "Author one evidence-bound ObservationBead and only warranted optional semantics."
+    },
+    "expected_structural_behavior": {
+      "output_contract": "core-memory.annotation-bundle.v1",
+      "required_output_fields": [
+        "primary_label",
+        "facets",
+        "title",
+        "summary",
+        "evidence_refs",
+        "retrieval_eligible",
+        "assertions",
+        "associations",
+        "revisions",
+        "limitations"
+      ],
+      "forbidden_output_fields": [
+        "gold",
+        "accepted_gold",
+        "adjudication",
+        "judge_critique",
+        "oracle_answer"
+      ],
+      "requires_citations": true,
+      "assertions_may_be_empty": true,
+      "exactly_one_observation_bead": true,
+      "source_event_lineage_count": 1
+    },
+    "evidence_checksum": "9aa82e16fb16bb8937836239016159ff5198cd1f44b6055246bb50b6fe95becd"
+  },
+  {
+    "schema_version": "observation_ledger.case.v1",
+    "case_id": "obs-sr-025",
+    "suite": "observations",
+    "behavioral_buckets": [
+      "statement_request",
+      "request",
+      "mixed_statement_request",
+      "deadline"
+    ],
+    "privacy_classification": "public",
+    "source_events": [
+      {
+        "event_id": "event-sr-025",
+        "tenant_id": "public-benchmark-tenant",
+        "event_time": "2026-08-01T10:00:00Z",
+        "source_kind": "conversation_turn",
+        "content": "User: I am leaving at four; send me the report before then.\nAgent: I understand the deadline-bound request; the report has not been sent."
+      }
+    ],
+    "admissible_evidence": [
+      {
+        "evidence_id": "ev-025-user",
+        "source_event_id": "event-sr-025",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "user",
+        "content": "I am leaving at four; send me the report before then.",
+        "span": {
+          "start": 6,
+          "end": 59
+        }
+      },
+      {
+        "evidence_id": "ev-025-agent",
+        "source_event_id": "event-sr-025",
+        "tenant_id": "public-benchmark-tenant",
+        "actor_role": "agent",
+        "content": "I understand the deadline-bound request; the report has not been sent.",
+        "span": {
+          "start": 67,
+          "end": 137
+        }
+      }
+    ],
+    "task_input": {
+      "tenant_id": "public-benchmark-tenant",
+      "task_type": "annotate_event",
+      "operation": "annotate_event.v1",
+      "prompt_version": "observation.statement_request.v1",
+      "instruction": "Author one evidence-bound ObservationBead and only warranted optional semantics."
+    },
+    "expected_structural_behavior": {
+      "output_contract": "core-memory.annotation-bundle.v1",
+      "required_output_fields": [
+        "primary_label",
+        "facets",
+        "title",
+        "summary",
+        "evidence_refs",
+        "retrieval_eligible",
+        "assertions",
+        "associations",
+        "revisions",
+        "limitations"
+      ],
+      "forbidden_output_fields": [
+        "gold",
+        "accepted_gold",
+        "adjudication",
+        "judge_critique",
+        "oracle_answer"
+      ],
+      "requires_citations": true,
+      "assertions_may_be_empty": true,
+      "exactly_one_observation_bead": true,
+      "source_event_lineage_count": 1
+    },
+    "evidence_checksum": "0a08dfb233678a89cf575bb81d3ebcc067e5163189e481605183ecb37a48d494"
+  }
+]

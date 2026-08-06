@@ -42,3 +42,9 @@ failure.
 The scripted adapters in `testing.py` are exclusively for harness tests. Their
 reports record `test_adapter_used: true`, and `baseline` always disqualifies
 them.
+
+## Public corpus packs
+
+- `packs/public/observations-statement-request-v1/` — 25 accepted PR-00E
+  statement/request observation cases with separate inputs, semantic gold,
+  exact evidence spans, frontier critique, human decisions, and checksums.
