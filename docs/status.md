@@ -1,6 +1,6 @@
 # Core Memory — Status
 
-**Last updated:** 2026-07-10
+**Last updated:** 2026-08-06
 
 Single source of truth for open work across the cleanup workstream and
 engine-correctness items. See `docs/cleanup-plan.md` for detailed phase
@@ -12,14 +12,41 @@ descriptions.
 
 | Slice | Status |
 |---|---|
-| Versioned `chunk_turn_record.v1` HTTP ingest, idempotency, native hydration/adjacency, and version-filtered GC planning read | **Done in `memory.chunk_turns.v1`** |
-| Chunk evidence-vector indexing plus resolve-up to parent section beads | **Done in the semantic retrieval corpus** |
-| Recall Contract v2 (`hydration`, legacy effort aliases, opaque `expand`) | **Pending** |
+| Versioned `chunk_turn_record.v1` HTTP ingest, idempotency, native hydration/adjacency, and version-filtered GC planning read | **Done in `memory.chunk_turns.v1`** — `core_memory/runtime/ingest/chunk_turns.py`; `tests/test_chunk_turn_ingest.py` |
+| Chunk evidence-vector indexing plus resolve-up to parent section beads | **Done in the semantic retrieval corpus** — `core_memory/retrieval/chunk_evidence.py`; `tests/test_chunk_evidence_retrieval.py` |
+| Recall Contract v2 shipped subset: bounded hydration plus `instant` / `trace` wire aliases | **Shipped on the shared wire handler and HTTP route** — `core_memory/integrations/recall_payload.py`, `core_memory/integrations/http/server.py`, `core_memory/retrieval/contracts.py`; covered by `tests/test_http_recall_endpoint.py`, `tests/test_recall_result_contract.py`, and `tests/test_canonical_hydration_contract.py` |
+| Recall Contract v2 opaque expansion / resumable `expand` cursor | **Not implemented** — `expand` is absent from the accepted fields in `core_memory/integrations/recall_payload.py`, `MemoryRecallRequest` in `core_memory/integrations/http/server.py`, and the MCP recall schema in `core_memory/integrations/mcp/registry.py` |
 
 The chunk-turn boundary stores L2 source text in the engine's authoritative turn
 archive. Cited chunks now participate in semantic retrieval as evidence-only
 vector rows and resolve to their visible parent section bead before reranking or
-graph traversal. Chunk IDs never become causal bead IDs. Recall v2 remains open.
+graph traversal. Chunk IDs never become causal bead IDs. The shipped Recall v2
+subset accepts bounded hydration on the HTTP/shared wire handler and maps
+`instant -> low` and `trace -> high`; the metadata reports requested and
+effective effort. `RecallResult` still declares `recall_result.v1`, the Python
+effort validator and advertised MCP schema remain `low|medium|high`, and no
+opaque expansion token/cursor exists. `tests/test_http_recall_endpoint.py`
+proves exact owned-section-to-chunk hydration and the aliases;
+`tests/test_canonical_hydration_contract.py` proves adjacency bounds, caps, and
+truthful rejection of unsupported hydration promises.
+
+---
+
+## PER / junction-roadmap retrieval
+
+This table records default-branch implementation, not research intent. Each
+shipped phase is backed by its implementation and focused tests; later design
+text remains draft until a matching default-branch surface exists.
+
+| Phase | Capability | Status and evidence |
+|---|---|---|
+| 1 | Claims-first junction projection and corpus-derived thresholds | **Shipped** — `core_memory/graph/junctions.py`, `core_memory/retrieval/junctions.py`; `tests/test_junction_projection.py` covers claim priority, calibrated embedding fallback, entity bounds, density gating, and HTTP projection |
+| 2 | Bounded causal `segment_between` / frontier search | **Shipped** — `core_memory/graph/root_cause.py`, `core_memory/retrieval/segments.py`; `tests/test_causal_segments.py` covers direction normalization, no-fabrication nulls, source/relation scope, additive cost, complete frontiers, truncation receipts, and shared root-cause search |
+| 3 | Governed `advances_goal` production and backfill | **Shipped** — `core_memory/runtime/goals/progress.py`, `core_memory/runtime/associations/coverage.py`, `core_memory/integrations/http/server.py`; `tests/test_goal_progress.py` and `tests/test_http_goal_progress.py` prove model proposal, normal judge authority, no direct host write, idempotent cursor backfill, hooks, and HTTP operations |
+| 4 | Durable junction-roadmap projection | **Shipped** — `core_memory/graph/roadmap.py`, `core_memory/persistence/junction_roadmap.py`, `core_memory/retrieval/roadmap.py`; `tests/test_junction_roadmap.py` covers durable alternatives, complete cost ledgers, incomplete-frontier omissions, staleness, maintenance cadence, status, and HTTP projection |
+| 5 | Query-time planning, scoped dynamic costs, exact terminals, stitching, and seam marking | **Shipped on current default branch** — `core_memory/retrieval/roadmap_planner.py`, `core_memory/retrieval/tools/memory.py`, and `/v1/memory/plan` in `core_memory/integrations/http/server.py`; `tests/test_roadmap_planner.py` covers source/temporal scope, transition-dependent and initial seam cost, exact goal terminals, stitching, fallback, cycles, and the HTTP contract |
+| 6 | Watershed attribution over the roadmap | **Draft / unimplemented on the default branch** — the shipped planner returns the existing bead-level `root_cause_attribution` unchanged in `core_memory/retrieval/roadmap_planner.py`; `tests/test_roadmap_planner.py` contains no roadmap-watershed projection contract |
+| 7 | Seam healing, PER-linked `validated_outcome` writeback, and path promotion | **Draft / unimplemented on the default branch** — the shipped planner is read-only and only reports seam metadata (`core_memory/retrieval/roadmap_planner.py`; `tests/test_roadmap_planner.py`). Existing generic `validated_outcome` rewards in `core_memory/persistence/myelination_rewards.py` do not implement seam proposals or stitched-path promotion |
 
 ---
 
@@ -228,9 +255,12 @@ scope until a new PRD promotes them.
 
 ### Demo TODO alignment
 The paired adoption/API roadmap lives in `JohnnyFiv3r/Core-Memory-Demo` repo.
-Engine-correctness items #5, #7, and #9 are **Done**. Item #3 is reopened under
-the agent-led semantic write integrity PRD because its current deterministic
-relationship fill violates the canonical authorship boundary.
+Engine-correctness items #3, #5, #7, and #9 are **Done**. Item #3 was closed by
+agent-led Slice 6: `core_memory/runtime/associations/coverage.py` emits
+relationship-neutral candidates and requires the agent judge to author relation
+and direction; `tests/test_association_coverage.py` covers neutral shortlisting,
+rich causal context, quarantine of incomplete output, and justified
+non-temporal relations.
 Capability items #10–#14, #16–#17 are all closed. #15 is now **Done**.
 See `docs/PRD/execution-plan-search-quality-and-enrichment.md` for the full plan.
 
@@ -252,7 +282,10 @@ pending-semantic retry commits preserved finalized turns through the canonical
 write path; live apply requires a successful copied-tenant receipt; and
 cohort-separated reports cover legacy, v1-authored, and backfilled memory. See
 `docs/PRD/agent-led-semantic-write-integrity.md` and
-`docs/deployment/agent-led-semantic-backfill.md`.
+`docs/deployment/agent-led-semantic-backfill.md`. Engine evidence is in
+`core_memory/runtime/turn/reauthoring.py` and
+`core_memory/runtime/turn/semantic_state.py`; rollout-gate and cohort behavior is
+covered by `tests/test_semantic_reauthoring.py`.
 
 ---
 

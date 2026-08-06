@@ -55,6 +55,17 @@ their presence in this table.
 | `agentic-semantic-task-runtime.md` | Agentic Semantic Task Runtime — PydanticAI operator harness, model routing, and sub-agent delegation | **Partially implemented — core runtime/adapters/receipts shipped; hosted operator/sub-agent UX remains draft** |
 | `soul-continuity-dials-core-memory-implementation.md` | Core Memory backend support for host-app SOUL continuity dials | Implemented |
 
+## Mixed Implementation / Rollout PRDs
+
+These PRDs have default-branch implementation and an explicit remaining rollout
+or research boundary. Their status is evidence-backed rather than inferred from
+the design text.
+
+| File | Topic | Status and evidence |
+|---|---|---|
+| `agent-led-semantic-write-integrity.md` | Agent-led semantic authorship, lossless writes, delegated authorship, truthful receipts, governed reauthoring, and causal judgment | **Engine complete; copied/live hosted rollout pending** — engine paths include `core_memory/schema/agent_authored_updates.py`, `core_memory/runtime/turn/semantic_state.py`, `core_memory/runtime/associations/coverage.py`, and `core_memory/runtime/turn/reauthoring.py`; coverage is in `tests/test_agent_led_write_integrity.py`, `tests/test_agent_authored_typed_ingress.py`, `tests/test_semantic_write_receipts.py`, `tests/test_hard_agent_authorship.py`, `tests/test_association_coverage.py`, and `tests/test_semantic_reauthoring.py` |
+| `per-roadmap-retrieval.md` | PALMER-derived PER, claims-first junction roadmap, and grounded path stitching | **Phases 1–5 shipped; Phases 6–7 draft / unimplemented on the default branch** — shipped code and tests are `core_memory/graph/junctions.py` / `tests/test_junction_projection.py`, `core_memory/graph/root_cause.py` / `tests/test_causal_segments.py`, `core_memory/runtime/goals/progress.py` / `tests/test_goal_progress.py`, `core_memory/graph/roadmap.py` / `tests/test_junction_roadmap.py`, and `core_memory/retrieval/roadmap_planner.py` / `tests/test_roadmap_planner.py`; the planner is read-only and has no roadmap-watershed, seam-healing, PER outcome-writeback, or path-promotion test contract |
+
 ## Active Draft / Future Capability PRDs
 
 These are current design documents, not shipped-status claims. They are indexed
@@ -64,17 +75,20 @@ against code and `docs/status.md`.
 | File | Topic | Status |
 |---|---|---|
 | `graph-geometry-dynamics.md` | Graph Geometry Dynamics — health, energy, and cone-bounded retrieval | **Draft v1** |
-| `agent-led-semantic-write-integrity.md` | Agent-led semantic authorship, lossless multi-memory turn writes, delegated hosted authorship, truthful receipts, governed reauthoring, and causal judgment | **Engine implementation complete — hosted copied/live rollout pending** |
 | `recall-effort-tiers-and-traversal.md` | Recall effort tiers and relevance-aware causal traversal | **Draft v1** |
 | `recoverability.md` | Recoverability — no single point of knowledge failure | **Draft v1** |
 | `relational-constraint-rules.md` | Relational constraint rules for memory-graph writes | **Draft v1** |
 | `storyline-narrative-and-projection.md` | Storyline narrative generation and multi-trajectory future projection | **Draft v1** |
-| `per-roadmap-retrieval.md` | PALMER-derived perceptual experience retrieval, claims-first junction roadmap, and grounded causal path stitching | **Draft v1** |
 
 ## Implementation status & deferred work
 
 | Capability | Status |
 |---|---|
+| Recall Contract v2 shipped subset — bounded hydration and `instant -> low` / `trace -> high` on the HTTP/shared wire handler | ✅ Shipped — `core_memory/integrations/recall_payload.py`, `core_memory/integrations/http/server.py`, `core_memory/retrieval/contracts.py`; `tests/test_http_recall_endpoint.py`, `tests/test_recall_result_contract.py`, `tests/test_canonical_hydration_contract.py` |
+| Recall Contract v2 opaque `expand` cursor / resumable expansion | Draft / unimplemented — absent from `core_memory/integrations/recall_payload.py`, `MemoryRecallRequest` in `core_memory/integrations/http/server.py`, and the MCP recall schema in `core_memory/integrations/mcp/registry.py` |
+| PER / junction-roadmap Phases 1–4 — junction projection, bounded segment search, governed `advances_goal`, durable roadmap | ✅ Shipped — `tests/test_junction_projection.py`, `tests/test_causal_segments.py`, `tests/test_goal_progress.py`, and `tests/test_junction_roadmap.py` exercise the corresponding default-branch modules |
+| PER / junction-roadmap Phase 5 — query-time scoped planning and stitching | ✅ Shipped — `core_memory/retrieval/roadmap_planner.py`, `/v1/memory/plan` in `core_memory/integrations/http/server.py`, and `tests/test_roadmap_planner.py` |
+| PER / junction-roadmap Phases 6–7 — watershed attribution; seam healing, PER outcome writeback, path promotion | Draft / unimplemented — the shipped read-only planner returns bead-level attribution and seam metadata only (`core_memory/retrieval/roadmap_planner.py`; `tests/test_roadmap_planner.py`) |
 | Myelination V2 (all reward sources + host guide) | ✅ Shipped (#202–#206) |
 | Dreamer V3 Phase 1 — Assembly Depth, tension discovery | ✅ Shipped (#208, #209) |
 | Dreamer V3 Phase 2 — goal decay, goal discovery | ✅ Shipped (#210, #211) |

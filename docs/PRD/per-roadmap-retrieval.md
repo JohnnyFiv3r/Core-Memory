@@ -2,7 +2,9 @@
 
 Date: 2026-07-26
 
-Status: Draft v1
+Status: Partially implemented — Phases 1–5 shipped on the default branch;
+Phases 6–7 remain draft / unimplemented (implementation and test evidence in
+the Phasing table)
 
 Audience: Core Memory-native implementation agent
 
@@ -19,8 +21,10 @@ Related host-application docs:
 
 ## Executive Summary
 
-Core Memory should add two capabilities and reconcile them with the causal
-root-cause retrieval PRD rather than building alongside it:
+This PRD specifies two capabilities reconciled with the causal root-cause
+retrieval PRD rather than built alongside it. The junction/PER foundations,
+durable roadmap, and query-time planner are now merged; roadmap watershed
+attribution and seam-healing feedback remain design only.
 
 1. **PER (`segment_between`)** — given two anchors, return the best
    *actually-observed* bead chain connecting their junction neighbourhoods.
@@ -712,6 +716,13 @@ static planner over a frozen corpus.
 
 ### `POST /v1/memory/segment-between`
 
+The bounded `segment_between` and `segment_frontier_between` Python primitives
+are shipped in `core_memory/graph/root_cause.py` and exported through
+`core_memory/retrieval/segments.py`, with behavior covered by
+`tests/test_causal_segments.py`. The proposed HTTP route in this subsection is
+not implemented on the default branch; do not infer it from the shipped Python
+surface.
+
 ```json
 {
   "anchor_a": "bead_or_claim_identity",
@@ -727,6 +738,11 @@ static planner over a frozen corpus.
 Returns a segment object or `{"segment": null, "reason": "no_observed_chain"}`.
 
 ### `POST /v1/memory/plan` (or an optional mode on `trace_request`)
+
+The distinct HTTP route is shipped as `/v1/memory/plan` in
+`core_memory/integrations/http/server.py`, backed by
+`core_memory/retrieval/roadmap_planner.py` and covered by
+`tests/test_roadmap_planner.py`.
 
 ```json
 {
@@ -812,15 +828,15 @@ answer.**
 
 ## Phasing
 
-| Phase | Content | Depends on |
-|---|---|---|
-| 1 | Junction identity resolver + threshold calibration + `\|N(a)\|` corroboration counts | — |
-| 2 | Parameterized best-first search; `segment_between`, complete `segment_frontier_between`, and root-cause Algorithm 1 unified; `−log` cost form | Phase 1 |
-| 3 | Register canonical `advances_goal`; semantic producer; normal judge/write path; cursor-based `supports`-seeded backfill | Existing Goal Bead lifecycle + association judge |
-| 4 | Roadmap build job on the maintenance cadence; per-pair nondominated alternatives; complete component ledger; `roadmap_meta` | Phase 2 |
-| 5 | Query-time planning, source-scope filtering, dynamic cost hydration, weighted virtual-source/segment-state search, exact `advances_goal` evidence terminals, stitching, seam marking | Phases 3-4 |
-| 6 | Watershed attribution over the roadmap | Phase 4 |
-| 7 | Seam healing with all three guardrails; `validated_outcome` writeback; path promotion | Phase 5 + host-application feedback surface |
+| Phase | Content | Depends on | Default-branch status and evidence |
+|---|---|---|---|
+| 1 | Junction identity resolver + threshold calibration + `\|N(a)\|` corroboration counts | — | **Shipped** — `core_memory/graph/junctions.py`, `core_memory/retrieval/junctions.py`; `tests/test_junction_projection.py` |
+| 2 | Parameterized best-first search; `segment_between`, complete `segment_frontier_between`, and root-cause Algorithm 1 unified; `−log` cost form | Phase 1 | **Shipped as Python/package primitives** — `core_memory/graph/root_cause.py`, `core_memory/retrieval/segments.py`; `tests/test_causal_segments.py`. The proposed `/v1/memory/segment-between` route remains absent |
+| 3 | Register canonical `advances_goal`; semantic producer; normal judge/write path; cursor-based `supports`-seeded backfill | Existing Goal Bead lifecycle + association judge | **Shipped** — `core_memory/runtime/goals/progress.py`, `core_memory/runtime/associations/coverage.py`, `core_memory/integrations/http/server.py`; `tests/test_goal_progress.py`, `tests/test_http_goal_progress.py` |
+| 4 | Roadmap build job on the maintenance cadence; per-pair nondominated alternatives; complete component ledger; `roadmap_meta` | Phase 2 | **Shipped** — `core_memory/graph/roadmap.py`, `core_memory/persistence/junction_roadmap.py`, `core_memory/retrieval/roadmap.py`; `tests/test_junction_roadmap.py` |
+| 5 | Query-time planning, source-scope filtering, dynamic cost hydration, weighted virtual-source/segment-state search, exact `advances_goal` evidence terminals, stitching, seam marking | Phases 3-4 | **Shipped** — `core_memory/retrieval/roadmap_planner.py`, `core_memory/retrieval/tools/memory.py`, `/v1/memory/plan` in `core_memory/integrations/http/server.py`; `tests/test_roadmap_planner.py` |
+| 6 | Watershed attribution over the roadmap | Phase 4 | **Draft / unimplemented on the default branch** — `core_memory/retrieval/roadmap_planner.py` returns existing bead-level `root_cause_attribution`; `tests/test_roadmap_planner.py` has no roadmap-watershed contract |
+| 7 | Seam healing with all three guardrails; `validated_outcome` writeback; path promotion | Phase 5 + host-application feedback surface | **Draft / unimplemented on the default branch** — `core_memory/retrieval/roadmap_planner.py` is read-only and reports seams without writing; `tests/test_roadmap_planner.py` covers seam metadata only. Generic rewards in `core_memory/persistence/myelination_rewards.py` are not PER seam healing or path promotion |
 
 **Gate before Phase 2.** Phase 1 produces a junction-density diagnostic:
 distribution of `|N(a)|` across the corpus, counted claims-first. If most
@@ -989,7 +1005,21 @@ revision. Operators may also enqueue or run the governed
 `refresh_junction_roadmap` maintenance action. The artifact retains bounded
 nondominated alternatives per directed junction pair, complete per-edge cached
 cost rows and dynamic references, omission receipts for incomplete frontiers,
-and `roadmap_meta` build inputs. Query-time line-graph planning remains Phase 5.
+and `roadmap_meta` build inputs. Evidence: `core_memory/graph/roadmap.py`,
+`core_memory/persistence/junction_roadmap.py`, and
+`tests/test_junction_roadmap.py`.
+
+### Phase 5 implementation note
+
+Query-time line-graph planning is implemented in
+`core_memory/retrieval/roadmap_planner.py` and exposed by
+`core_memory/retrieval/tools/memory.py` plus `/v1/memory/plan`. It filters source
+scope before ranking, hydrates dynamic per-edge costs, charges initial and
+transition seam costs, requires exact scoped destination or `advances_goal`
+evidence terminals, emits stitched/seam receipts, and falls back to bounded
+segment search. `tests/test_roadmap_planner.py` covers these behaviors. This
+planner remains read-only; it does not establish Phase 6 watershed attribution
+or Phase 7 seam healing/writeback/path promotion.
 
 1. **Vertex budget** — `max_vertices` scaling with workspace size; PALMER's
    roadmaps are dense, ours will be sparse and should stay small initially.

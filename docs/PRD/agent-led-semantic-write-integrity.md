@@ -1,6 +1,7 @@
 # PRD: Agent-Led Semantic Write Integrity
 
-**Status:** Implementation complete — copied/live hosted rollout pending
+**Status:** Engine implementation complete; copied/live hosted rollout pending
+(default-branch evidence below)
 
 **Date:** 2026-07-10
 
@@ -16,6 +17,26 @@ runtime mechanics; agents author semantic meaning
 
 ---
 
+## Default-branch implementation status
+
+The engine slices are complete. This is a code-and-test status, not a hosted
+rollout receipt. Copied-tenant and then live-tenant execution remain operator
+steps under `docs/deployment/agent-led-semantic-backfill.md`; the repository
+tests prove the gates and reporting behavior, not that a hosted tenant has run
+them.
+
+| Slice | Status and implementation/test evidence |
+|---|---|
+| 1 — lossless persistence | **Shipped** — `core_memory/schema/agent_authored_updates.py`, `core_memory/association/crawler_contract.py`; `tests/test_agent_led_write_integrity.py` |
+| 2 — typed ingress and delegated authorship | **Shipped** — `core_memory/schema/agent_authored_updates.py`, `core_memory/integrations/mcp/registry.py`, `core_memory/runtime/passes/agent_crawler_invoke.py`; `tests/test_agent_authored_typed_ingress.py` |
+| 3 — semantic state, receipts, and flush barrier | **Shipped** — `core_memory/runtime/turn/semantic_state.py`, `core_memory/runtime/turn/receipt.py`, `core_memory/schema/turn_receipt.py`; `tests/test_semantic_write_receipts.py` |
+| 4 — hard authorship and explicit degradation | **Shipped** — `core_memory/config/feature_flags.py`, `core_memory/runtime/passes/agent_authored_contract.py`; `tests/test_hard_agent_authorship.py` |
+| 5 — removal of deterministic semantic authority | **Shipped** — `core_memory/persistence/promotion_service.py`, `core_memory/runtime/associations/coverage.py`, and the deterministic-writer guard in `scripts/check_architecture_guards.py`; `tests/test_deterministic_semantic_authority.py` and `tests/test_architecture_guards.py` |
+| 6 — causal association quality | **Shipped** — `core_memory/runtime/associations/coverage.py`; `tests/test_association_coverage.py` |
+| 7 — governed reauthoring/backfill engine | **Engine shipped; copied/live execution pending** — `core_memory/runtime/turn/reauthoring.py`, `core_memory/management/__init__.py`; `tests/test_semantic_reauthoring.py` proves append-only preview/apply, pending-turn retry, copied-tenant gating, environment binding, and cohort-separated reports |
+
+---
+
 ## 1. Summary
 
 Core Memory is intended to be an agent-led causal memory engine. The runtime
@@ -24,8 +45,9 @@ queueing, session flush, indexing, compaction, and audit. The authoring agent
 owns the meaning of each turn: bead type and content, retrieval framing,
 claims, causal evidence, semantic associations, and promotion judgment.
 
-The current runtime does not consistently enforce that division of labor. The
-repository already contains most of the required machinery:
+Before this PRD's implementation slices, the runtime did not consistently
+enforce that division of labor. The repository already contained most of the
+required machinery:
 
 - `BEAD_AUTHORING_SPEC` describes per-type agent authorship;
 - `metadata.crawler_updates` carries agent-authored updates internally;
@@ -35,13 +57,13 @@ repository already contains most of the required machinery:
 - the side-effect queue is durable and idempotent;
 - agent-issued promotion decisions already have an application path.
 
-The failure is between those working pieces. Public adapter surfaces do not
-expose the authored payload as a typed field, the authoring spec is not injected
-into the primary agent, a 23-field normalizer drops most of the 147-field bead
-schema, default configuration permits deterministic fallback authorship,
-retrieval eligibility is forced on, association judging sees an impoverished
-and chronology-biased candidate set, and receipts report success before the
-canonical semantic bead is confirmed.
+The original failure was between those working pieces. The shipped engine now
+closes it: typed ingress and delegated authorship are covered by
+`tests/test_agent_authored_typed_ingress.py`; lossless persistence by
+`tests/test_agent_led_write_integrity.py`; hard/pending behavior by
+`tests/test_hard_agent_authorship.py`; truthful receipts by
+`tests/test_semantic_write_receipts.py`; and agent-judged association quality by
+`tests/test_association_coverage.py`.
 
 This PRD closes those gaps without replacing the queue or creating a parallel
 memory architecture. It makes the existing agent-authored path the required
@@ -97,8 +119,8 @@ authorship is explicit. A heuristic classifier is not an agent judgment.
 
 ## 3. Problem statement
 
-Weak beads and missing causal edges in a hosted deployment are expected under the current
-defaults. The live write path currently permits this sequence:
+Weak beads and missing causal edges were expected under the pre-implementation
+defaults. Before Slices 1–6 shipped, the write path permitted this sequence:
 
 ```text
 raw finalized turn
@@ -117,7 +139,7 @@ available.
 
 ### 3.1 Confirmed failure points
 
-| Failure | Current behavior | Consequence |
+| Failure | Pre-implementation behavior | Consequence |
 |---|---|---|
 | Authorship is not publicly typed | MCP `capture` cannot carry authored updates; HTTP and Python tunnel them through untyped metadata | The primary agent is not naturally asked to fill the canonical schema |
 | Agent authorship is opt-in | Default mode permits fallback when authored updates are absent or invalid | Engine-created semantics become the normal path |
@@ -754,7 +776,10 @@ flush.
 
 ---
 
-## 11. Implementation plan
+## 11. Implementation record
+
+The numbered lists preserve the implementation plan and exit conditions. The
+notes under each slice record the merged engine evidence.
 
 ### Slice 1 — Lossless persistence and turn-time derivation
 
@@ -777,10 +802,13 @@ This is the first and highest-leverage slice.
 known field loss or unexplained value mutation, and a decision plus derived
 lesson can be committed in one typed turn write.
 
-**Implementation:** Shipped in #404. Canonical writes now use schema-derived
-field ownership and a runtime overlay, preserve authored eligibility and
-normalized state changes, persist the current-turn bead before up to two derived
-companions, and report independent derived-write failures.
+**Implementation:** Shipped. Canonical writes now use schema-derived field
+ownership and a runtime overlay, preserve authored eligibility and normalized
+state changes, persist the current-turn bead before up to two derived companions,
+and report independent derived-write failures. Evidence:
+`core_memory/schema/agent_authored_updates.py`,
+`core_memory/association/crawler_contract.py`, and
+`tests/test_agent_led_write_integrity.py`.
 
 ### Slice 2 — Typed ingress and delegated semantic authorship
 
@@ -809,6 +837,13 @@ companions, and report independent derived-write failures.
 receive validation for the same typed contract on every canonical ingress, and
 the hosted capture path receives full-schema delegated authorship.
 
+**Implementation:** Shipped in the engine. The schema-owned contract is exposed
+across Python, HTTP, MCP, PydanticAI, and OpenClaw, and delegated mode routes
+through the full authoring task. Evidence:
+`core_memory/schema/agent_authored_updates.py`,
+`core_memory/runtime/passes/agent_crawler_invoke.py`, and
+`tests/test_agent_authored_typed_ingress.py`.
+
 ### Slice 3 — Semantic state, truthful receipts, and flush barrier
 
 1. Add separate semantic-write state and append-only status history keyed by
@@ -831,13 +866,20 @@ the hosted capture path receives full-schema delegated authorship.
 bead exists, and older pending turns are visible without globally wedging
 compaction.
 
+**Implementation:** Shipped. Canonical semantic state, the v2 finalized-turn
+receipt, latest-turn flush blocking, queue retry, age thresholds, and doctor
+visibility are implemented in `core_memory/runtime/turn/semantic_state.py`,
+`core_memory/runtime/turn/receipt.py`, and
+`core_memory/schema/turn_receipt.py`; covered by
+`tests/test_semantic_write_receipts.py`.
+
 ### Slice 4 — Hard authorship and explicit degradation
 
 1. Enforce exactly one `current_turn` row and zero-to-two `derived` rows
    independent of optional policy objects.
 2. Allow an empty typed entity array when the turn contains no grounded entity.
-3. Change the final default of `CORE_MEMORY_AGENT_AUTHORED_MODE` from `warn` to
-   `hard` only after the release gates pass.
+3. Set the engine default of `CORE_MEMORY_AGENT_AUTHORED_MODE` to `hard`; keep
+   copied/live deployment rollout subject to the release gates.
 4. Replace canonical fallback `context` beads with pending-semantic records.
 5. Use the full `turn_memory_authoring` task for explicit repair mode and
    record repaired fields separately from primary authorship.
@@ -848,6 +890,13 @@ compaction.
 
 **Exit condition:** no normal production turn can create deterministic canonical
 semantics when the authored contract is missing or invalid.
+
+**Implementation:** Shipped in the engine. Hard mode is the default, invalid or
+missing authorship remains pending/repair-required without a canonical stub, and
+explicit repair uses the full contract. Evidence:
+`core_memory/config/feature_flags.py`,
+`core_memory/runtime/passes/agent_authored_contract.py`, and
+`tests/test_hard_agent_authorship.py`.
 
 ### Slice 5 — Remove deterministic semantic authority
 
@@ -874,6 +923,15 @@ semantics when the authored contract is missing or invalid.
 agent-issued provenance, and all deterministic writers are explicitly
 classified.
 
+**Implementation:** Shipped. Promotion recommendations are shadow-only until an
+agent review applies them, incomplete semantic relationships are quarantined,
+and the deterministic-writer allowlist is guarded. Evidence:
+`core_memory/persistence/promotion_service.py`,
+`core_memory/runtime/associations/coverage.py`,
+`scripts/check_architecture_guards.py`,
+`tests/test_deterministic_semantic_authority.py`, and
+`tests/test_architecture_guards.py`.
+
 ### Slice 6 — Causal association quality and compatibility cutover
 
 1. Widen `_bead_context(...)` with causal, retrieval, claim, and temporal
@@ -890,12 +948,21 @@ classified.
 relationships, and the judge is never asked to infer them without the evidence
 fields required to do so.
 
+**Implementation:** Shipped. Deterministic shortlisting is relationship-neutral;
+the agent judge receives bounded causal, retrieval, claim, temporal, and
+provenance context and authors relation/direction or `no_link`. Evidence:
+`core_memory/runtime/associations/coverage.py` and
+`tests/test_association_coverage.py`.
+
 ### Slice 7 — Governed reauthoring and hosted-deployment backfill
 
 **Implementation status:** Engine implementation complete; hosted copied-tenant
-and live-tenant execution remains an operator rollout step. The governed maintenance surface is
-dry-run-first, copied-tenant-gated for live apply, append-only for legacy source
-beads and evidence anchors, and cohort-aware in its receipts and report.
+and live-tenant execution remains an operator rollout step. The governed
+maintenance surface is dry-run-first, copied-tenant-gated for live apply,
+append-only for legacy source beads and evidence anchors, and cohort-aware in
+its receipts and report. Evidence: `core_memory/runtime/turn/reauthoring.py`,
+`core_memory/management/__init__.py`, and
+`tests/test_semantic_reauthoring.py`.
 
 1. Add dry-run-first `reauthor_memory` and `retry_pending_semantic` governed
    maintenance actions using the full delegated authoring task.
