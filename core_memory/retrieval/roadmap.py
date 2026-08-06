@@ -5,7 +5,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from core_memory.graph.roadmap import build_junction_roadmap, roadmap_input_revision
+from core_memory.graph.roadmap import (
+    ROADMAP_WATERSHED_ATTRIBUTION_SCHEMA,
+    build_junction_roadmap,
+    roadmap_input_revision,
+    roadmap_watershed_attribution,
+)
 from core_memory.persistence.junction_roadmap import read_junction_roadmap
 from core_memory.retrieval.junctions import derive_junction_projection
 
@@ -43,4 +48,62 @@ def junction_roadmap_status(
     return out
 
 
-__all__ = ["junction_roadmap_status", "refresh_junction_roadmap"]
+def junction_roadmap_attribution(
+    root: str | Path,
+    *,
+    terminal_junction_ids: list[str] | None = None,
+    max_depth: int = 4,
+    max_junctions: int = 8,
+    allowed_source_ids: list[str] | None = None,
+    denied_source_ids: list[str] | None = None,
+) -> dict[str, Any]:
+    """Return read-only upstream influence over the persisted roadmap."""
+
+    roadmap = junction_roadmap_status(root, include_graph=True)
+    if not bool(roadmap.get("ok")):
+        return {
+            "ok": False,
+            "present": False,
+            "schema_version": ROADMAP_WATERSHED_ATTRIBUTION_SCHEMA,
+            "status": roadmap.get("status") or "unavailable",
+            "error": roadmap.get("error") or "junction_roadmap_unavailable",
+            "limitations": list(roadmap.get("limitations") or []),
+        }
+    if not bool(roadmap.get("present")):
+        return {
+            "ok": True,
+            "present": False,
+            "schema_version": ROADMAP_WATERSHED_ATTRIBUTION_SCHEMA,
+            "status": roadmap.get("status") or "missing",
+            "root_junctions": [],
+            "influence_breakdown": [],
+            "paths": [],
+            "roadmap_meta": dict(roadmap.get("roadmap_meta") or {}),
+            "limitations": list(roadmap.get("limitations") or []),
+        }
+    out = roadmap_watershed_attribution(
+        roadmap,
+        terminal_junction_ids=terminal_junction_ids,
+        max_depth=max_depth,
+        max_junctions=max_junctions,
+        allowed_source_ids=allowed_source_ids,
+        denied_source_ids=denied_source_ids,
+    )
+    out["status"] = roadmap.get("status") or out.get("status") or "ready"
+    out["stale"] = bool(roadmap.get("stale"))
+    out["current_input_revision"] = roadmap.get("current_input_revision")
+    out["manifest_path"] = roadmap.get("manifest_path")
+    out["limitations"] = sorted(
+        set(
+            str(value)
+            for value in [
+                *(roadmap.get("limitations") or []),
+                *(out.get("limitations") or []),
+            ]
+            if str(value)
+        )
+    )
+    return out
+
+
+__all__ = ["junction_roadmap_attribution", "junction_roadmap_status", "refresh_junction_roadmap"]
