@@ -350,6 +350,46 @@ class TestJunctionRoadmap(unittest.TestCase):
         self.assertEqual(2, out["diagnostics"]["scope_excluded_alternative_count"])
         self.assertNotIn("source-b", json.dumps(out))
 
+    def test_watershed_attribution_applies_denied_scope_to_legacy_footprints(self):
+        roadmap = {
+            "vertices": [
+                {"id": "root", "tier": "claim_slot", "label": "Root"},
+                {"id": "terminal", "tier": "claim_slot", "label": "Outcome"},
+            ],
+            "edges": [
+                {
+                    "roadmap_edge_id": "root-to-terminal",
+                    "start_junction_id": "root",
+                    "end_junction_id": "terminal",
+                    "alternatives": [
+                        {
+                            "segment_id": "legacy-footprint",
+                            "dynamic_cost_signature": {"source_footprint": ["source-b"]},
+                            "edge_cost_rows": [
+                                {
+                                    "cached_floor_cost": 0.1,
+                                    "dynamic_refs": {},
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ],
+        }
+
+        out = roadmap_watershed_attribution(
+            roadmap,
+            terminal_junction_ids=["terminal"],
+            denied_source_ids=["source-b"],
+            max_depth=2,
+        )
+
+        self.assertEqual([], out["root_junctions"])
+        self.assertEqual(0, out["diagnostics"]["scoped_transition_count"])
+        self.assertEqual(1, out["diagnostics"]["scope_excluded_alternative_count"])
+        self.assertIn("source_scope_excluded_roadmap_alternatives", out["limitations"])
+        self.assertNotIn("legacy-footprint", json.dumps(out))
+
     def test_watershed_attribution_counts_complete_converging_histories(self):
         def alternative(segment_id: str, cost: float) -> dict:
             return {

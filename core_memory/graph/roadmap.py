@@ -425,17 +425,15 @@ def _alternative_allowed(
     denied_source_ids: set[str],
 ) -> bool:
     rows = _alternative_source_rows(alternative)
-    if any(sources.intersection(denied_source_ids) for sources in rows):
+    footprint_sources = _alternative_source_ids(alternative)
+    if any(row_sources.intersection(denied_source_ids) for row_sources in rows):
         return False
-    if allowed_source_ids and (
-        not rows
-        or any(not sources.intersection(allowed_source_ids) for sources in rows)
-    ):
+    if footprint_sources.intersection(denied_source_ids):
         return False
-    if not rows and denied_source_ids:
-        sources = _alternative_source_ids(alternative)
-        if sources.intersection(denied_source_ids):
-            return False
+    if allowed_source_ids:
+        if rows:
+            return all(row_sources.intersection(allowed_source_ids) for row_sources in rows)
+        return bool(footprint_sources.intersection(allowed_source_ids))
     return True
 
 
