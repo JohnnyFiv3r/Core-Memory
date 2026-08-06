@@ -197,6 +197,8 @@ class TestRoadmapPlanner(unittest.TestCase):
         self.assertEqual(["terminal"], plan["terminal_bead_ids"])
         self.assertEqual(1, plan["seam_count"])
         self.assertEqual("claim:middle", plan["junctions"][0]["junction_id"])
+        self.assertEqual("middle-a", plan["junctions"][0]["left_bead_id"])
+        self.assertEqual("middle-b", plan["junctions"][0]["right_bead_id"])
         self.assertAlmostEqual(0.28, plan["total_cost"], places=6)
 
     def test_source_scope_removes_denied_alternative_before_ranking(self):
@@ -379,6 +381,10 @@ class TestRoadmapPlanner(unittest.TestCase):
 
         self.assertAlmostEqual(0.36, result["plan"]["total_cost"], places=6)
         self.assertEqual(2, result["plan"]["seam_count"])
+        initial = result["plan"]["junctions"][0]
+        self.assertEqual("claim:anchor", initial["junction_id"])
+        self.assertEqual("anchor", initial["left_bead_id"])
+        self.assertEqual("anchor-peer", initial["right_bead_id"])
 
     def test_goal_conditioning_terminates_at_exact_advancing_evidence(self):
         association = {
