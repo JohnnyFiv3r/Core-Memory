@@ -53,6 +53,16 @@
     },
     {
       "method": "POST",
+      "path": "/v1/memory/plan",
+      "authRequired": "conditional",
+      "requestSchema": "MemoryPlanRequest",
+      "requiredFields": ["anchor_ids"],
+      "notes": ["destination_anchor_ids and goal_bead_ids are mutually exclusive", "Missing, stale, sparse, or disconnected roadmaps use same-scope bounded fallback"],
+      "response": {"ok": "bool", "plan": "core_memory.stitched_plan.v1", "roadmap_meta": "object", "root_cause_attribution": "object"},
+      "errors": ["400 invalid planning options", "401 unauthorized", "422 invalid request schema"]
+    },
+    {
+      "method": "POST",
       "path": "/v1/memory/execute",
       "authRequired": "conditional",
       "requestSchema": "MemoryExecuteRequest",

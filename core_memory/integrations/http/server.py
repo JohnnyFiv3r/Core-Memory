@@ -387,6 +387,25 @@ class MemoryTraceRequest(BaseModel):
     hydration: dict[str, Any] = Field(default_factory=dict)
 
 
+class MemoryPlanRequest(BaseModel):
+    root: Optional[str] = None
+    query: str = ""
+    anchor_ids: list[str] = Field(min_length=1)
+    destination_anchor_ids: list[str] = Field(default_factory=list)
+    goal_bead_ids: list[str] = Field(default_factory=list)
+    direction: Literal["upstream", "downstream", "any"] = "upstream"
+    temporal_frame: Literal["auto", "historical", "current_truth"] = "auto"
+    allowed_source_ids: list[str] = Field(default_factory=list)
+    denied_source_ids: list[str] = Field(default_factory=list)
+    max_vertices: int = Field(default=200, ge=1, le=2_000)
+
+    @model_validator(mode="after")
+    def validate_terminals(self):
+        if self.destination_anchor_ids and self.goal_bead_ids:
+            raise ValueError("destination_anchor_ids and goal_bead_ids are mutually exclusive")
+        return self
+
+
 class MemoryRecallRequest(BaseModel):
     root: Optional[str] = None
     query: str
@@ -1867,6 +1886,23 @@ async def memory_trace(
     )
     maybe = _semantic_http_response(out if isinstance(out, dict) else {})
     return maybe or out
+
+
+@app.post("/v1/memory/plan")
+async def memory_plan(
+    payload: MemoryPlanRequest,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    _check_auth(authorization, x_memory_token)
+    try:
+        return memory_tools.plan(
+            request=payload.model_dump(exclude={"root"}),
+            root=_resolve_root(payload.root, x_tenant_id),
+        )
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
 
 
 @app.post("/v1/memory/recall")
