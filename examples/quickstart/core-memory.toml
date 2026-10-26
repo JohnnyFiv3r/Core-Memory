@@ -1,0 +1,41 @@
+# Quickstart configuration for the core-memory command.
+# Paths are relative to this file.
+
+[store]
+path = "core-memory.sqlite"
+
+[grants]
+scopes = ["acme"]
+
+[[sink]]
+id = "records"
+kind = "jsonl"
+path = "records.jsonl"
+
+# The type vocabulary. With memoriesQL attached, this is an export of its
+# governed registry; the engine never invents types.
+[vocabulary]
+id = "acme.types"
+types = [
+  { key = "decision", rev = 1, definition = "A choice someone made or committed to." },
+  { key = "outcome", rev = 1, definition = "A result that happened." },
+  { key = "action", rev = 1, definition = "Work someone did or will do." },
+]
+
+# A source profile for CRM change events. Its rule types closed
+# opportunities from the record's declared structure, not from guesses.
+[[profile]]
+id = "acme.crm"
+rev = 1
+source_type = "relational"
+source_system = "salesforce"
+content = "json"
+editable = true
+types = ["outcome", "action"]
+chunker = { id = "json.whole", rev = 1, max = 65536 }
+identifiers = [{ kind = "opportunity", pattern = "006[A-Za-z0-9]{12}" }]
+
+[[profile.rules]]
+id = "opportunity-closed"
+assign = "outcome"
+when = { "record.object_type" = "Opportunity", "record.action" = ["closed_won", "closed_lost"] }

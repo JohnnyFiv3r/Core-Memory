@@ -1,0 +1,65 @@
+name: rust
+
+on:
+  push:
+    branches: ["next", "master", "main"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  lint:
+    name: fmt, clippy (1.99), layering
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Pinned so a new stable release cannot fail a PR with new lints.
+      # Bump deliberately, together with any fixes it needs.
+      - uses: dtolnay/rust-toolchain@1.99
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: python3 scripts/check_layering.py
+
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace --locked
+
+  msrv:
+    name: msrv (1.89)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.89
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --workspace --all-targets --locked
+
+  deny:
+    name: cargo-deny
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check advisories bans licenses sources

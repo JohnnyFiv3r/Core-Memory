@@ -1,51 +1,9 @@
-# Local/runtime artifacts (do not publish)
-bin/
-.pnpm-store/
-core-memory/
-.openclaw/
-.env
-
-demo/memory_store/
-
-# Python cache
-__pycache__/
-*.pyc
-
-# Local OpenClaw memory/runtime stores
-.mem-beads/
-.beads/
-memory/
-plans/
-skills/
-
-# Local assistant identity files
-AGENTS.md
-BOOTSTRAP.md
-HEARTBEAT.md
-IDENTITY.md
-MEMORY.md
-SOUL.md
-TOOLS.md
-USER.md
-promoted-context.md
-
-# Local Python env/build artifacts
-.venv/
-.venv-*/
-*.egg-info/
-
-# Environment secrets
-.env
-
-# Demo runtime store
-demo/memory_store/
+/target/
+**/*.rs.bk
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+/.env
 .DS_Store
-
-# Claude Code session scratch
-.claude/
-
-# Local runtime/dev artifacts (per-tenant/session stores, alt venvs, uv lock)
-.turns/
-.tenants/
-.venv312/
-uv.lock
+examples/**/records.jsonl

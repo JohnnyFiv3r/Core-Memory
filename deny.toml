@@ -1,0 +1,29 @@
+# cargo-deny policy (supply chain, PRD §20).
+
+[graph]
+all-features = true
+
+[advisories]
+version = 2
+yanked = "deny"
+
+[licenses]
+version = 2
+confidence-threshold = 0.9
+# Licenses in the dependency tree today. Adding one is a reviewed change.
+allow = [
+  "Apache-2.0",
+  "MIT",
+  "Unicode-3.0",
+  "Zlib",
+]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

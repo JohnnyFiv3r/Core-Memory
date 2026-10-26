@@ -1,1 +1,0 @@
-"""Causal-continuity benchmark suite."""

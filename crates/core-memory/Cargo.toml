@@ -1,0 +1,28 @@
+[package]
+name = "core-memory"
+description = "Core Memory: turns event streams into durable, auditable memory records"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+publish.workspace = true
+readme = "../../README.md"
+
+[features]
+default = ["sqlite", "jsonl"]
+sqlite = ["dep:core-memory-store-sqlite"]
+jsonl = ["dep:core-memory-source-jsonl", "dep:core-memory-sink-jsonl"]
+
+[dependencies]
+core-memory-chunker.workspace = true
+core-memory-contract.workspace = true
+core-memory-core.workspace = true
+core-memory-sink-jsonl = { workspace = true, optional = true }
+core-memory-source-jsonl = { workspace = true, optional = true }
+core-memory-store-sqlite = { workspace = true, optional = true }
+
+[lints]
+workspace = true
