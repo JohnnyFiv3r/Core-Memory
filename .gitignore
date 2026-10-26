@@ -6,3 +6,4 @@
 *.sqlite-shm
 /.env
 .DS_Store
+examples/**/records.jsonl
