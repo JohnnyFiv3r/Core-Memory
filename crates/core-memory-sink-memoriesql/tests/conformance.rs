@@ -134,12 +134,13 @@ impl MemoriesqlHarness {
                 .get(0)
             })
             .collect();
+        // Read access lets a conflict carry the stored record (REC-07).
         let engine = uuid(200);
         as_owner(
             db,
             &format!(
                 "SELECT memoriesql.pair_local_client('{engine}', '{}', '{}', '{}', 'service', \
-                 'background_service', ARRAY['engine.records.deliver'], \
+                 'background_service', ARRAY['engine.records.deliver', 'source.read'], \
                  ARRAY['{}', '{}']::uuid[], '{}', now(), now() + interval '1 hour')",
                 uuid(201),
                 uuid(202),
@@ -154,7 +155,7 @@ impl MemoriesqlHarness {
                 db,
                 &format!(
                     "SELECT * FROM memoriesql.grant_exact_source_v1('{}', '{source}', '{engine}', \
-                     ARRAY['write'], now(), now() + interval '1 hour')",
+                     ARRAY['read', 'write'], now(), now() + interval '1 hour')",
                     uuid(300 + n as u32)
                 ),
             );

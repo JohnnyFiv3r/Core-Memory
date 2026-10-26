@@ -73,7 +73,8 @@ In memoriesQL, enroll each engine scope as an exact source
 (`source_system = "core-memory"`, `object_kind = "engine_scope"`, the scope as
 `external_object_id`), pair the engine as a `background_service` with the
 `engine.records.deliver` capability, and grant it `write` on those sources.
-Then:
+memoriesQL shows the stored record in a conflict only to a reader, so to see
+it, also give the engine `source.read` and a `read` grant. Then:
 
 ```toml
 [[sink]]

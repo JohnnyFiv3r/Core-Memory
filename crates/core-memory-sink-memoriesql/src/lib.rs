@@ -94,9 +94,18 @@ struct Reply {
 enum Answer {
     Accepted,
     AlreadyAccepted,
-    Conflict { stored: serde_json::Value },
-    Rejected { reason: String },
-    Retryable { retry_after_ms: u64 },
+    /// memoriesQL shows the stored record only to a caller that may read
+    /// the scope.
+    Conflict {
+        #[serde(default)]
+        stored: Option<serde_json::Value>,
+    },
+    Rejected {
+        reason: String,
+    },
+    Retryable {
+        retry_after_ms: u64,
+    },
 }
 
 impl From<Answer> for WriteOutcome {
@@ -105,7 +114,10 @@ impl From<Answer> for WriteOutcome {
             Answer::Accepted => WriteOutcome::Accepted,
             Answer::AlreadyAccepted => WriteOutcome::AlreadyAccepted,
             Answer::Conflict { stored } => WriteOutcome::Conflict {
-                stored: stored.to_string(),
+                stored: stored.map_or_else(
+                    || "a different record (the engine needs read access to see it)".into(),
+                    |record| record.to_string(),
+                ),
             },
             Answer::Rejected { reason } => WriteOutcome::Rejected { reason },
             Answer::Retryable { retry_after_ms } => WriteOutcome::Retryable { retry_after_ms },
@@ -384,6 +396,26 @@ mod tests {
             MemoriesqlSink::new("m", config()).unwrap()
         );
         assert!(!printed.contains("hunter2") && !printed.contains("paired engine credential"));
+    }
+
+    #[test]
+    fn a_conflict_without_the_stored_record_is_still_a_conflict() {
+        let reply: Reply = serde_json::from_str(
+            r#"{"results":[{"outcome":"conflict"},{"outcome":"conflict","stored":{"a":1}}]}"#,
+        )
+        .unwrap();
+        let outcomes: Vec<WriteOutcome> = reply.results.into_iter().map(Into::into).collect();
+        assert_eq!(
+            outcomes,
+            vec![
+                WriteOutcome::Conflict {
+                    stored: "a different record (the engine needs read access to see it)".into()
+                },
+                WriteOutcome::Conflict {
+                    stored: r#"{"a":1}"#.into()
+                },
+            ]
+        );
     }
 
     #[test]

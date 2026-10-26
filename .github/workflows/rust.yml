@@ -79,7 +79,7 @@ jobs:
     env:
       # memoriesQL at the commit that adds schema 54, engine record intake.
       # Bump deliberately: this pins what the memoriesQL sink is proven against.
-      MEMORIESQL_REF: 22be747881e854f36da83ac344a16782425cc4f8
+      MEMORIESQL_REF: 64a8ae8fd5d27fdd0ad690f1d99741b5b22199d9
       CORE_MEMORY_TEST_MEMORIESQL_URL: postgresql://postgres:synthetic@127.0.0.1:5432/postgres
       CORE_MEMORY_TEST_MEMORIESQL_TEMPLATE: memoriesql_template
     steps:
