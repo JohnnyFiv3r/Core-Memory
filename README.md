@@ -96,6 +96,10 @@ How it behaves:
   once with a listed type or an abstention (`no_fit`, `insufficient_evidence`,
   `ambiguous`). Any other reply is rejected whole and retried once with the
   validator's errors. No model text ever becomes a label.
+- If the model declines a batch, cuts its reply off, or answers it invalidly
+  twice, the batch is split in half and each half is sent on its own. One
+  chunk the model will not classify never keeps the rest of its batch
+  pending.
 - A chunk's record waits for its type up to `deadline_ms`. If the model has
   not decided by then, the record is delivered as `pending` with the reason,
   and the decision follows as a `type_decision` record.

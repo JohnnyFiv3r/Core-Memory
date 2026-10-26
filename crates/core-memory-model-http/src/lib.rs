@@ -110,7 +110,8 @@ fn never_sent(kind: std::io::ErrorKind) -> bool {
 }
 
 /// Maps a non-success status to a transport error. 408, 409, 429 and 5xx
-/// (including 529 overloaded) are retryable; other 4xx are not.
+/// (including 529 overloaded) are retryable; 413 means the request was too
+/// large, so a smaller batch may succeed; other 4xx are not retryable.
 pub fn status_error(provider: &str, reply: &HttpReply) -> TransportError {
     let snippet: String = reply.body.chars().take(ERROR_BODY_CHARS).collect();
     let message = format!("{provider} returned {}: {snippet}", reply.status);
@@ -119,6 +120,7 @@ pub fn status_error(provider: &str, reply: &HttpReply) -> TransportError {
             message,
             retry_after_ms: reply.retry_after_ms,
         },
+        413 => TransportError::Refused { message },
         _ => TransportError::Permanent { message },
     }
 }
@@ -283,12 +285,16 @@ mod tests {
                 }
             ));
         }
-        for status in [400, 401, 403, 404, 413] {
+        for status in [400, 401, 403, 404] {
             assert!(matches!(
                 status_error("p", &reply(status, None)),
                 TransportError::Permanent { .. }
             ));
         }
+        assert!(matches!(
+            status_error("p", &reply(413, None)),
+            TransportError::Refused { .. }
+        ));
     }
 
     #[test]

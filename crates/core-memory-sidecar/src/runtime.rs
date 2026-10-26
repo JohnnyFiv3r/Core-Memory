@@ -95,6 +95,7 @@ pub fn classify_line(r: &ClassifyReport) -> String {
             "retried": r.retried,
             "released": r.released,
             "abandoned": r.abandoned,
+            "split": r.split,
             "budget_exhausted": r.budget_exhausted,
         }
     })

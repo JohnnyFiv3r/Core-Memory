@@ -117,7 +117,7 @@ impl ModelTransport for AnthropicTransport {
         let body = parse_body(PROVIDER, &reply)?;
         match body["stop_reason"].as_str() {
             Some("refusal") => {
-                return Err(TransportError::Permanent {
+                return Err(TransportError::Refused {
                     message: format!(
                         "anthropic declined the request (refusal, category {})",
                         body["stop_details"]["category"]
@@ -125,7 +125,7 @@ impl ModelTransport for AnthropicTransport {
                 });
             }
             Some("max_tokens" | "model_context_window_exceeded") => {
-                return Err(TransportError::Permanent {
+                return Err(TransportError::Refused {
                     message: format!(
                         "the reply was cut off ({}); raise the binding's max_output_tokens",
                         body["stop_reason"]
@@ -242,7 +242,7 @@ mod tests {
         let transport = AnthropicTransport::new("sk-test", Duration::from_secs(5));
         let err = transport.send(&binding(&url), &request()).unwrap_err();
         assert!(
-            matches!(&err, TransportError::Permanent { message } if message.contains("declined")),
+            matches!(&err, TransportError::Refused { message } if message.contains("declined")),
             "{err:?}"
         );
 
@@ -253,7 +253,7 @@ mod tests {
         );
         let err = transport.send(&binding(&url), &request()).unwrap_err();
         assert!(
-            matches!(&err, TransportError::Permanent { message } if message.contains("max_output_tokens"))
+            matches!(&err, TransportError::Refused { message } if message.contains("max_output_tokens"))
         );
     }
 

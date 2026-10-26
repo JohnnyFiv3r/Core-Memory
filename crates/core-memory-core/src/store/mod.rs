@@ -131,6 +131,8 @@ pub enum AttemptState {
     Rejected,
     TransientError,
     PermanentError,
+    /// The model declined the content, or the request or reply did not fit.
+    Refused,
     /// The outcome is unknown; the provider may have processed the call.
     InDoubt,
 }
@@ -142,6 +144,7 @@ impl AttemptState {
             AttemptState::Rejected => "rejected",
             AttemptState::TransientError => "transient_error",
             AttemptState::PermanentError => "permanent_error",
+            AttemptState::Refused => "refused",
             AttemptState::InDoubt => "in_doubt",
         }
     }

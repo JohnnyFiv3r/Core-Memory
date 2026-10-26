@@ -137,7 +137,7 @@ impl ModelTransport for OpenAiTransport {
         let body = parse_body(provider, &reply)?;
         let choice = &body["choices"][0];
         if !choice["message"]["refusal"].is_null() || choice["finish_reason"] == "content_filter" {
-            return Err(TransportError::Permanent {
+            return Err(TransportError::Refused {
                 message: format!(
                     "{provider} declined the request: {}",
                     choice["message"]["refusal"]
@@ -145,7 +145,7 @@ impl ModelTransport for OpenAiTransport {
             });
         }
         if choice["finish_reason"] == "length" {
-            return Err(TransportError::Permanent {
+            return Err(TransportError::Refused {
                 message: "the reply was cut off (length); raise the binding's max_output_tokens"
                     .into(),
             });
@@ -249,7 +249,7 @@ mod tests {
         );
         assert!(matches!(
             transport.send(&binding("openai", &url), &request()),
-            Err(TransportError::Permanent { .. })
+            Err(TransportError::Refused { .. })
         ));
         let (url, _s) = serve_once(429, &[("retry-after", "3")], "{}");
         assert!(matches!(
@@ -266,7 +266,7 @@ mod tests {
         );
         assert!(matches!(
             transport.send(&binding("openai", &url), &request()),
-            Err(TransportError::Permanent { .. })
+            Err(TransportError::Refused { .. })
         ));
     }
 }

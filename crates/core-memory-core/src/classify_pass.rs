@@ -6,6 +6,11 @@
 //! (MOD-04). Final decisions leave the queue exactly once: as the held chunk
 //! record if it is still held, otherwise as a type decision record (CLS-04,
 //! REC-03). No store transaction is open while a model call runs (RUN-02).
+//!
+//! A batch the model refuses, or answers invalidly twice, is split in half
+//! and each half is sent on its own, so one chunk cannot keep the others in
+//! its batch pending. A chunk refused on its own is retried like any other
+//! failure.
 
 use std::collections::BTreeSet;
 
@@ -42,6 +47,8 @@ pub struct ClassifyReport {
     pub released: u32,
     /// Chunks that ran out of attempts and stay pending.
     pub abandoned: u32,
+    /// Batches split in half after a refusal or a second invalid reply.
+    pub split: u32,
     /// A batch was refused because its scope's budget for the day is spent.
     pub budget_exhausted: bool,
 }
@@ -56,6 +63,8 @@ enum Call {
     Failed {
         reason: PendingReason,
         retry_after_ms: Option<u64>,
+        /// A smaller batch of the same chunks may succeed.
+        refused: bool,
     },
 }
 
@@ -168,9 +177,13 @@ impl Engine {
                     report.retried += len32(&updates);
                     return store.apply_classification(updates).map_err(Into::into);
                 }
+                Call::Failed { refused: true, .. } if batch.len() > 1 => {
+                    return self.split(store, transport, c, batch, report);
+                }
                 Call::Failed {
                     reason,
                     retry_after_ms,
+                    ..
                 } => {
                     let delay = backoff(c, &batch).max(retry_after_ms.unwrap_or(0));
                     let updates = retry(c, &batch, reason, now.plus_millis(delay), true)?;
@@ -210,6 +223,9 @@ impl Engine {
             }
         }
         let Some(decisions) = decisions else {
+            if batch.len() > 1 {
+                return self.split(store, transport, c, batch, report);
+            }
             let updates = retry(
                 c,
                 &batch,
@@ -286,6 +302,23 @@ impl Engine {
         store.apply_classification(updates).map_err(Into::into)
     }
 
+    /// Classifies each half of `batch` as its own batch, within this pass.
+    /// Each split halves the batch, so a batch of n chunks makes at most
+    /// 2n - 1 batches in all.
+    fn split(
+        &self,
+        store: &mut dyn OperationalStore,
+        transport: &dyn ModelTransport,
+        c: &CompiledClassifier,
+        mut batch: Vec<QueuedChunk>,
+        report: &mut ClassifyReport,
+    ) -> Result<(), EngineError> {
+        report.split += 1;
+        let second = batch.split_off(batch.len() / 2);
+        self.classify_batch(store, transport, c, batch, report)?;
+        self.classify_batch(store, transport, c, second, report)
+    }
+
     /// Reserves budget, sends one request and classifies transport errors.
     /// Replies are returned with their attempt still open, so the caller can
     /// record whether validation passed.
@@ -335,6 +368,9 @@ impl Engine {
                         PendingReason::ProviderError,
                         None,
                     ),
+                    TransportError::Refused { .. } => {
+                        (AttemptState::Refused, PendingReason::ProviderError, None)
+                    }
                     TransportError::InDoubt { .. } => {
                         (AttemptState::InDoubt, PendingReason::Timeout, None)
                     }
@@ -349,6 +385,7 @@ impl Engine {
                 Ok(Call::Failed {
                     reason,
                     retry_after_ms,
+                    refused: matches!(e, TransportError::Refused { .. }),
                 })
             }
         }
