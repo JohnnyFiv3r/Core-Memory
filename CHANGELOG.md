@@ -2,7 +2,12 @@
 
 ## [Unreleased]
 
-## [1.1.1] - 2026-07-22
+## [1.1.2] - 2026-10-26
+
+This is the first published release of the changes below. They were previously
+listed here as `1.1.1`, but PyPI `core-memory` 1.1.1 was published on 2026-05-23
+from commit `aaefa7f0` (tag `v1.1.1`) and does not contain them. Full list of
+changes: https://github.com/JohnnyFiv3r/Core-Memory/compare/v1.1.1...v1.1.2
 
 ### Changed
 - Completed the agent-led semantic write integrity rollout: schema-owned full
@@ -11,7 +16,7 @@
   relationship-neutral causal candidates, and governed append-only reauthoring.
 - Added copied-tenant-first `reauthor_memory`, `retry_pending_semantic`, and
   cohort-separated `semantic_backfill_report` maintenance actions.
-- Assigned the narrow `1.1.1` compatibility window and `1.2.0`/`2.0.0`
+- Assigned the narrow `1.1.2` compatibility window and `1.2.0`/`2.0.0`
   removal versions in `docs/compatibility_ledger.md`.
 - Added Recall v2 wire compatibility for product-facing `instant` and `trace`
   effort aliases and explicit source hydration. Stable `RecallResult` responses
