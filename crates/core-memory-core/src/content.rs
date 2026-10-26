@@ -124,7 +124,16 @@ impl<'de> Visitor<'de> for StrictJson {
         Ok(())
     }
 
-    fn visit_f64<E>(self, _: f64) -> Result<(), E> {
+    fn visit_f64<E: de::Error>(self, v: f64) -> Result<(), E> {
+        // Integers beyond u64/i64 arrive here as floats. Canonical form
+        // would print a rounded value, so refuse them like other inexact
+        // integers. Decimals beyond double precision are a documented
+        // RFC 8785 limit.
+        if v.fract() == 0.0 && v.abs() > MAX_EXACT_INTEGER as f64 {
+            return Err(E::custom(format!(
+                "number {v} cannot be represented exactly; send it as a string"
+            )));
+        }
         Ok(())
     }
 
@@ -198,5 +207,9 @@ mod tests {
         assert!(accept_content(&json(r#"{"id": 9007199254740993}"#)).is_err());
         assert!(accept_content(&json(r#"{"id": 9007199254740992}"#)).is_ok());
         assert!(accept_content(&json(r#"{"id": -9007199254740993}"#)).is_err());
+        // Larger than u64: parsed as a float, still refused.
+        assert!(accept_content(&json(r#"{"id": 18446744073709551617}"#)).is_err());
+        assert!(accept_content(&json(r#"{"ratio": 0.25, "big": 1e300}"#)).is_err());
+        assert!(accept_content(&json(r#"{"ratio": 0.25, "small": 1.5e-7}"#)).is_ok());
     }
 }
