@@ -1,0 +1,14 @@
+# The type vocabulary the goal/decision cases are scored against.
+#
+# The definitions carry the distinctions the cases test: stating a goal is
+# not reaching it, and deciding is not doing the work decided on. With
+# memoriesQL attached, the production definitions come from its registry.
+[vocabulary]
+id = "fixtures.goal_decision"
+types = [
+  { key = "goal", rev = 1, definition = "An outcome someone wants or has adopted as a target, including tentative, conditional and attributed goals. Stating a goal is not evidence that it was reached." },
+  { key = "decision", rev = 1, definition = "A choice someone made, including provisional, conditional, deferred, delegated and reversible choices, approvals and rejections. Deciding is not evidence that the chosen work was done." },
+  { key = "outcome", rev = 1, definition = "A result that happened." },
+  { key = "action", rev = 1, definition = "Work someone did or is doing." },
+  { key = "statement", rev = 1, definition = "A claim or report about something, including a report of what someone else wants or decided." },
+]
