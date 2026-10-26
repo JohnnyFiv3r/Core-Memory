@@ -12,10 +12,11 @@ use core_memory_core::{
 use core_memory_model_anthropic::AnthropicTransport;
 use core_memory_model_openai::{Dialect, OpenAiTransport};
 use core_memory_sink_jsonl::JsonlSink;
+use core_memory_sink_webhook::{MIN_SECRET_BYTES, WebhookConfig, WebhookSink};
 use core_memory_store_sqlite::SqliteStore;
 use serde_json::json;
 
-use crate::config::{Loaded, SinkKind};
+use crate::config::{Loaded, SinkConfig, SinkKind};
 
 /// Outbox entries per sink write.
 pub const DELIVERY_BATCH: usize = 512;
@@ -106,32 +107,58 @@ pub fn open_store(loaded: &Loaded) -> Result<SqliteStore, String> {
     SqliteStore::open(&path).map_err(|e| format!("{}: {e}", path.display()))
 }
 
-pub fn open_sinks(loaded: &Loaded) -> Result<Vec<JsonlSink>, String> {
-    let mut sinks = Vec::new();
+/// A configured sink, movable to the delivery thread.
+pub type BoxedSink = Box<dyn Sink + Send>;
+
+/// Opens every configured sink. A sink that cannot be opened, such as a
+/// webhook without its secret, stops the engine from starting.
+pub fn open_sinks(loaded: &Loaded) -> Result<Vec<BoxedSink>, String> {
+    let mut sinks: Vec<BoxedSink> = Vec::new();
     for s in &loaded.config.sinks {
         match s.kind {
             SinkKind::Jsonl => {
-                let path = loaded.resolve(&s.path);
-                sinks.push(
+                let path = loaded.resolve(s.path.as_deref().unwrap_or(Path::new("")));
+                sinks.push(Box::new(
                     JsonlSink::open(&s.id, &path, s.max_record_bytes)
                         .map_err(|e| format!("sink {}: {}: {e}", s.id, path.display()))?,
-                );
+                ));
             }
+            SinkKind::Webhook => sinks.push(Box::new(webhook(s)?)),
         }
     }
     Ok(sinks)
+}
+
+fn webhook(s: &SinkConfig) -> Result<WebhookSink, String> {
+    let env = s.secret_env.as_deref().unwrap_or_default();
+    let secret = std::env::var(env).unwrap_or_default();
+    if secret.len() < MIN_SECRET_BYTES {
+        return Err(format!(
+            "sink {}: ${env} must hold a signing secret of at least {MIN_SECRET_BYTES} bytes",
+            s.id
+        ));
+    }
+    let config = WebhookConfig {
+        url: s.url.clone().unwrap_or_default(),
+        secret: secret.into_bytes(),
+        timeout: Duration::from_millis(s.timeout_ms),
+        max_record_bytes: s.max_record_bytes,
+        system_of_record: s.system_of_record,
+    };
+    WebhookSink::new(&s.id, config, Arc::new(SystemClock))
 }
 
 /// Delivers to every sink until each is idle or asks to retry, then prunes
 /// what the required sinks have taken. Returns one report per sink.
 pub fn deliver_round(
     store: &mut SqliteStore,
-    sinks: &mut [JsonlSink],
+    sinks: &mut [BoxedSink],
     required: &[String],
 ) -> Result<Vec<(String, DeliveryReport)>, String> {
     let mut reports = Vec::with_capacity(sinks.len());
     for sink in sinks.iter_mut() {
-        let report = deliver_all(store, sink, DELIVERY_BATCH).map_err(|e| e.to_string())?;
+        let report =
+            deliver_all(store, sink.as_mut(), DELIVERY_BATCH).map_err(|e| e.to_string())?;
         reports.push((sink.id().to_string(), report));
     }
     store.prune_outbox(required).map_err(|e| e.to_string())?;
@@ -156,7 +183,7 @@ pub struct Runtime {
     pub loaded: Loaded,
     pub engine: Engine,
     pub store: SqliteStore,
-    pub sinks: Vec<JsonlSink>,
+    pub sinks: Vec<BoxedSink>,
     pub transport: Option<Box<dyn ModelTransport>>,
 }
 

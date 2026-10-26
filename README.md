@@ -63,6 +63,33 @@ scopes = ["acme"]
 A background thread delivers records to the sinks. On SIGTERM the server
 stops accepting requests and delivers what it admitted before exiting.
 
+### Delivering to your own service
+
+A `webhook` sink posts records to a URL you run, in batches, signed with a
+shared secret:
+
+```toml
+[[sink]]
+id = "host"
+kind = "webhook"
+url = "https://memory.internal.example.com/core-memory"
+secret_env = "CORE_MEMORY_WEBHOOK_SECRET"   # at least 16 bytes
+timeout_ms = 10000
+```
+
+Each request body is `{"contract": "core_memory.record.v1", "sink": "host",
+"records": [...]}`, with the records exactly as the engine wrote them. The
+`Core-Memory-Signature: t=<unix seconds>,v1=<hex>` header is HMAC-SHA256 of
+`<t>.<body>` under the secret. Check it, refuse old timestamps, and
+deduplicate by `record_key`, because delivery is at least once.
+
+Answer `204` (or any `2xx`) to accept the whole batch, or `200` with
+`{"results": [...]}`, one `{"outcome": ...}` per record (`accepted`,
+`already_accepted`, `conflict`, `rejected`, `retryable`). Any other status
+means nothing was written; the batch is sent again later, after
+`Retry-After` if you give one. The `core-memory-sink-webhook` crate
+documents the protocol and exports `verify` for Rust receivers.
+
 ### Model classification
 
 Chunks that no profile rule types can be classified by a model. Add a
@@ -123,8 +150,8 @@ decisions later. `core-memory serve` classifies in the background.
   (Anthropic or OpenAI-compatible) in closed-world batches, with budgets and
   an attempt journal. Without a classifier, chunks no rule types are
   `pending{no_classifier}`.
-- **Delivery** through a transactional outbox to JSONL, with per-sink
-  cursors. Every sink adapter must pass the same conformance suite
+- **Delivery** through a transactional outbox to JSONL files or signed
+  webhooks, with per-sink cursors. Every sink adapter must pass the same conformance suite
   (`core-memory-conformance`), which checks what the sink holds against
   what the engine sent.
 - An embedded **SQLite** operational store whose ledger rows cannot be
@@ -144,6 +171,7 @@ deletion.
 | `core-memory-core` | The pipeline: admission, facets, classification, delivery |
 | `core-memory-store-sqlite` | Default operational store |
 | `core-memory-source-jsonl`, `core-memory-sink-jsonl` | JSON Lines adapters |
+| `core-memory-sink-webhook` | Signed HTTP delivery to a service you run |
 | `core-memory-model-anthropic`, `core-memory-model-openai` | Model transports (`core-memory-model-http` holds their shared plumbing) |
 | `core-memory-sidecar` | The `core-memory` command: `ingest`, `serve`, `classify`, `deliver`, `check`, `token`, `schema`, `openapi` |
 | `core-memory` | Facade re-exporting the above |

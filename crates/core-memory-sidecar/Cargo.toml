@@ -26,6 +26,7 @@ core-memory-core.workspace = true
 core-memory-model-anthropic.workspace = true
 core-memory-model-openai.workspace = true
 core-memory-sink-jsonl.workspace = true
+core-memory-sink-webhook.workspace = true
 core-memory-source-jsonl.workspace = true
 core-memory-store-sqlite.workspace = true
 getrandom.workspace = true

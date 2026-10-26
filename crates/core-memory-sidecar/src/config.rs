@@ -99,8 +99,22 @@ pub struct GrantsConfig {
 pub struct SinkConfig {
     pub id: String,
     pub kind: SinkKind,
-    /// Output file, relative to the config file.
-    pub path: PathBuf,
+    /// `jsonl`: the output file, relative to the config file.
+    #[serde(default)]
+    pub path: Option<PathBuf>,
+    /// `webhook`: the receiver's URL.
+    #[serde(default)]
+    pub url: Option<String>,
+    /// `webhook`: the environment variable holding the signing secret.
+    #[serde(default)]
+    pub secret_env: Option<String>,
+    /// `webhook`: the limit for one request, from connecting to the reply.
+    #[serde(default = "default_sink_timeout_ms")]
+    pub timeout_ms: u64,
+    /// `webhook`: the receiver keeps the first record per key and answers
+    /// conflicts (REC-07).
+    #[serde(default)]
+    pub system_of_record: bool,
     /// Required sinks apply backpressure and hold records until delivered.
     #[serde(default = "default_true")]
     pub required: bool,
@@ -112,6 +126,11 @@ pub struct SinkConfig {
 #[serde(rename_all = "snake_case")]
 pub enum SinkKind {
     Jsonl,
+    Webhook,
+}
+
+fn default_sink_timeout_ms() -> u64 {
+    10_000
 }
 
 fn default_true() -> bool {
@@ -120,6 +139,43 @@ fn default_true() -> bool {
 
 fn default_max_record_bytes() -> u64 {
     DEFAULT_MAX_RECORD_BYTES
+}
+
+/// Setting names, each with whether the sink sets it.
+type Settings<'a> = &'a [(&'a str, bool)];
+
+impl SinkConfig {
+    /// Each kind takes its own settings and no other kind's.
+    fn check_kind(&self) -> Result<(), String> {
+        let (needs, refuses): (Settings<'_>, Settings<'_>) = match self.kind {
+            SinkKind::Jsonl => (
+                &[("path", self.path.is_some())],
+                &[
+                    ("url", self.url.is_some()),
+                    ("secret_env", self.secret_env.is_some()),
+                    ("system_of_record", self.system_of_record),
+                ],
+            ),
+            SinkKind::Webhook => (
+                &[
+                    ("url", self.url.is_some()),
+                    ("secret_env", self.secret_env.is_some()),
+                ],
+                &[("path", self.path.is_some())],
+            ),
+        };
+        let kind = format!("{:?}", self.kind).to_lowercase();
+        if let Some((name, _)) = needs.iter().find(|(_, set)| !set) {
+            return Err(format!("sink `{}` ({kind}) needs `{name}`", self.id));
+        }
+        if let Some((name, _)) = refuses.iter().find(|(_, set)| *set) {
+            return Err(format!(
+                "sink `{}` ({kind}) does not take `{name}`",
+                self.id
+            ));
+        }
+        Ok(())
+    }
 }
 
 /// A loaded config with paths resolved against the config file's folder.
@@ -158,6 +214,7 @@ impl Loaded {
             if !ids.insert(&sink.id) {
                 return Err(format!("sink `{}` is configured twice", sink.id));
             }
+            sink.check_kind()?;
         }
         if !c.sinks.iter().any(|s| s.required) {
             return Err("at least one sink must be required".into());

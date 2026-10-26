@@ -12,6 +12,8 @@ pub use core_memory_core as engine;
 
 #[cfg(feature = "jsonl")]
 pub use core_memory_sink_jsonl as sink_jsonl;
+#[cfg(feature = "webhook")]
+pub use core_memory_sink_webhook as sink_webhook;
 #[cfg(feature = "jsonl")]
 pub use core_memory_source_jsonl as source_jsonl;
 #[cfg(feature = "sqlite")]

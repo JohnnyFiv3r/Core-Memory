@@ -49,7 +49,7 @@ pub struct SinkError {
     pub retry_after_ms: u64,
 }
 
-pub trait Sink {
+pub trait Sink: std::fmt::Debug {
     fn id(&self) -> &str;
     fn caps(&self) -> SinkCaps;
     /// Writes `batch` in order and returns one outcome per entry. An `Err`
@@ -264,6 +264,7 @@ mod tests {
     use crate::store::{AdmissionWrite, MemoryStore, OutboxRecord};
     use core_memory_contract::{EventId, EventKey, Sha256Digest, Timestamp};
 
+    #[derive(Debug)]
     struct ScriptedSink {
         caps: SinkCaps,
         script: Vec<WriteOutcome>,
