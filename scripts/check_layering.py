@@ -20,7 +20,8 @@ ALLOWED = {
     "core-memory-store-*": ["core-memory-contract", "core-memory-core"],
     "core-memory-source-*": ["core-memory-contract", "core-memory-core"],
     "core-memory-sink-*": ["core-memory-contract", "core-memory-core"],
-    "core-memory-model-*": ["core-memory-contract", "core-memory-core"],
+    "core-memory-model-http": ["core-memory-contract", "core-memory-core"],
+    "core-memory-model-*": ["core-memory-contract", "core-memory-core", "core-memory-model-http"],
     "core-memory-sidecar": ["*"],
     "core-memory": ["*"],
 }

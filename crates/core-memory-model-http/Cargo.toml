@@ -1,0 +1,23 @@
+[package]
+name = "core-memory-model-http"
+description = "Shared HTTP plumbing for Core Memory model provider adapters"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[dependencies]
+core-memory-core.workspace = true
+serde_json.workspace = true
+ureq.workspace = true
+
+[features]
+# A one-shot mock HTTP server for adapter tests.
+testing = []
+
+[lints]
+workspace = true
