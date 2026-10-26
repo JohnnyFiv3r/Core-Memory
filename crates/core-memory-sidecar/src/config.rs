@@ -3,6 +3,7 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
+use core_memory_contract::Sha256Digest;
 use core_memory_core::{
     EngineConfig, Limits, ScopeGrants, SourceProfile, Vocabulary, is_identifier,
 };
@@ -23,6 +24,54 @@ pub struct SidecarConfig {
     pub profiles: Vec<SourceProfile>,
     #[serde(default)]
     pub limits: Limits,
+    /// Settings for `core-memory serve`.
+    #[serde(default)]
+    pub http: Option<HttpConfig>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HttpConfig {
+    #[serde(default = "default_listen")]
+    pub listen: String,
+    /// Largest request body accepted, in bytes.
+    #[serde(default = "default_max_body_bytes")]
+    pub max_body_bytes: usize,
+    /// Most events in one batch request.
+    #[serde(default = "default_max_batch_events")]
+    pub max_batch_events: usize,
+    /// How often the delivery thread checks the outbox when nothing wakes it.
+    #[serde(default = "default_delivery_interval_ms")]
+    pub delivery_interval_ms: u64,
+    /// Callers. Each token is stored only as its SHA-256; generate one with
+    /// `core-memory token`.
+    #[serde(default, rename = "token")]
+    pub tokens: Vec<TokenConfig>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TokenConfig {
+    pub id: String,
+    pub sha256: Sha256Digest,
+    /// Scopes this caller may write. `["*"]` grants every scope.
+    pub scopes: Vec<String>,
+}
+
+fn default_listen() -> String {
+    "127.0.0.1:7600".into()
+}
+
+fn default_max_body_bytes() -> usize {
+    16 << 20
+}
+
+fn default_max_batch_events() -> usize {
+    256
+}
+
+fn default_delivery_interval_ms() -> u64 {
+    500
 }
 
 #[derive(Debug, Deserialize)]
@@ -107,11 +156,30 @@ impl Loaded {
         if !c.sinks.iter().any(|s| s.required) {
             return Err("at least one sink must be required".into());
         }
-        if c.grants.scopes.is_empty() {
-            return Err("grants.scopes is empty; nothing could be admitted".into());
-        }
-        if c.grants.scopes.iter().any(|s| s == "*") && c.grants.scopes.len() > 1 {
-            return Err("grants.scopes: `*` must be the only entry".into());
+        check_scopes("grants.scopes", &c.grants.scopes)?;
+        if let Some(http) = &c.http {
+            let mut ids = BTreeSet::new();
+            let mut hashes = BTreeSet::new();
+            for t in &http.tokens {
+                if !is_identifier(&t.id) {
+                    return Err(format!(
+                        "http token id `{}` is not a valid identifier",
+                        t.id
+                    ));
+                }
+                if !ids.insert(&t.id) {
+                    return Err(format!("http token `{}` is configured twice", t.id));
+                }
+                if !hashes.insert(t.sha256) {
+                    return Err(format!("http token `{}` reuses another token's hash", t.id));
+                }
+                check_scopes(&format!("http token `{}` scopes", t.id), &t.scopes)?;
+            }
+            if http.max_batch_events == 0 || http.max_body_bytes == 0 {
+                return Err(
+                    "http.max_batch_events and http.max_body_bytes must be 1 or more".into(),
+                );
+            }
         }
         Ok(())
     }
@@ -124,13 +192,9 @@ impl Loaded {
         }
     }
 
+    /// Grants for the local command-line caller.
     pub fn grants(&self) -> ScopeGrants {
-        let scopes = &self.config.grants.scopes;
-        if scopes.len() == 1 && scopes[0] == "*" {
-            ScopeGrants::All
-        } else {
-            ScopeGrants::Only(scopes.iter().cloned().collect())
-        }
+        grants_from(&self.config.grants.scopes)
     }
 
     pub fn required_sinks(&self) -> Vec<String> {
@@ -148,5 +212,24 @@ impl Loaded {
             profiles: self.config.profiles.clone(),
             limits: self.config.limits,
         }
+    }
+}
+
+fn check_scopes(what: &str, scopes: &[String]) -> Result<(), String> {
+    if scopes.is_empty() {
+        return Err(format!("{what} is empty; nothing could be admitted"));
+    }
+    if scopes.iter().any(|s| s == "*") && scopes.len() > 1 {
+        return Err(format!("{what}: `*` must be the only entry"));
+    }
+    Ok(())
+}
+
+/// `["*"]` grants every scope; anything else grants exactly the listed ones.
+pub fn grants_from(scopes: &[String]) -> ScopeGrants {
+    if scopes.len() == 1 && scopes[0] == "*" {
+        ScopeGrants::All
+    } else {
+        ScopeGrants::Only(scopes.iter().cloned().collect())
     }
 }

@@ -11,7 +11,7 @@ use core_memory_contract::{
     EventKey, Memory, RECORD_CONTRACT_V1, Record, RecordBody, RefusalReason, RelationshipStage,
     Sha256Digest, SourceEvent, Stage,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::classify::classify;
 use crate::clock::Clock;
@@ -54,6 +54,15 @@ impl Default for Limits {
             max_chunks_per_event: 4_096,
         }
     }
+}
+
+/// Admission readiness: new events are refused as busy while the slowest
+/// required sink is `max_backlog` or more records behind.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct Readiness {
+    pub ready: bool,
+    pub backlog: u64,
+    pub max_backlog: u64,
 }
 
 /// Which scopes a caller may write (SEC-01).
@@ -120,6 +129,21 @@ impl Engine {
 
     pub fn required_sinks(&self) -> &[String] {
         &self.required_sinks
+    }
+
+    pub fn limits(&self) -> Limits {
+        self.limits
+    }
+
+    /// Whether a new event would be admitted now rather than refused as
+    /// busy, so hosts can pause intake (OPS-05).
+    pub fn readiness(&self, store: &dyn OperationalStore) -> Result<Readiness, StoreError> {
+        let backlog = store.outbox_backlog(&self.required_sinks)?;
+        Ok(Readiness {
+            ready: backlog < self.limits.max_outbox_backlog,
+            backlog,
+            max_backlog: self.limits.max_outbox_backlog,
+        })
     }
 
     /// Pins every profile and chunker revision in the store, refusing to
