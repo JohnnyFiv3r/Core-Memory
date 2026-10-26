@@ -63,6 +63,55 @@ scopes = ["acme"]
 A background thread delivers records to the sinks. On SIGTERM the server
 stops accepting requests and delivers what it admitted before exiting.
 
+### Model classification
+
+Chunks that no profile rule types can be classified by a model. Add a
+classifier and the binding it uses:
+
+```toml
+[classifier]
+binding = "claude"
+batch_size = 8        # chunks per call
+deadline_ms = 10000   # hold a record this long for its type, then deliver it as pending
+
+[[binding]]
+id = "claude"
+provider = "anthropic"
+endpoint = "https://api.anthropic.com"
+model = "claude-opus-5-5"
+reasoning_effort = "low"   # classification rarely needs more; raise it if quality needs it
+max_output_tokens = 4096
+scopes = ["acme"]          # whose content may be sent to this provider
+budget = { max_requests_per_day = 5000, max_tokens_per_day = 20000000 }
+```
+
+The key comes from `ANTHROPIC_API_KEY` (or `api_key_env`). For OpenAI use
+`provider = "openai"` (`OPENAI_API_KEY`); for Ollama, vLLM, OpenRouter or LM
+Studio use `provider = "openai-compatible"` with the server's `/v1` URL as the
+endpoint.
+
+How it behaves:
+
+- The model sees chunks under handles `C1..Cn` and must answer each exactly
+  once with a listed type or an abstention (`no_fit`, `insufficient_evidence`,
+  `ambiguous`). Any other reply is rejected whole and retried once with the
+  validator's errors. No model text ever becomes a label.
+- A chunk's record waits for its type up to `deadline_ms`. If the model has
+  not decided by then, the record is delivered as `pending` with the reason,
+  and the decision follows as a `type_decision` record.
+- Every call is charged to the binding's daily budget for that scope before it
+  is sent, and recorded in an attempt journal. A spent budget waits for the
+  next UTC day.
+- The engine refuses to start if the classifier's binding has no credential or
+  uses a setting its provider rejects (for example `temperature` on Anthropic).
+  It never silently runs without the classifier it was configured with.
+- Decisions record the binding and its revision, a hash of everything that
+  affects decisions (model, endpoint, effort, prompt template, validator).
+
+`core-memory ingest` classifies before it delivers, and releases records still
+waiting as pending when it ends. `core-memory classify` retries pending
+decisions later. `core-memory serve` classifies in the background.
+
 ## What works today
 
 - **Admission** with stable identity: `(scope, source_ns, external_id,
@@ -70,8 +119,10 @@ stops accepting requests and delivers what it admitted before exiting.
   limits and backpressure all return typed outcomes.
 - **Deterministic chunking** that partitions the source exactly, and
   versioned facets (lengths, language, URLs, identifier patterns).
-- **Classification** by source-profile rules. Chunks no rule types are
-  `pending{no_classifier}` until a classifier binding exists.
+- **Classification** by source-profile rules, then a model binding
+  (Anthropic or OpenAI-compatible) in closed-world batches, with budgets and
+  an attempt journal. Without a classifier, chunks no rule types are
+  `pending{no_classifier}`.
 - **Delivery** through a transactional outbox to JSONL, with per-sink
   cursors.
 - An embedded **SQLite** operational store whose ledger rows cannot be
@@ -79,8 +130,8 @@ stops accepting requests and delivers what it admitted before exiting.
 - An authenticated **HTTP sidecar** (`core-memory serve`) with per-token
   scope grants, readiness, background delivery and an OpenAPI document.
 
-Not built yet: model classification, relationship judging, the memoriesQL
-sink and governed deletion.
+Not built yet: relationship judging, the memoriesQL sink and governed
+deletion.
 
 ## Workspace
 
@@ -91,7 +142,8 @@ sink and governed deletion.
 | `core-memory-core` | The pipeline: admission, facets, classification, delivery |
 | `core-memory-store-sqlite` | Default operational store |
 | `core-memory-source-jsonl`, `core-memory-sink-jsonl` | JSON Lines adapters |
-| `core-memory-sidecar` | The `core-memory` command: `ingest`, `serve`, `deliver`, `check`, `token`, `schema`, `openapi` |
+| `core-memory-model-anthropic`, `core-memory-model-openai` | Model transports (`core-memory-model-http` holds their shared plumbing) |
+| `core-memory-sidecar` | The `core-memory` command: `ingest`, `serve`, `classify`, `deliver`, `check`, `token`, `schema`, `openapi` |
 | `core-memory` | Facade re-exporting the above |
 
 ## Looking for Core Memory 1.x?

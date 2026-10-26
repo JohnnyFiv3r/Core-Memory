@@ -36,6 +36,7 @@ pub struct TypeDef {
 pub struct LoadedVocabulary {
     catalog: CatalogRef,
     by_key: BTreeMap<String, TypeRef>,
+    definitions: BTreeMap<String, String>,
 }
 
 impl LoadedVocabulary {
@@ -47,6 +48,7 @@ impl LoadedVocabulary {
             )));
         }
         let mut by_key = BTreeMap::new();
+        let mut definitions = BTreeMap::new();
         for t in &vocabulary.types {
             if !is_identifier(&t.key) {
                 return Err(ConfigError::new(format!(
@@ -64,6 +66,9 @@ impl LoadedVocabulary {
                 key: t.key.clone(),
                 rev: t.rev,
             };
+            if let Some(d) = &t.definition {
+                definitions.insert(t.key.clone(), d.clone());
+            }
             if by_key.insert(t.key.clone(), type_ref).is_some() {
                 return Err(ConfigError::new(format!(
                     "type `{}` is defined twice",
@@ -79,6 +84,7 @@ impl LoadedVocabulary {
                 hash,
             },
             by_key,
+            definitions,
         })
     }
 
@@ -88,6 +94,15 @@ impl LoadedVocabulary {
 
     pub fn get(&self, key: &str) -> Option<&TypeRef> {
         self.by_key.get(key)
+    }
+
+    pub fn definition(&self, key: &str) -> Option<&str> {
+        self.definitions.get(key).map(String::as_str)
+    }
+
+    /// All type keys, in order.
+    pub fn keys(&self) -> impl Iterator<Item = &str> {
+        self.by_key.keys().map(String::as_str)
     }
 }
 

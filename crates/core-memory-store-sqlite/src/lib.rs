@@ -7,11 +7,14 @@
 
 use std::path::Path;
 
-use core_memory_contract::{ChunkId, EventId, EventKey, FieldHasher, Sha256Digest};
+use core_memory_contract::{
+    ChunkId, EventId, EventKey, FieldHasher, PendingReason, Sha256Digest, Timestamp,
+};
 use core_memory_core::StoreError;
 use core_memory_core::store::{
-    AdmissionWrite, CommitResult, DeliveryFailure, LedgerEntry, OperationalStore, OutboxEntry,
-    PinKind, PinResult,
+    AdmissionWrite, AttemptFinish, AttemptReservation, CommitResult, DeliveryFailure, LedgerEntry,
+    OperationalStore, OutboxEntry, OutboxRecord, PinKind, PinResult, QueueAction, QueueUpdate,
+    QueuedChunk, ReserveOutcome,
 };
 use hmac::{Hmac, KeyInit, Mac};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
@@ -72,6 +75,48 @@ CREATE TABLE IF NOT EXISTS delivery_failures (
     record_key TEXT NOT NULL,
     detail TEXT NOT NULL
 ) STRICT;
+
+-- Chunks waiting for a model type decision. Times are Unix milliseconds.
+CREATE TABLE IF NOT EXISTS classification_queue (
+    chunk_id TEXT PRIMARY KEY,
+    event_id TEXT NOT NULL,
+    scope TEXT NOT NULL,
+    profile_id TEXT NOT NULL,
+    text TEXT NOT NULL,
+    held_key TEXT,
+    held_json TEXT,
+    deadline_at INTEGER NOT NULL,
+    next_attempt_at INTEGER NOT NULL,
+    lease_until INTEGER,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    last_reason TEXT
+) STRICT;
+
+-- rowid gives first-in, first-out order among chunks due at the same time.
+CREATE INDEX IF NOT EXISTS classification_due ON classification_queue (next_attempt_at);
+
+-- The attempt journal (MOD-04). Rows are never deleted.
+CREATE TABLE IF NOT EXISTS attempts (
+    attempt_id TEXT PRIMARY KEY,
+    binding_id TEXT NOT NULL,
+    binding_rev BLOB NOT NULL,
+    scope TEXT NOT NULL,
+    day TEXT NOT NULL,
+    input_tokens INTEGER NOT NULL,
+    output_tokens INTEGER NOT NULL,
+    chunk_count INTEGER NOT NULL,
+    started_at TEXT NOT NULL,
+    state TEXT NOT NULL DEFAULT 'started',
+    usage_input INTEGER,
+    usage_output INTEGER,
+    detail TEXT,
+    finished_at TEXT
+) STRICT;
+
+CREATE INDEX IF NOT EXISTS attempts_budget ON attempts (binding_id, scope, day);
+
+CREATE TRIGGER IF NOT EXISTS attempts_no_delete BEFORE DELETE ON attempts
+BEGIN SELECT RAISE(ABORT, 'attempts cannot be deleted'); END;
 
 CREATE TRIGGER IF NOT EXISTS ledger_no_delete BEFORE DELETE ON ledger
 BEGIN SELECT RAISE(ABORT, 'ledger rows cannot be deleted'); END;
@@ -260,6 +305,100 @@ fn read_entry(conn: &Connection, key_mac: &[u8]) -> Result<Option<LedgerEntry>, 
     }))
 }
 
+const QUEUE_COLUMNS: &str = "chunk_id, event_id, scope, profile_id, text, held_key, held_json, \
+                             deadline_at, attempts, last_reason";
+
+fn queued_from_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<RawQueued> {
+    Ok(RawQueued {
+        chunk_id: r.get(0)?,
+        event_id: r.get(1)?,
+        scope: r.get(2)?,
+        profile_id: r.get(3)?,
+        text: r.get(4)?,
+        held_key: r.get(5)?,
+        held_json: r.get(6)?,
+        deadline_at: r.get(7)?,
+        attempts: r.get(8)?,
+        last_reason: r.get(9)?,
+    })
+}
+
+struct RawQueued {
+    chunk_id: String,
+    event_id: String,
+    scope: String,
+    profile_id: String,
+    text: String,
+    held_key: Option<String>,
+    held_json: Option<String>,
+    deadline_at: i64,
+    attempts: i64,
+    last_reason: Option<String>,
+}
+
+impl RawQueued {
+    fn parse(self) -> Result<QueuedChunk, StoreError> {
+        let held_record = match (self.held_key, self.held_json) {
+            (Some(record_key), Some(record_json)) => Some(OutboxRecord {
+                record_key,
+                record_json,
+            }),
+            _ => None,
+        };
+        Ok(QueuedChunk {
+            chunk_id: self
+                .chunk_id
+                .parse()
+                .map_err(|e| StoreError::Corrupt(format!("chunk id: {e}")))?,
+            event_id: self
+                .event_id
+                .parse()
+                .map_err(|e| StoreError::Corrupt(format!("event id: {e}")))?,
+            scope: self.scope,
+            profile_id: self.profile_id,
+            text: self.text,
+            held_record,
+            deadline_at: Timestamp::from_unix_millis(self.deadline_at),
+            attempts: u32::try_from(self.attempts).unwrap_or(u32::MAX),
+            last_reason: self.last_reason.as_deref().map(parse_reason).transpose()?,
+        })
+    }
+}
+
+fn reason_str(reason: PendingReason) -> &'static str {
+    match reason {
+        PendingReason::Timeout => "timeout",
+        PendingReason::ProviderError => "provider_error",
+        PendingReason::Capacity => "capacity",
+        PendingReason::UnsupportedInput => "unsupported_input",
+        PendingReason::NoClassifier => "no_classifier",
+    }
+}
+
+fn parse_reason(s: &str) -> Result<PendingReason, StoreError> {
+    Ok(match s {
+        "timeout" => PendingReason::Timeout,
+        "provider_error" => PendingReason::ProviderError,
+        "capacity" => PendingReason::Capacity,
+        "unsupported_input" => PendingReason::UnsupportedInput,
+        "no_classifier" => PendingReason::NoClassifier,
+        other => {
+            return Err(StoreError::Corrupt(format!(
+                "unknown pending reason `{other}`"
+            )));
+        }
+    })
+}
+
+fn push_outbox(tx: &rusqlite::Transaction<'_>, record: &OutboxRecord) -> Result<(), StoreError> {
+    tx.execute(
+        "INSERT INTO outbox (record_key, record_json) VALUES (?1, ?2)",
+        params![record.record_key, record.record_json],
+    )
+    .map_err(backend)?;
+    Ok(())
+}
+
 impl OperationalStore for SqliteStore {
     fn ledger_get(&self, key: &EventKey) -> Result<Option<LedgerEntry>, StoreError> {
         read_entry(&self.conn, &self.key_mac(key))
@@ -307,6 +446,29 @@ impl OperationalStore for SqliteStore {
             for record in &write.records {
                 outbox
                     .execute(params![record.record_key, record.record_json])
+                    .map_err(backend)?;
+            }
+            let mut queue = tx
+                .prepare_cached(
+                    "INSERT INTO classification_queue
+                     (chunk_id, event_id, scope, profile_id, text, held_key, held_json,
+                      deadline_at, next_attempt_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                )
+                .map_err(backend)?;
+            for h in &write.held {
+                queue
+                    .execute(params![
+                        h.chunk_id.to_string(),
+                        h.event_id.to_string(),
+                        h.scope,
+                        h.profile_id,
+                        h.text,
+                        h.record.record_key,
+                        h.record.record_json,
+                        h.deadline_at.unix_millis(),
+                        write.admitted_at.unix_millis(),
+                    ])
                     .map_err(backend)?;
             }
         }
@@ -435,13 +597,241 @@ impl OperationalStore for SqliteStore {
             .map_err(backend)?;
         Ok(deleted as u64)
     }
+
+    fn claim_classification(
+        &mut self,
+        now: Timestamp,
+        lease_until: Timestamp,
+        limit: usize,
+    ) -> Result<Vec<QueuedChunk>, StoreError> {
+        let now = now.unix_millis();
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(backend)?;
+        let due = "next_attempt_at <= ?1 AND (lease_until IS NULL OR lease_until <= ?1)";
+        let group: Option<(String, String)> = tx
+            .query_row(
+                &format!(
+                    "SELECT scope, profile_id FROM classification_queue WHERE {due}
+                     ORDER BY next_attempt_at, rowid LIMIT 1"
+                ),
+                params![now],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()
+            .map_err(backend)?;
+        let Some((scope, profile_id)) = group else {
+            return Ok(Vec::new());
+        };
+        let rows: Vec<RawQueued> = {
+            let mut stmt = tx
+                .prepare(&format!(
+                    "SELECT {QUEUE_COLUMNS} FROM classification_queue
+                     WHERE {due} AND scope = ?2 AND profile_id = ?3
+                     ORDER BY next_attempt_at, rowid LIMIT ?4"
+                ))
+                .map_err(backend)?;
+            let limit = i64::try_from(limit).unwrap_or(i64::MAX);
+            stmt.query_map(params![now, scope, profile_id, limit], queued_from_row)
+                .map_err(backend)?
+                .collect::<Result<_, _>>()
+                .map_err(backend)?
+        };
+        for row in &rows {
+            tx.execute(
+                "UPDATE classification_queue SET lease_until = ?1 WHERE chunk_id = ?2",
+                params![lease_until.unix_millis(), row.chunk_id],
+            )
+            .map_err(backend)?;
+        }
+        tx.commit().map_err(backend)?;
+        rows.into_iter().map(RawQueued::parse).collect()
+    }
+
+    fn expired_holds(&self, now: Timestamp, limit: usize) -> Result<Vec<QueuedChunk>, StoreError> {
+        let mut stmt = self
+            .conn
+            .prepare(&format!(
+                "SELECT {QUEUE_COLUMNS} FROM classification_queue
+                 WHERE held_json IS NOT NULL AND deadline_at <= ?1
+                 ORDER BY deadline_at, rowid LIMIT ?2"
+            ))
+            .map_err(backend)?;
+        let limit = i64::try_from(limit).unwrap_or(i64::MAX);
+        let rows: Vec<RawQueued> = stmt
+            .query_map(params![now.unix_millis(), limit], queued_from_row)
+            .map_err(backend)?
+            .collect::<Result<_, _>>()
+            .map_err(backend)?;
+        rows.into_iter().map(RawQueued::parse).collect()
+    }
+
+    fn apply_classification(&mut self, updates: Vec<QueueUpdate>) -> Result<(), StoreError> {
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(backend)?;
+        for u in updates {
+            let id = u.chunk_id.to_string();
+            let held: Option<bool> = tx
+                .query_row(
+                    "SELECT held_json IS NOT NULL FROM classification_queue WHERE chunk_id = ?1",
+                    params![id],
+                    |r| r.get(0),
+                )
+                .optional()
+                .map_err(backend)?;
+            let Some(held) = held else {
+                continue;
+            };
+            match u.action {
+                QueueAction::Complete {
+                    if_held,
+                    if_released,
+                } => {
+                    match (held, if_held) {
+                        (true, Some(record)) => push_outbox(&tx, &record)?,
+                        (true, None) => {
+                            return Err(StoreError::Corrupt(format!(
+                                "chunk {id} is still held but the completion has no chunk record"
+                            )));
+                        }
+                        (false, _) => push_outbox(&tx, &if_released)?,
+                    }
+                    tx.execute(
+                        "DELETE FROM classification_queue WHERE chunk_id = ?1",
+                        params![id],
+                    )
+                    .map_err(backend)?;
+                }
+                QueueAction::Retry {
+                    reason,
+                    next_attempt_at,
+                    count_attempt,
+                    release,
+                } => {
+                    tx.execute(
+                        "UPDATE classification_queue
+                         SET last_reason = ?1, lease_until = NULL,
+                             next_attempt_at = COALESCE(?2, next_attempt_at),
+                             attempts = attempts + ?3
+                         WHERE chunk_id = ?4",
+                        params![
+                            reason_str(reason),
+                            next_attempt_at.map(|t| t.unix_millis()),
+                            i64::from(count_attempt),
+                            id
+                        ],
+                    )
+                    .map_err(backend)?;
+                    if let (true, Some(record)) = (held, release) {
+                        push_outbox(&tx, &record)?;
+                        tx.execute(
+                            "UPDATE classification_queue SET held_key = NULL, held_json = NULL
+                             WHERE chunk_id = ?1",
+                            params![id],
+                        )
+                        .map_err(backend)?;
+                    }
+                }
+                QueueAction::Abandon { release } => {
+                    if let (true, Some(record)) = (held, release) {
+                        push_outbox(&tx, &record)?;
+                    }
+                    tx.execute(
+                        "DELETE FROM classification_queue WHERE chunk_id = ?1",
+                        params![id],
+                    )
+                    .map_err(backend)?;
+                }
+            }
+        }
+        tx.commit().map_err(backend)
+    }
+
+    fn classification_queue_len(&self) -> Result<u64, StoreError> {
+        let n: i64 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM classification_queue", [], |r| {
+                r.get(0)
+            })
+            .map_err(backend)?;
+        Ok(n as u64)
+    }
+
+    fn reserve_attempt(&mut self, r: &AttemptReservation) -> Result<ReserveOutcome, StoreError> {
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(backend)?;
+        let (requests, tokens): (i64, i64) = tx
+            .query_row(
+                "SELECT COUNT(*), COALESCE(SUM(input_tokens + output_tokens), 0) FROM attempts
+                 WHERE binding_id = ?1 AND scope = ?2 AND day = ?3",
+                params![r.binding_id, r.scope, r.day],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .map_err(backend)?;
+        let requests = requests as u64;
+        let tokens = tokens as u64;
+        if requests + 1 > r.max_requests || tokens + r.input_tokens + r.output_tokens > r.max_tokens
+        {
+            return Ok(ReserveOutcome::Exhausted);
+        }
+        tx.execute(
+            "INSERT INTO attempts (attempt_id, binding_id, binding_rev, scope, day, input_tokens,
+                                   output_tokens, chunk_count, started_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                r.attempt_id,
+                r.binding_id,
+                r.binding_rev.as_bytes().as_slice(),
+                r.scope,
+                r.day,
+                i64::try_from(r.input_tokens).unwrap_or(i64::MAX),
+                i64::try_from(r.output_tokens).unwrap_or(i64::MAX),
+                i64::from(r.chunk_count),
+                r.started_at.to_rfc3339(),
+            ],
+        )
+        .map_err(backend)?;
+        tx.commit().map_err(backend)?;
+        Ok(ReserveOutcome::Reserved)
+    }
+
+    fn finish_attempt(&mut self, f: &AttemptFinish) -> Result<(), StoreError> {
+        let changed = self
+            .conn
+            .execute(
+                "UPDATE attempts SET state = ?1, usage_input = ?2, usage_output = ?3, detail = ?4,
+                                     finished_at = ?5
+                 WHERE attempt_id = ?6 AND state = 'started'",
+                params![
+                    f.state.as_str(),
+                    f.usage
+                        .map(|u| i64::try_from(u.input_tokens).unwrap_or(i64::MAX)),
+                    f.usage
+                        .map(|u| i64::try_from(u.output_tokens).unwrap_or(i64::MAX)),
+                    f.detail,
+                    f.finished_at.to_rfc3339(),
+                    f.attempt_id,
+                ],
+            )
+            .map_err(backend)?;
+        if changed == 0 {
+            return Err(StoreError::Corrupt(format!(
+                "attempt {} is not open",
+                f.attempt_id
+            )));
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use core_memory_contract::Timestamp;
-    use core_memory_core::store::OutboxRecord;
 
     fn key(id: &str) -> EventKey {
         EventKey {
@@ -468,6 +858,7 @@ mod tests {
                     record_json: "{}".into(),
                 })
                 .collect(),
+            held: Vec::new(),
             admitted_at: Timestamp::from_unix_millis(0),
         }
     }
@@ -513,6 +904,43 @@ mod tests {
         );
         let rekey = store.conn.execute("UPDATE ledger SET event_id = 'x'", []);
         assert!(rekey.unwrap_err().to_string().contains("cannot change"));
+    }
+
+    #[test]
+    fn the_attempt_journal_cannot_be_deleted() {
+        let mut store = SqliteStore::open_in_memory().unwrap();
+        let reservation = AttemptReservation {
+            attempt_id: "a1".into(),
+            binding_id: "b".into(),
+            binding_rev: Sha256Digest::of(b"rev"),
+            scope: "acme".into(),
+            day: "2026-10-26".into(),
+            input_tokens: 10,
+            output_tokens: 10,
+            chunk_count: 1,
+            started_at: Timestamp::from_unix_millis(0),
+            max_requests: 1,
+            max_tokens: 100,
+        };
+        assert_eq!(
+            store.reserve_attempt(&reservation).unwrap(),
+            ReserveOutcome::Reserved
+        );
+        let again = AttemptReservation {
+            attempt_id: "a2".into(),
+            ..reservation
+        };
+        assert_eq!(
+            store.reserve_attempt(&again).unwrap(),
+            ReserveOutcome::Exhausted
+        );
+        let delete = store.conn.execute("DELETE FROM attempts", []);
+        assert!(
+            delete
+                .unwrap_err()
+                .to_string()
+                .contains("cannot be deleted")
+        );
     }
 
     #[test]

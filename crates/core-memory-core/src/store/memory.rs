@@ -1,10 +1,11 @@
 use std::collections::{BTreeMap, VecDeque};
 
-use core_memory_contract::{EventKey, Sha256Digest};
+use core_memory_contract::{ChunkId, EventKey, Sha256Digest, Timestamp};
 
 use super::{
-    AdmissionWrite, CommitResult, DeliveryFailure, LedgerEntry, OperationalStore, OutboxEntry,
-    PinKind, PinResult,
+    AdmissionWrite, AttemptFinish, AttemptReservation, AttemptState, CommitResult, DeliveryFailure,
+    LedgerEntry, OperationalStore, OutboxEntry, OutboxRecord, PinKind, PinResult, QueueAction,
+    QueueUpdate, QueuedChunk, ReserveOutcome,
 };
 use crate::error::StoreError;
 
@@ -18,6 +19,26 @@ pub struct MemoryStore {
     head: u64,
     cursors: BTreeMap<String, u64>,
     failures: Vec<(String, DeliveryFailure)>,
+    queue: BTreeMap<ChunkId, QueueRow>,
+    queue_seq: u64,
+    attempts: Vec<AttemptRow>,
+}
+
+#[derive(Debug, Clone)]
+struct QueueRow {
+    /// Insertion order, so chunks are classified first in, first out.
+    seq: u64,
+    chunk: QueuedChunk,
+    next_attempt_at: Timestamp,
+    lease_until: Option<Timestamp>,
+}
+
+/// One row of the attempt journal.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AttemptRow {
+    pub reservation: AttemptReservation,
+    pub state: Option<AttemptState>,
+    pub finish: Option<AttemptFinish>,
 }
 
 impl MemoryStore {
@@ -33,6 +54,20 @@ impl MemoryStore {
 
     pub fn delivery_failures(&self) -> &[(String, DeliveryFailure)] {
         &self.failures
+    }
+
+    /// The attempt journal, oldest first.
+    pub fn attempts(&self) -> &[AttemptRow] {
+        &self.attempts
+    }
+
+    fn push_outbox(&mut self, record: OutboxRecord) {
+        self.head += 1;
+        self.outbox.push_back(OutboxEntry {
+            seq: self.head,
+            record_key: record.record_key,
+            record_json: record.record_json,
+        });
     }
 }
 
@@ -54,12 +89,29 @@ impl OperationalStore for MemoryStore {
             },
         );
         for record in write.records {
-            self.head += 1;
-            self.outbox.push_back(OutboxEntry {
-                seq: self.head,
-                record_key: record.record_key,
-                record_json: record.record_json,
-            });
+            self.push_outbox(record);
+        }
+        for held in write.held {
+            self.queue_seq += 1;
+            self.queue.insert(
+                held.chunk_id,
+                QueueRow {
+                    seq: self.queue_seq,
+                    next_attempt_at: write.admitted_at,
+                    lease_until: None,
+                    chunk: QueuedChunk {
+                        chunk_id: held.chunk_id,
+                        event_id: held.event_id,
+                        scope: held.scope,
+                        profile_id: held.profile_id,
+                        text: held.text,
+                        held_record: Some(held.record),
+                        deadline_at: held.deadline_at,
+                        attempts: 0,
+                        last_reason: None,
+                    },
+                },
+            );
         }
         Ok(CommitResult::Committed)
     }
@@ -123,5 +175,152 @@ impl OperationalStore for MemoryStore {
             self.outbox.pop_front();
         }
         Ok((before - self.outbox.len()) as u64)
+    }
+
+    fn claim_classification(
+        &mut self,
+        now: Timestamp,
+        lease_until: Timestamp,
+        limit: usize,
+    ) -> Result<Vec<QueuedChunk>, StoreError> {
+        let mut due: Vec<&QueueRow> = self
+            .queue
+            .values()
+            .filter(|r| r.next_attempt_at <= now && r.lease_until.is_none_or(|l| l <= now))
+            .collect();
+        due.sort_by_key(|r| (r.next_attempt_at, r.seq));
+        let Some(first) = due.first() else {
+            return Ok(Vec::new());
+        };
+        let group = (first.chunk.scope.clone(), first.chunk.profile_id.clone());
+        let ids: Vec<ChunkId> = due
+            .iter()
+            .filter(|r| (&r.chunk.scope, &r.chunk.profile_id) == (&group.0, &group.1))
+            .take(limit)
+            .map(|r| r.chunk.chunk_id)
+            .collect();
+        let mut claimed = Vec::with_capacity(ids.len());
+        for id in ids {
+            if let Some(row) = self.queue.get_mut(&id) {
+                row.lease_until = Some(lease_until);
+                claimed.push(row.chunk.clone());
+            }
+        }
+        Ok(claimed)
+    }
+
+    fn expired_holds(&self, now: Timestamp, limit: usize) -> Result<Vec<QueuedChunk>, StoreError> {
+        let mut expired: Vec<&QueueRow> = self
+            .queue
+            .values()
+            .filter(|r| r.chunk.held_record.is_some() && r.chunk.deadline_at <= now)
+            .collect();
+        expired.sort_by_key(|r| (r.chunk.deadline_at, r.seq));
+        Ok(expired
+            .into_iter()
+            .take(limit)
+            .map(|r| r.chunk.clone())
+            .collect())
+    }
+
+    fn apply_classification(&mut self, updates: Vec<QueueUpdate>) -> Result<(), StoreError> {
+        // Validate first so a bad batch changes nothing.
+        for u in &updates {
+            if let (Some(row), QueueAction::Complete { if_held: None, .. }) =
+                (self.queue.get(&u.chunk_id), &u.action)
+                && row.chunk.held_record.is_some()
+            {
+                return Err(StoreError::Corrupt(format!(
+                    "chunk {} is still held but the completion has no chunk record",
+                    u.chunk_id
+                )));
+            }
+        }
+        for u in updates {
+            let Some(row) = self.queue.get_mut(&u.chunk_id) else {
+                continue;
+            };
+            let held = row.chunk.held_record.is_some();
+            match u.action {
+                QueueAction::Complete {
+                    if_held,
+                    if_released,
+                } => {
+                    self.queue.remove(&u.chunk_id);
+                    match (held, if_held) {
+                        (true, Some(record)) => self.push_outbox(record),
+                        _ => self.push_outbox(if_released),
+                    }
+                }
+                QueueAction::Retry {
+                    reason,
+                    next_attempt_at,
+                    count_attempt,
+                    release,
+                } => {
+                    row.chunk.last_reason = Some(reason);
+                    row.lease_until = None;
+                    if let Some(at) = next_attempt_at {
+                        row.next_attempt_at = at;
+                    }
+                    if count_attempt {
+                        row.chunk.attempts += 1;
+                    }
+                    if let (true, Some(record)) = (held, release) {
+                        row.chunk.held_record = None;
+                        self.push_outbox(record);
+                    }
+                }
+                QueueAction::Abandon { release } => {
+                    self.queue.remove(&u.chunk_id);
+                    if let (true, Some(record)) = (held, release) {
+                        self.push_outbox(record);
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn classification_queue_len(&self) -> Result<u64, StoreError> {
+        Ok(self.queue.len() as u64)
+    }
+
+    fn reserve_attempt(&mut self, r: &AttemptReservation) -> Result<ReserveOutcome, StoreError> {
+        let (requests, tokens) = self
+            .attempts
+            .iter()
+            .filter(|a| {
+                a.reservation.binding_id == r.binding_id
+                    && a.reservation.scope == r.scope
+                    && a.reservation.day == r.day
+            })
+            .fold((0u64, 0u64), |(n, t), a| {
+                (
+                    n + 1,
+                    t + a.reservation.input_tokens + a.reservation.output_tokens,
+                )
+            });
+        if requests + 1 > r.max_requests || tokens + r.input_tokens + r.output_tokens > r.max_tokens
+        {
+            return Ok(ReserveOutcome::Exhausted);
+        }
+        self.attempts.push(AttemptRow {
+            reservation: r.clone(),
+            state: None,
+            finish: None,
+        });
+        Ok(ReserveOutcome::Reserved)
+    }
+
+    fn finish_attempt(&mut self, finish: &AttemptFinish) -> Result<(), StoreError> {
+        let row = self
+            .attempts
+            .iter_mut()
+            .find(|a| a.reservation.attempt_id == finish.attempt_id)
+            .ok_or_else(|| StoreError::Corrupt(format!("no attempt {}", finish.attempt_id)))?;
+        row.state = Some(finish.state);
+        row.finish = Some(finish.clone());
+        Ok(())
     }
 }

@@ -5,7 +5,8 @@ use std::path::{Path, PathBuf};
 
 use core_memory_contract::Sha256Digest;
 use core_memory_core::{
-    EngineConfig, Limits, ScopeGrants, SourceProfile, Vocabulary, is_identifier,
+    BindingConfig, ClassifierConfig, EngineConfig, Limits, ScopeGrants, SourceProfile, Vocabulary,
+    is_identifier,
 };
 use serde::Deserialize;
 
@@ -27,6 +28,11 @@ pub struct SidecarConfig {
     /// Settings for `core-memory serve`.
     #[serde(default)]
     pub http: Option<HttpConfig>,
+    /// Enables model classification through one of the bindings.
+    #[serde(default)]
+    pub classifier: Option<ClassifierConfig>,
+    #[serde(default, rename = "binding")]
+    pub bindings: Vec<BindingConfig>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -211,6 +217,8 @@ impl Loaded {
             vocabulary: self.config.vocabulary.clone(),
             profiles: self.config.profiles.clone(),
             limits: self.config.limits,
+            classifier: self.config.classifier.clone(),
+            bindings: self.config.bindings.clone(),
         }
     }
 }

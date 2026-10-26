@@ -8,19 +8,22 @@ use core_memory_chunker::{ChunkError, LengthUnit, chunk_text};
 use core_memory_contract::record::chunk_record_key;
 use core_memory_contract::{
     AdmissionOutcome, BusyCause, Catalogs, ChunkBody, ChunkId, ChunkRecord, EventId, EventInfo,
-    EventKey, Memory, RECORD_CONTRACT_V1, Record, RecordBody, RefusalReason, RelationshipStage,
-    Sha256Digest, SourceEvent, Stage,
+    EventKey, Memory, PendingReason, RECORD_CONTRACT_V1, Record, RecordBody, RefusalReason,
+    RelationshipStage, Sha256Digest, SourceEvent, Stage, TypeOutcome,
 };
 use serde::{Deserialize, Serialize};
 
+use crate::classifier::{ClassifierConfig, CompiledClassifier, binding_rev};
 use crate::classify::classify;
 use crate::clock::Clock;
 use crate::content::{accept_content, event_hash};
 use crate::error::{ConfigError, EngineError, StoreError};
 use crate::facets::chunk_facets;
-use crate::profile::{CompiledChunker, ProfileRegistry, SourceProfile};
+use crate::model::BindingConfig;
+use crate::profile::{CompiledChunker, CompiledProfile, ProfileRegistry, SourceProfile};
 use crate::store::{
-    AdmissionWrite, CommitResult, LedgerEntry, OperationalStore, OutboxRecord, PinKind, PinResult,
+    AdmissionWrite, CommitResult, HeldChunk, LedgerEntry, OperationalStore, OutboxRecord, PinKind,
+    PinResult,
 };
 use crate::vocab::{LoadedVocabulary, Vocabulary};
 
@@ -34,6 +37,11 @@ pub struct EngineConfig {
     pub profiles: Vec<SourceProfile>,
     #[serde(default)]
     pub limits: Limits,
+    /// Enables the model tier of classification.
+    #[serde(default)]
+    pub classifier: Option<ClassifierConfig>,
+    #[serde(default, rename = "binding")]
+    pub bindings: Vec<BindingConfig>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -92,11 +100,12 @@ pub enum StartupError {
 
 #[derive(Debug)]
 pub struct Engine {
-    registry: ProfileRegistry,
-    vocab: Option<LoadedVocabulary>,
+    pub(crate) registry: ProfileRegistry,
+    pub(crate) vocab: Option<LoadedVocabulary>,
     limits: Limits,
     required_sinks: Vec<String>,
-    clock: Arc<dyn Clock>,
+    pub(crate) clock: Arc<dyn Clock>,
+    pub(crate) classifier: Option<CompiledClassifier>,
 }
 
 impl Engine {
@@ -114,13 +123,85 @@ impl Engine {
                 "limits.max_chunks_per_event must be 1 or more",
             ));
         }
+        let mut ids = BTreeSet::new();
+        for b in &config.bindings {
+            b.validate()?;
+            if !ids.insert(b.id.as_str()) {
+                return Err(ConfigError::new(format!(
+                    "binding `{}` is defined twice",
+                    b.id
+                )));
+            }
+        }
+        let classifier = match config.classifier {
+            None => None,
+            Some(settings) => {
+                let binding = config
+                    .bindings
+                    .iter()
+                    .find(|b| b.id == settings.binding)
+                    .cloned()
+                    .ok_or_else(|| {
+                        ConfigError::new(format!(
+                            "classifier.binding `{}` is not a configured binding",
+                            settings.binding
+                        ))
+                    })?;
+                if vocab.is_none() {
+                    return Err(ConfigError::new(
+                        "the classifier needs a [vocabulary] to choose types from",
+                    ));
+                }
+                if settings.batch_size == 0 || settings.batch_size > 64 {
+                    return Err(ConfigError::new("classifier.batch_size must be 1 to 64"));
+                }
+                if settings.max_attempts == 0 {
+                    return Err(ConfigError::new(
+                        "classifier.max_attempts must be 1 or more",
+                    ));
+                }
+                let rev = binding_rev(&binding)
+                    .map_err(|e| ConfigError::new(format!("cannot hash binding: {e}")))?;
+                let grants = if binding.scopes.iter().any(|s| s == "*") {
+                    ScopeGrants::All
+                } else {
+                    ScopeGrants::Only(binding.scopes.iter().cloned().collect())
+                };
+                Some(CompiledClassifier {
+                    settings,
+                    binding,
+                    rev,
+                    grants,
+                })
+            }
+        };
         Ok(Self {
             registry,
             vocab,
             limits: config.limits,
             required_sinks,
             clock,
+            classifier,
         })
+    }
+
+    /// The type keys a profile may be classified into: its declared subset,
+    /// or the whole vocabulary.
+    pub(crate) fn allowed_types<'a>(&'a self, profile: &'a CompiledProfile) -> Vec<&'a str> {
+        match (&profile.def.types, &self.vocab) {
+            (Some(types), _) => types.iter().map(String::as_str).collect(),
+            (None, Some(vocab)) => vocab.keys().collect(),
+            (None, None) => Vec::new(),
+        }
+    }
+
+    /// The model classifier for chunks of `profile` in `scope`, if one may
+    /// be used: configured, permitted to receive the scope's data (MOD-06),
+    /// and with types to choose from.
+    fn model_tier(&self, profile: &CompiledProfile, scope: &str) -> Option<&CompiledClassifier> {
+        self.classifier
+            .as_ref()
+            .filter(|c| c.grants.allows(scope) && !self.allowed_types(profile).is_empty())
     }
 
     pub fn registry(&self) -> &ProfileRegistry {
@@ -336,14 +417,30 @@ impl Engine {
             predicate: None,
         };
 
+        let model_tier = self.model_tier(profile, &key.scope);
         let mut records = Vec::with_capacity(spans.len());
+        let mut held = Vec::new();
         let mut char_pos = 0u64;
         for (ordinal, (span, chunk_id)) in spans.iter().zip(&chunk_ids).enumerate() {
             let text = &content.text[Range::clone(span)];
             let facets = chunk_facets(text, content.kind, &profile.identifiers);
             let char_start = char_pos;
             char_pos += facets.lengths.code_points;
-            let classification = classify(profile, event, chunk_id, now);
+            let mut classification = classify(profile, event, chunk_id, now);
+            // No rule decided and a model may: hold the record for its type
+            // (CLS-05). If the deadline passes first it is delivered as
+            // pending with the reason at that time.
+            let hold = model_tier.filter(|_| {
+                classification.outcome
+                    == TypeOutcome::Pending {
+                        reason: PendingReason::NoClassifier,
+                    }
+            });
+            if hold.is_some() {
+                classification.outcome = TypeOutcome::Pending {
+                    reason: PendingReason::Timeout,
+                };
+            }
             let record = Record {
                 contract: RECORD_CONTRACT_V1.to_string(),
                 record_key: chunk_record_key(chunk_id),
@@ -374,10 +471,22 @@ impl Engine {
                     },
                 })),
             };
-            records.push(OutboxRecord {
+            let record = OutboxRecord {
                 record_key: record.record_key.clone(),
                 record_json: serde_json::to_string(&record)?,
-            });
+            };
+            match hold {
+                Some(c) => held.push(HeldChunk {
+                    chunk_id: *chunk_id,
+                    event_id,
+                    scope: key.scope.clone(),
+                    profile_id: profile.def.id.clone(),
+                    text: text.to_string(),
+                    record,
+                    deadline_at: now.plus_millis(c.settings.deadline_ms),
+                }),
+                None => records.push(record),
+            }
         }
 
         let committed = store.commit_admission(AdmissionWrite {
@@ -386,6 +495,7 @@ impl Engine {
             event_hash: hash,
             chunk_ids: &chunk_ids,
             records,
+            held,
             admitted_at: now,
         })?;
         Ok(match committed {

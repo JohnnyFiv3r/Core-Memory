@@ -325,7 +325,7 @@ async fn admitted_records_are_delivered_in_the_background() {
         assert!(Instant::now() < deadline, "record was not delivered");
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
-    s.worker.unwrap().stop();
+    s.shutdown();
 }
 
 #[tokio::test]
