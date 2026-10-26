@@ -55,9 +55,9 @@ core-memory-contract -> core-memory-chunker -> core-memory-core
 ```
 
 - `core-memory-contract` depends on no other crate in this workspace.
-- `core-memory-chunker` depends only on `core-memory-contract`.
+- `core-memory-chunker` may depend only on `core-memory-contract`.
 - `core-memory-core` imports no store, source, sink or model-provider crate.
-  `scripts/check_layering.sh` enforces this in CI.
+  `scripts/check_layering.py` enforces this in CI.
 - Core has no code path specific to one sink. Sinks differ only through the
   capabilities they declare.
 
@@ -101,7 +101,7 @@ operational state.
 cargo fmt --all
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
-scripts/check_layering.sh
+python3 scripts/check_layering.py
 ```
 
 Requirement IDs in comments (ING-03, CHK-04, REC-01, ...) refer to the Core

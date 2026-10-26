@@ -220,10 +220,10 @@ impl CompiledProfile {
                 "max_event_bytes must be between 1 and {MAX_EVENT_BYTES_LIMIT}"
             )));
         }
-        if let Some(system) = &def.source_system {
-            if system.is_empty() || system.len() > 128 {
-                return Err(err("source_system must be 1 to 128 bytes".into()));
-            }
+        if let Some(system) = &def.source_system
+            && (system.is_empty() || system.len() > 128)
+        {
+            return Err(err("source_system must be 1 to 128 bytes".into()));
         }
         let settings = &def.chunker;
         if settings.rev == 0 {
@@ -315,13 +315,13 @@ impl CompiledProfile {
                     ))
                 })?
                 .clone();
-            if let Some(types) = &def.types {
-                if !types.contains(&rule.assign) {
-                    return Err(err(format!(
-                        "rule `{}` assigns `{}`, which is outside the profile's types",
-                        rule.id, rule.assign
-                    )));
-                }
+            if let Some(types) = &def.types
+                && !types.contains(&rule.assign)
+            {
+                return Err(err(format!(
+                    "rule `{}` assigns `{}`, which is outside the profile's types",
+                    rule.id, rule.assign
+                )));
             }
             if rule.when.is_empty() {
                 return Err(err(format!("rule `{}` has no conditions", rule.id)));

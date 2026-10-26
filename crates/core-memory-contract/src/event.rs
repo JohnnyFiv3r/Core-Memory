@@ -307,10 +307,10 @@ impl OccurredAt {
         if self.end.is_some() && self.at.is_none() {
             errors.push(FieldError::new("occurred_at.end", "end requires at"));
         }
-        if let (Some(at), Some(end)) = (self.at, self.end) {
-            if end < at {
-                errors.push(FieldError::new("occurred_at.end", "end cannot precede at"));
-            }
+        if let (Some(at), Some(end)) = (self.at, self.end)
+            && end < at
+        {
+            errors.push(FieldError::new("occurred_at.end", "end cannot precede at"));
         }
         if self.precision != TimePrecision::Unknown && self.at.is_none() && self.raw.is_none() {
             errors.push(FieldError::new(
