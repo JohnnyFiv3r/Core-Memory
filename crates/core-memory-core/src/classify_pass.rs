@@ -73,14 +73,13 @@ impl Engine {
         let Some(c) = &self.classifier else {
             return Ok(report);
         };
-        report.released = self.release_holds(store, self.clock.now())?;
+        // Claim only what was due when the pass began, so a chunk is tried
+        // at most once per pass even when its retry falls due mid-pass.
+        let started = self.clock.now();
+        report.released = self.release_holds(store, started)?;
         for _ in 0..max_batches {
-            let now = self.clock.now();
-            let batch = store.claim_classification(
-                now,
-                now.plus_millis(c.settings.lease_ms),
-                c.settings.batch_size,
-            )?;
+            let lease_until = self.clock.now().plus_millis(c.settings.lease_ms);
+            let batch = store.claim_classification(started, lease_until, c.settings.batch_size)?;
             if batch.is_empty() {
                 break;
             }
@@ -419,10 +418,14 @@ fn abandon(batch: &[QueuedChunk], reason: PendingReason) -> Result<Vec<QueueUpda
         .collect()
 }
 
-/// Exponential backoff from the batch's most-tried chunk, capped at 64x.
+/// Exponential backoff from the batch's most-tried chunk, capped at 64x,
+/// and at least 1 ms, so a retry always lands after the pass that scheduled it.
 fn backoff(c: &CompiledClassifier, batch: &[QueuedChunk]) -> u64 {
     let attempts = batch.iter().map(|q| q.attempts).max().unwrap_or(0).min(6);
-    c.settings.retry_backoff_ms.saturating_mul(1 << attempts)
+    c.settings
+        .retry_backoff_ms
+        .saturating_mul(1 << attempts)
+        .max(1)
 }
 
 /// A held chunk record with its type outcome and decision replaced.

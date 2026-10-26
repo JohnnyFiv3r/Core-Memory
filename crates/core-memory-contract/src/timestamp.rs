@@ -5,14 +5,27 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
+/// 0000-01-01T00:00:00Z in Unix milliseconds.
+const MIN_MILLIS: i64 = -62_167_219_200_000;
+/// 9999-12-31T23:59:59.999Z in Unix milliseconds.
+const MAX_MILLIS: i64 = 253_402_300_799_999;
+
 /// An instant with its UTC offset, serialized as RFC 3339.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Timestamp(pub OffsetDateTime);
 
 impl Timestamp {
+    /// The instant `millis` milliseconds after the Unix epoch, clamped to
+    /// the range RFC 3339 can express (years 0000 to 9999).
     pub fn from_unix_millis(millis: i64) -> Self {
+        let millis = millis.clamp(MIN_MILLIS, MAX_MILLIS);
         let nanos = i128::from(millis) * 1_000_000;
         Self(OffsetDateTime::from_unix_timestamp_nanos(nanos).unwrap_or(OffsetDateTime::UNIX_EPOCH))
+    }
+
+    /// The latest expressible instant, 9999-12-31T23:59:59.999Z.
+    pub fn max() -> Self {
+        Self::from_unix_millis(MAX_MILLIS)
     }
 
     /// Milliseconds since the Unix epoch, saturating.
@@ -119,6 +132,9 @@ mod tests {
             "1970-01-01T00:00:01.5Z"
         );
         assert_eq!(Timestamp::from_unix_millis(1_234).unix_millis(), 1_234);
+        assert_eq!(Timestamp::from_unix_millis(i64::MAX), Timestamp::max());
+        assert_eq!(Timestamp::max().to_rfc3339(), "9999-12-31T23:59:59.999Z");
+        assert!(Timestamp::from_unix_millis(i64::MIN) < Timestamp::from_unix_millis(0));
     }
 
     #[test]

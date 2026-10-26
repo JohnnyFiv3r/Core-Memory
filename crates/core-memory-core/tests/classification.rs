@@ -417,6 +417,30 @@ fn chunks_out_of_attempts_stay_pending() {
 }
 
 #[test]
+fn a_chunk_is_tried_at_most_once_per_pass() {
+    let clock = Arc::new(ManualClock::at_unix_millis(T0));
+    let mut cfg = config("");
+    cfg.classifier.as_mut().unwrap().retry_backoff_ms = 0;
+    let engine = Engine::new(cfg, vec![], clock.clone()).unwrap();
+    let mut store = MemoryStore::new();
+    engine
+        .admit(
+            &mut store,
+            &ScopeGrants::All,
+            &chat("acme", "1", "We decided."),
+        )
+        .unwrap();
+    let failing = FnTransport(|_: &ModelRequest| {
+        Err(TransportError::Transient {
+            message: "down".into(),
+            retry_after_ms: None,
+        })
+    });
+    let report = engine.classify_due(&mut store, &failing, 100).unwrap();
+    assert_eq!((report.calls, report.retried, report.abandoned), (1, 1, 0));
+}
+
+#[test]
 fn batches_never_mix_scopes() {
     let clock = Arc::new(ManualClock::at_unix_millis(T0));
     let engine = engine("", &clock);
