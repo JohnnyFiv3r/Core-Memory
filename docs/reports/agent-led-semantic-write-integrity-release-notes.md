@@ -2,11 +2,11 @@
 
 **Status:** Slices 1–7 implemented; hosted copied/live backfill run pending
 
-**Release:** `1.1.1`
+**Release:** `1.1.2`
 
 ## Compatibility schedule
 
-`1.1.1` is the single published compatibility window for the narrow rollout
+`1.1.2` is the single published compatibility window for the narrow rollout
 aliases below. The following cutovers are assigned to `1.2.0`, after their
 ledger gates pass:
 
