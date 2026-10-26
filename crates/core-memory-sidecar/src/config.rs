@@ -106,9 +106,18 @@ pub struct SinkConfig {
     #[serde(default)]
     pub url: Option<String>,
     /// `webhook`: the environment variable holding the signing secret.
+    /// `memoriesql`: the one holding the paired-client credential.
     #[serde(default)]
     pub secret_env: Option<String>,
-    /// `webhook`: the limit for one request, from connecting to the reply.
+    /// `memoriesql`: the environment variable holding the database URL,
+    /// which may carry a password.
+    #[serde(default)]
+    pub url_env: Option<String>,
+    /// `memoriesql`: the workspace the credential acts in.
+    #[serde(default)]
+    pub workspace_id: Option<String>,
+    /// `webhook`, `memoriesql`: the limit for one request, from connecting to
+    /// the reply.
     #[serde(default = "default_sink_timeout_ms")]
     pub timeout_ms: u64,
     /// `webhook`: the receiver keeps the first record per key and answers
@@ -127,6 +136,7 @@ pub struct SinkConfig {
 pub enum SinkKind {
     Jsonl,
     Webhook,
+    Memoriesql,
 }
 
 fn default_sink_timeout_ms() -> u64 {
@@ -152,7 +162,9 @@ impl SinkConfig {
                 &[("path", self.path.is_some())],
                 &[
                     ("url", self.url.is_some()),
+                    ("url_env", self.url_env.is_some()),
                     ("secret_env", self.secret_env.is_some()),
+                    ("workspace_id", self.workspace_id.is_some()),
                     ("system_of_record", self.system_of_record),
                 ],
             ),
@@ -161,7 +173,24 @@ impl SinkConfig {
                     ("url", self.url.is_some()),
                     ("secret_env", self.secret_env.is_some()),
                 ],
-                &[("path", self.path.is_some())],
+                &[
+                    ("path", self.path.is_some()),
+                    ("url_env", self.url_env.is_some()),
+                    ("workspace_id", self.workspace_id.is_some()),
+                ],
+            ),
+            // memoriesQL is always a system of record; it is not a setting.
+            SinkKind::Memoriesql => (
+                &[
+                    ("url_env", self.url_env.is_some()),
+                    ("secret_env", self.secret_env.is_some()),
+                    ("workspace_id", self.workspace_id.is_some()),
+                ],
+                &[
+                    ("path", self.path.is_some()),
+                    ("url", self.url.is_some()),
+                    ("system_of_record", self.system_of_record),
+                ],
             ),
         };
         let kind = format!("{:?}", self.kind).to_lowercase();

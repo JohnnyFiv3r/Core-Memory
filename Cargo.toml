@@ -20,6 +20,7 @@ core-memory-store-sqlite = { path = "crates/core-memory-store-sqlite", version =
 core-memory-source-jsonl = { path = "crates/core-memory-source-jsonl", version = "=2.0.0-alpha.1" }
 core-memory-sink-jsonl = { path = "crates/core-memory-sink-jsonl", version = "=2.0.0-alpha.1" }
 core-memory-sink-webhook = { path = "crates/core-memory-sink-webhook", version = "=2.0.0-alpha.1" }
+core-memory-sink-memoriesql = { path = "crates/core-memory-sink-memoriesql", version = "=2.0.0-alpha.1" }
 core-memory-conformance = { path = "crates/core-memory-conformance", version = "=2.0.0-alpha.1" }
 core-memory-model-http = { path = "crates/core-memory-model-http", version = "=2.0.0-alpha.1" }
 core-memory-model-anthropic = { path = "crates/core-memory-model-anthropic", version = "=2.0.0-alpha.1" }

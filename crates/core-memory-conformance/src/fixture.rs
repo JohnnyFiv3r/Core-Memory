@@ -13,9 +13,12 @@ pub const T0: i64 = 1_793_072_000_000;
 /// `deadline_ms` in [`CONFIG`].
 pub const DEADLINE_MS: i64 = 10_000;
 
+/// The vocabulary is a subset of memoriesQL's governed bead types, under
+/// their catalog id, so memoriesQL, the reference system of record, can
+/// accept every fixture record.
 pub const CONFIG: &str = r#"
 [vocabulary]
-id = "conformance.types"
+id = "memoriesql.bead_types"
 types = [
   { key = "decision", rev = 1, definition = "A choice someone made." },
   { key = "action", rev = 1, definition = "Work someone did or will do." },

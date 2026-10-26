@@ -1,0 +1,32 @@
+[package]
+name = "core-memory-sink-memoriesql"
+description = "memoriesQL record sink for the Core Memory engine"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[dependencies]
+core-memory-contract.workspace = true
+core-memory-core.workspace = true
+postgres = "0.19"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+tokio-postgres-rustls = "0.13"
+webpki-roots = "1"
+serde.workspace = true
+serde_json.workspace = true
+
+[features]
+# Runs the conformance suite against a PostgreSQL template database that
+# memoriesQL has migrated to schema 54 (see tests/conformance.rs).
+postgres-tests = []
+
+[dev-dependencies]
+core-memory-conformance.workspace = true
+
+[lints]
+workspace = true
