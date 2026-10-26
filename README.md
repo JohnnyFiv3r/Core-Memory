@@ -34,6 +34,35 @@ new records.
 
 `core-memory schema record` prints the record contract as JSON Schema.
 
+### Over HTTP
+
+`core-memory serve` runs the engine as a sidecar. Generate a token for each
+caller; the config keeps only its SHA-256:
+
+```bash
+core-memory token --id slack-ingest   # prints the token and a [[http.token]] block
+```
+
+```toml
+[http]
+listen = "127.0.0.1:7600"
+
+[[http.token]]
+id = "slack-ingest"
+sha256 = "<from core-memory token>"
+scopes = ["acme"]
+```
+
+| Endpoint | |
+|---|---|
+| `POST /v1/events` | Admit one SourceEvent. The body is the typed outcome; the status maps it (200 accepted or replay, 409 identity conflict, 403 scope denied, 410 tombstoned, 413 oversize, 422 invalid profile, 400 malformed, 503 busy with `Retry-After`). |
+| `POST /v1/events/batch` | `{"events": [...]}`, one outcome per event, in order. |
+| `GET /v1/ready` | 503 while the slowest required sink is too far behind, so hosts can pause intake. |
+| `GET /v1/openapi.json` | OpenAPI 3.1, generated from the contract types. |
+
+A background thread delivers records to the sinks. On SIGTERM the server
+stops accepting requests and delivers what it admitted before exiting.
+
 ## What works today
 
 - **Admission** with stable identity: `(scope, source_ns, external_id,
@@ -47,9 +76,11 @@ new records.
   cursors.
 - An embedded **SQLite** operational store whose ledger rows cannot be
   deleted.
+- An authenticated **HTTP sidecar** (`core-memory serve`) with per-token
+  scope grants, readiness, background delivery and an OpenAPI document.
 
 Not built yet: model classification, relationship judging, the memoriesQL
-sink, the HTTP sidecar and governed deletion.
+sink and governed deletion.
 
 ## Workspace
 
@@ -60,7 +91,7 @@ sink, the HTTP sidecar and governed deletion.
 | `core-memory-core` | The pipeline: admission, facets, classification, delivery |
 | `core-memory-store-sqlite` | Default operational store |
 | `core-memory-source-jsonl`, `core-memory-sink-jsonl` | JSON Lines adapters |
-| `core-memory-sidecar` | The `core-memory` command |
+| `core-memory-sidecar` | The `core-memory` command: `ingest`, `serve`, `deliver`, `check`, `token`, `schema`, `openapi` |
 | `core-memory` | Facade re-exporting the above |
 
 ## Looking for Core Memory 1.x?

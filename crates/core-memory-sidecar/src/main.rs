@@ -1,29 +1,22 @@
-//! `core-memory`: run the Core Memory engine over JSON Lines.
-
-mod config;
+//! `core-memory`: run the Core Memory engine over JSON Lines or HTTP.
 
 use std::collections::BTreeMap;
 use std::io::{self, BufRead, BufReader, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
-use std::sync::Arc;
 use std::time::Duration;
 
 use clap::{Parser, Subcommand};
 use core_memory_contract::schema::Contract;
-use core_memory_contract::{AdmissionOutcome, FieldError, RefusalReason};
-use core_memory_core::store::OperationalStore;
-use core_memory_core::{DeliveryReport, Engine, Sink, SystemClock, deliver_all};
-use core_memory_sink_jsonl::JsonlSink;
+use core_memory_contract::{AdmissionOutcome, FieldError, RefusalReason, Sha256Digest};
+use core_memory_sidecar::config::Loaded;
+use core_memory_sidecar::runtime::{Runtime, build_engine};
+use core_memory_sidecar::{openapi, server};
 use core_memory_source_jsonl::{JsonlSource, SourceItem};
-use core_memory_store_sqlite::SqliteStore;
 use serde_json::json;
-
-use crate::config::{Loaded, SinkKind};
 
 /// Busy retries per event before giving up on it.
 const BUSY_ATTEMPTS: u32 = 5;
-const DELIVERY_BATCH: usize = 512;
 
 #[derive(Parser)]
 #[command(name = "core-memory", version, about = "Core Memory engine")]
@@ -46,6 +39,11 @@ enum Command {
         #[arg(long)]
         no_deliver: bool,
     },
+    /// Serve the engine over HTTP, delivering records in the background.
+    Serve {
+        #[arg(long, default_value = "core-memory.toml")]
+        config: PathBuf,
+    },
     /// Deliver queued records to every configured sink.
     Deliver {
         #[arg(long, default_value = "core-memory.toml")]
@@ -56,8 +54,16 @@ enum Command {
         #[arg(long, default_value = "core-memory.toml")]
         config: PathBuf,
     },
+    /// Generate an HTTP bearer token and the config lines that accept it.
+    Token {
+        /// Token id to put in the config.
+        #[arg(long, default_value = "ingest")]
+        id: String,
+    },
     /// Print a contract's JSON Schema, or list contracts and their digests.
     Schema { name: Option<String> },
+    /// Print the HTTP API's OpenAPI document.
+    Openapi,
 }
 
 fn main() -> ExitCode {
@@ -68,9 +74,14 @@ fn main() -> ExitCode {
             input,
             no_deliver,
         } => ingest(&config, &input, !no_deliver),
-        Command::Deliver { config } => Runtime::open(&config).and_then(|mut rt| rt.deliver()),
+        Command::Serve { config } => serve(&config),
+        Command::Deliver { config } => Runtime::open(&config)
+            .and_then(|mut rt| rt.deliver())
+            .map(exit_for_delivery),
         Command::Check { config } => check(&config),
+        Command::Token { id } => token(&id),
         Command::Schema { name } => schema(name.as_deref()),
+        Command::Openapi => print_json(&openapi::document()),
     };
     match result {
         Ok(code) => code,
@@ -81,80 +92,16 @@ fn main() -> ExitCode {
     }
 }
 
-struct Runtime {
-    loaded: Loaded,
-    engine: Engine,
-    store: SqliteStore,
-    sinks: Vec<JsonlSink>,
-}
-
-impl Runtime {
-    fn open(config_path: &std::path::Path) -> Result<Self, String> {
-        let loaded = Loaded::read(config_path)?;
-        let engine = Engine::new(
-            loaded.engine_config(),
-            loaded.required_sinks(),
-            Arc::new(SystemClock),
-        )
-        .map_err(|e| format!("configuration: {e}"))?;
-        let store_path = loaded.resolve(&loaded.config.store.path);
-        let mut store =
-            SqliteStore::open(&store_path).map_err(|e| format!("{}: {e}", store_path.display()))?;
-        engine.pin_profiles(&mut store).map_err(|e| e.to_string())?;
-        let mut sinks = Vec::new();
-        for s in &loaded.config.sinks {
-            match s.kind {
-                SinkKind::Jsonl => {
-                    let path = loaded.resolve(&s.path);
-                    sinks.push(
-                        JsonlSink::open(&s.id, &path, s.max_record_bytes)
-                            .map_err(|e| format!("sink {}: {}: {e}", s.id, path.display()))?,
-                    );
-                }
-            }
-        }
-        Ok(Self {
-            loaded,
-            engine,
-            store,
-            sinks,
-        })
-    }
-
-    /// Delivers to every sink, prunes what the required sinks have taken,
-    /// and prints a report per sink to stderr.
-    fn deliver(&mut self) -> Result<ExitCode, String> {
-        let mut pending = false;
-        for sink in &mut self.sinks {
-            let report =
-                deliver_all(&mut self.store, sink, DELIVERY_BATCH).map_err(|e| e.to_string())?;
-            pending |= report.retry_after_ms.is_some();
-            eprintln!("{}", delivery_line(sink.id(), &report));
-        }
-        self.store
-            .prune_outbox(self.engine.required_sinks())
-            .map_err(|e| e.to_string())?;
-        Ok(if pending {
-            ExitCode::from(2)
-        } else {
-            ExitCode::SUCCESS
-        })
+/// Exit status 2 when a sink asked to retry later and records remain queued.
+fn exit_for_delivery(complete: bool) -> ExitCode {
+    if complete {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(2)
     }
 }
 
-fn delivery_line(id: &str, r: &DeliveryReport) -> String {
-    json!({
-        "sink": id,
-        "accepted": r.accepted,
-        "already_accepted": r.already_accepted,
-        "failed": r.failed,
-        "skipped_gap": r.skipped_gap,
-        "retry_after_ms": r.retry_after_ms,
-    })
-    .to_string()
-}
-
-fn ingest(config_path: &std::path::Path, input: &str, deliver: bool) -> Result<ExitCode, String> {
+fn ingest(config_path: &Path, input: &str, deliver: bool) -> Result<ExitCode, String> {
     let mut rt = Runtime::open(config_path)?;
     let grants = rt.loaded.grants();
     let reader: Box<dyn BufRead> = if input == "-" {
@@ -209,7 +156,7 @@ fn ingest(config_path: &std::path::Path, input: &str, deliver: bool) -> Result<E
     out.flush().map_err(|e| format!("stdout: {e}"))?;
     eprintln!("{}", json!({"admitted": counts}));
     if deliver {
-        rt.deliver()
+        rt.deliver().map(exit_for_delivery)
     } else {
         Ok(ExitCode::SUCCESS)
     }
@@ -225,14 +172,56 @@ fn outcome_name(o: &AdmissionOutcome) -> &'static str {
     }
 }
 
-fn check(config_path: &std::path::Path) -> Result<ExitCode, String> {
+fn serve(config_path: &Path) -> Result<ExitCode, String> {
     let loaded = Loaded::read(config_path)?;
-    let engine = Engine::new(
-        loaded.engine_config(),
-        loaded.required_sinks(),
-        Arc::new(SystemClock),
-    )
-    .map_err(|e| format!("configuration: {e}"))?;
+    let prepared = server::prepare(&loaded, true)?;
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| format!("cannot start the async runtime: {e}"))?;
+    let served = runtime.block_on(async {
+        let listener = tokio::net::TcpListener::bind(&prepared.listen)
+            .await
+            .map_err(|e| format!("cannot listen on {}: {e}", prepared.listen))?;
+        let addr = listener.local_addr().map_err(|e| e.to_string())?;
+        eprintln!("{}", json!({"listening": addr.to_string()}));
+        axum::serve(listener, prepared.router)
+            .with_graceful_shutdown(shutdown_signal())
+            .await
+            .map_err(|e| format!("server: {e}"))
+    });
+    // Deliver what was admitted before shutting down (ENG-03).
+    if let Some(worker) = prepared.worker {
+        worker.stop();
+    }
+    served.map(|()| ExitCode::SUCCESS)
+}
+
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        let _ = tokio::signal::ctrl_c().await;
+    };
+    #[cfg(unix)]
+    let terminate = async {
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut s) => {
+                s.recv().await;
+            }
+            Err(_) => std::future::pending::<()>().await,
+        }
+    };
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+    tokio::select! {
+        () = ctrl_c => {},
+        () = terminate => {},
+    }
+    eprintln!("{}", json!({"shutdown": "draining"}));
+}
+
+fn check(config_path: &Path) -> Result<ExitCode, String> {
+    let loaded = Loaded::read(config_path)?;
+    let engine = build_engine(&loaded)?;
     for p in engine.registry().iter() {
         println!(
             "{}",
@@ -249,12 +238,34 @@ fn check(config_path: &std::path::Path) -> Result<ExitCode, String> {
     Ok(ExitCode::SUCCESS)
 }
 
+fn token(id: &str) -> Result<ExitCode, String> {
+    if !core_memory_core::is_identifier(id) {
+        return Err(format!("token id `{id}` is not a valid identifier"));
+    }
+    let mut bytes = [0u8; 32];
+    getrandom::fill(&mut bytes).map_err(|e| format!("cannot generate a token: {e}"))?;
+    let token = format!("cm_{}", core_memory_contract::hash::to_hex(&bytes));
+    let hash = Sha256Digest::of(token.as_bytes());
+    println!("token: {token}");
+    println!();
+    println!(
+        "Give the token to the caller. Add this to core-memory.toml; it stores only the hash:"
+    );
+    println!();
+    println!("[[http.token]]");
+    println!("id = \"{id}\"");
+    println!("sha256 = \"{hash}\"");
+    println!("scopes = [\"<scope>\"]");
+    Ok(ExitCode::SUCCESS)
+}
+
 fn schema(name: Option<&str>) -> Result<ExitCode, String> {
     match name {
         None => {
             for c in Contract::ALL {
                 println!("{}\t{}", c.name(), c.digest());
             }
+            Ok(ExitCode::SUCCESS)
         }
         Some(name) => {
             let contract = Contract::from_name(name).ok_or_else(|| {
@@ -264,10 +275,13 @@ fn schema(name: Option<&str>) -> Result<ExitCode, String> {
                     names.join(", ")
                 )
             })?;
-            let text =
-                serde_json::to_string_pretty(&contract.schema()).map_err(|e| e.to_string())?;
-            println!("{text}");
+            print_json(&contract.schema())
         }
     }
+}
+
+fn print_json(value: &serde_json::Value) -> Result<ExitCode, String> {
+    let text = serde_json::to_string_pretty(value).map_err(|e| e.to_string())?;
+    println!("{text}");
     Ok(ExitCode::SUCCESS)
 }

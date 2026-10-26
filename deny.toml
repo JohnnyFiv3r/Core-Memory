@@ -13,6 +13,7 @@ confidence-threshold = 0.9
 # Licenses in the dependency tree today. Adding one is a reviewed change.
 allow = [
   "Apache-2.0",
+  "BSD-3-Clause", # matchit (axum's router)
   "MIT",
   "Unicode-3.0",
   "Zlib",

@@ -10,23 +10,33 @@ homepage.workspace = true
 authors.workspace = true
 publish.workspace = true
 
+[lib]
+name = "core_memory_sidecar"
+path = "src/lib.rs"
+
 [[bin]]
 name = "core-memory"
 path = "src/main.rs"
 
 [dependencies]
+axum.workspace = true
 clap.workspace = true
 core-memory-contract.workspace = true
 core-memory-core.workspace = true
 core-memory-sink-jsonl.workspace = true
 core-memory-source-jsonl.workspace = true
 core-memory-store-sqlite.workspace = true
+getrandom.workspace = true
+schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+tokio.workspace = true
 toml.workspace = true
 
 [dev-dependencies]
+http-body-util.workspace = true
 tempfile.workspace = true
+tower.workspace = true
 
 [lints]
 workspace = true
