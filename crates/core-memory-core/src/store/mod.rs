@@ -1,16 +1,18 @@
 //! The operational store (OPS-01).
 //!
-//! It holds the event-key ledger and tombstones, profile pins, and the
-//! outbox of records waiting for delivery. It is never queried by consumers
-//! and exposes no retrieval API.
+//! It holds the event-key ledger and tombstones, profile pins, the outbox
+//! of records waiting for delivery, chunks waiting for a model type
+//! decision, and the attempt journal of model calls. It is never queried by
+//! consumers and exposes no retrieval API.
 
 mod memory;
 
 pub use memory::MemoryStore;
 
-use core_memory_contract::{ChunkId, EventId, EventKey, Sha256Digest, Timestamp};
+use core_memory_contract::{ChunkId, EventId, EventKey, PendingReason, Sha256Digest, Timestamp};
 
 use crate::error::StoreError;
+use crate::model::Usage;
 
 /// What the ledger knows about an event key.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -25,8 +27,8 @@ pub enum LedgerEntry {
     Tombstoned,
 }
 
-/// Everything one admission writes, committed atomically: the ledger entry
-/// and the records for the outbox.
+/// Everything one admission writes, committed atomically: the ledger entry,
+/// the records for the outbox, and the chunks held for a model decision.
 #[derive(Debug, Clone)]
 pub struct AdmissionWrite<'a> {
     pub key: &'a EventKey,
@@ -34,7 +36,124 @@ pub struct AdmissionWrite<'a> {
     pub event_hash: Sha256Digest,
     pub chunk_ids: &'a [ChunkId],
     pub records: Vec<OutboxRecord>,
+    pub held: Vec<HeldChunk>,
     pub admitted_at: Timestamp,
+}
+
+/// A chunk whose record is held until a model decides its type, or until
+/// `deadline_at`, whichever comes first (CLS-05).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HeldChunk {
+    pub chunk_id: ChunkId,
+    pub event_id: EventId,
+    pub scope: String,
+    pub profile_id: String,
+    pub text: String,
+    pub record: OutboxRecord,
+    pub deadline_at: Timestamp,
+}
+
+/// A chunk in the classification queue. `held_record` is present until the
+/// chunk record has been released to the outbox.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QueuedChunk {
+    pub chunk_id: ChunkId,
+    pub event_id: EventId,
+    pub scope: String,
+    pub profile_id: String,
+    pub text: String,
+    pub held_record: Option<OutboxRecord>,
+    pub deadline_at: Timestamp,
+    pub attempts: u32,
+    pub last_reason: Option<PendingReason>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QueueUpdate {
+    pub chunk_id: ChunkId,
+    pub action: QueueAction,
+}
+
+/// What to do with a queued chunk. Applied atomically per batch; an update
+/// for a chunk no longer queued is ignored.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum QueueAction {
+    /// The type is final. Emit `if_held` if the chunk record is still held,
+    /// otherwise `if_released`, and leave the queue. Pending becomes final
+    /// exactly once (CLS-04).
+    Complete {
+        if_held: Option<OutboxRecord>,
+        if_released: OutboxRecord,
+    },
+    /// Not decided yet. Keep the chunk queued with `reason`; move its next
+    /// attempt if given; release the held record as `release` if still held.
+    Retry {
+        reason: PendingReason,
+        next_attempt_at: Option<Timestamp>,
+        count_attempt: bool,
+        release: Option<OutboxRecord>,
+    },
+    /// Stop trying. Release the held record if still held and leave the
+    /// queue; the chunk stays pending until a backfill.
+    Abandon { release: Option<OutboxRecord> },
+}
+
+/// A model call about to be sent, charged against the budget first (MOD-04).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AttemptReservation {
+    pub attempt_id: String,
+    pub binding_id: String,
+    pub binding_rev: Sha256Digest,
+    pub scope: String,
+    /// UTC date the budget is counted in, `YYYY-MM-DD`.
+    pub day: String,
+    /// Reserved maxima. Reservations are never refunded.
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub chunk_count: u32,
+    pub started_at: Timestamp,
+    pub max_requests: u64,
+    pub max_tokens: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReserveOutcome {
+    Reserved,
+    /// The call would exceed the day's budget. Nothing was recorded.
+    Exhausted,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AttemptState {
+    /// A reply came back and passed validation.
+    Succeeded,
+    /// A reply came back and failed validation.
+    Rejected,
+    TransientError,
+    PermanentError,
+    /// The outcome is unknown; the provider may have processed the call.
+    InDoubt,
+}
+
+impl AttemptState {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            AttemptState::Succeeded => "succeeded",
+            AttemptState::Rejected => "rejected",
+            AttemptState::TransientError => "transient_error",
+            AttemptState::PermanentError => "permanent_error",
+            AttemptState::InDoubt => "in_doubt",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AttemptFinish {
+    pub attempt_id: String,
+    pub state: AttemptState,
+    pub usage: Option<Usage>,
+    pub detail: Option<String>,
+    pub finished_at: Timestamp,
 }
 
 /// A serialized record queued for delivery.
@@ -134,6 +253,35 @@ pub trait OperationalStore {
     /// Deletes outbox entries every sink in `required` has passed. Optional
     /// sinks never hold entries back. Returns how many were deleted.
     fn prune_outbox(&mut self, required: &[String]) -> Result<u64, StoreError>;
+
+    /// Claims up to `limit` due chunks (next attempt reached, no live lease)
+    /// sharing one (scope, profile), leasing them until `lease_until`.
+    /// Batches never mix scopes (SEC-04).
+    fn claim_classification(
+        &mut self,
+        now: Timestamp,
+        lease_until: Timestamp,
+        limit: usize,
+    ) -> Result<Vec<QueuedChunk>, StoreError>;
+
+    /// Up to `limit` queued chunks still held past their deadline.
+    fn expired_holds(&self, now: Timestamp, limit: usize) -> Result<Vec<QueuedChunk>, StoreError>;
+
+    /// Applies queue updates and the records they emit, atomically.
+    fn apply_classification(&mut self, updates: Vec<QueueUpdate>) -> Result<(), StoreError>;
+
+    /// Number of chunks waiting for a model decision.
+    fn classification_queue_len(&self) -> Result<u64, StoreError>;
+
+    /// Records a model call as started and charges its reserved tokens to
+    /// the (binding, scope, day) budget, or refuses if that would exceed it.
+    fn reserve_attempt(
+        &mut self,
+        reservation: &AttemptReservation,
+    ) -> Result<ReserveOutcome, StoreError>;
+
+    /// Records how a started call ended.
+    fn finish_attempt(&mut self, finish: &AttemptFinish) -> Result<(), StoreError>;
 
     /// Records queued but not yet delivered to the slowest required sink.
     fn outbox_backlog(&self, required: &[String]) -> Result<u64, StoreError> {

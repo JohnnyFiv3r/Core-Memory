@@ -8,22 +8,28 @@
 //! This crate imports no store, source, sink or model-provider crate. Those
 //! plug in through [`store::OperationalStore`] and [`sink::Sink`].
 
+pub mod classifier;
 pub mod classify;
+mod classify_pass;
 pub mod clock;
 pub mod content;
 pub mod engine;
 pub mod error;
 pub mod facets;
 mod ident;
+pub mod model;
 pub mod profile;
 pub mod sink;
 pub mod store;
 pub mod vocab;
 
+pub use classifier::ClassifierConfig;
+pub use classify_pass::ClassifyReport;
 pub use clock::{Clock, ManualClock, SystemClock};
 pub use engine::{Engine, EngineConfig, Limits, Readiness, ScopeGrants, StartupError};
 pub use error::{ConfigError, EngineError, StoreError};
 pub use ident::is_identifier;
+pub use model::{BindingConfig, ModelTransport};
 pub use profile::{ProfileRegistry, SourceProfile};
 pub use sink::{
     DeliveryReport, Sink, SinkCaps, SinkError, WriteOutcome, deliver_all, deliver_once,

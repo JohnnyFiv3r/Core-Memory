@@ -211,6 +211,10 @@ impl Loaded {
             vocabulary: self.config.vocabulary.clone(),
             profiles: self.config.profiles.clone(),
             limits: self.config.limits,
+            // The command has no model adapter yet, so the model tier stays
+            // off and unmatched chunks are pending{no_classifier}.
+            classifier: None,
+            bindings: Vec::new(),
         }
     }
 }

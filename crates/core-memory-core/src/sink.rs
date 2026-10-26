@@ -316,6 +316,7 @@ mod tests {
                 event_hash: Sha256Digest([0; 32]),
                 chunk_ids: &[],
                 records,
+                held: Vec::new(),
                 admitted_at: Timestamp::from_unix_millis(0),
             })
             .unwrap();
