@@ -19,11 +19,13 @@ env:
 
 jobs:
   lint:
-    name: fmt, clippy, layering
+    name: fmt, clippy (1.99), layering
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      # Pinned so a new stable release cannot fail a PR with new lints.
+      # Bump deliberately, together with any fixes it needs.
+      - uses: dtolnay/rust-toolchain@1.99
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2

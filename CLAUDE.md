@@ -99,7 +99,7 @@ operational state.
 
 ```bash
 cargo fmt --all
-cargo clippy --workspace --all-targets -- -D warnings
+cargo +1.99 clippy --workspace --all-targets -- -D warnings   # CI's lint toolchain
 cargo test --workspace
 python3 scripts/check_layering.py
 ```

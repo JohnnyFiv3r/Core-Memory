@@ -54,8 +54,9 @@ impl FromStr for Sha256Digest {
             return Err(ParseDigestError);
         }
         let mut out = [0u8; 32];
-        for (i, pair) in bytes.chunks_exact(2).enumerate() {
-            out[i] = (hex_value(pair[0])? << 4) | hex_value(pair[1])?;
+        let (pairs, _) = bytes.as_chunks::<2>();
+        for (i, [hi, lo]) in pairs.iter().enumerate() {
+            out[i] = (hex_value(*hi)? << 4) | hex_value(*lo)?;
         }
         Ok(Self(out))
     }
