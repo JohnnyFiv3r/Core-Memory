@@ -21,7 +21,7 @@ pub mod store;
 pub mod vocab;
 
 pub use clock::{Clock, ManualClock, SystemClock};
-pub use engine::{Engine, EngineConfig, Limits, ScopeGrants, StartupError};
+pub use engine::{Engine, EngineConfig, Limits, Readiness, ScopeGrants, StartupError};
 pub use error::{ConfigError, EngineError, StoreError};
 pub use ident::is_identifier;
 pub use profile::{ProfileRegistry, SourceProfile};

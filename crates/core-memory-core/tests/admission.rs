@@ -386,12 +386,14 @@ fn backlog_applies_backpressure_but_replays_still_answer() {
             .unwrap();
         assert!(matches!(out, AdmissionOutcome::Accepted { .. }));
     }
+    assert!(!engine.readiness(&store).unwrap().ready);
     let busy = engine.admit(&mut store, &all(), &chat("B6", "x")).unwrap();
     assert!(matches!(busy, AdmissionOutcome::Busy { .. }), "{busy:?}");
     let replay = engine.admit(&mut store, &all(), &chat("B0", "x")).unwrap();
     assert!(matches!(replay, AdmissionOutcome::Replay { .. }));
 
     store.advance_sink_cursor("primary", 6, &[]).unwrap();
+    assert!(engine.readiness(&store).unwrap().ready);
     let after = engine.admit(&mut store, &all(), &chat("B6", "x")).unwrap();
     assert!(matches!(after, AdmissionOutcome::Accepted { .. }));
 }
