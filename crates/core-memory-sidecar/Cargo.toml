@@ -23,6 +23,8 @@ axum.workspace = true
 clap.workspace = true
 core-memory-contract.workspace = true
 core-memory-core.workspace = true
+core-memory-model-anthropic.workspace = true
+core-memory-model-openai.workspace = true
 core-memory-sink-jsonl.workspace = true
 core-memory-source-jsonl.workspace = true
 core-memory-store-sqlite.workspace = true
@@ -34,6 +36,7 @@ tokio.workspace = true
 toml.workspace = true
 
 [dev-dependencies]
+core-memory-model-http = { workspace = true, features = ["testing"] }
 http-body-util.workspace = true
 tempfile.workspace = true
 tower.workspace = true

@@ -20,7 +20,7 @@ use core_memory_contract::schema::Contract;
 use core_memory_contract::{
     AdmissionOutcome, FieldError, RefusalReason, Sha256Digest, SourceEvent,
 };
-use core_memory_core::{Engine, ScopeGrants};
+use core_memory_core::{Engine, ModelTransport, ScopeGrants};
 use core_memory_sink_jsonl::JsonlSink;
 use core_memory_store_sqlite::SqliteStore;
 use schemars::JsonSchema;
@@ -29,7 +29,10 @@ use serde_json::value::RawValue;
 
 use crate::config::{Loaded, grants_from};
 use crate::openapi;
-use crate::runtime::{build_engine, deliver_round, delivery_line, open_sinks, open_store};
+use crate::runtime::{
+    build_engine, build_transport, classify_line, deliver_round, delivery_line, open_sinks,
+    open_store,
+};
 
 /// A configured caller.
 #[derive(Debug)]
@@ -44,7 +47,8 @@ pub struct AppState {
     engine: Engine,
     store: Mutex<SqliteStore>,
     tokens: Vec<Token>,
-    wake: Option<SyncSender<Signal>>,
+    /// Woken after admissions: the classifier and the delivery thread.
+    wake: Vec<SyncSender<Signal>>,
     max_batch: usize,
 }
 
@@ -55,8 +59,8 @@ impl AppState {
         self.store.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    fn wake_delivery(&self) {
-        if let Some(tx) = &self.wake {
+    fn wake_workers(&self) {
+        for tx in &self.wake {
             // A full channel means a wake is already pending.
             let _ = tx.try_send(Signal::Wake);
         }
@@ -171,13 +175,100 @@ fn run_delivery(
     }
 }
 
-/// A server ready to run: its router and, unless disabled, its delivery
-/// thread.
+/// The background thread that classifies held chunks through the model
+/// binding, then wakes delivery for the records it emitted.
+#[derive(Debug)]
+pub struct ClassifierWorker {
+    tx: SyncSender<Signal>,
+    handle: JoinHandle<()>,
+}
+
+impl ClassifierWorker {
+    pub fn start(
+        engine: Engine,
+        store: SqliteStore,
+        transport: Box<dyn ModelTransport>,
+        interval: Duration,
+        delivery: Option<SyncSender<Signal>>,
+    ) -> Self {
+        let (tx, rx) = mpsc::sync_channel(1);
+        let handle = std::thread::spawn(move || {
+            run_classifier(rx, engine, store, transport, interval, delivery)
+        });
+        Self { tx, handle }
+    }
+
+    fn sender(&self) -> SyncSender<Signal> {
+        self.tx.clone()
+    }
+
+    /// Finishes the batch in progress and waits for the thread to end.
+    /// Held records stay held; the next start picks them up.
+    pub fn stop(self) {
+        let _ = self.tx.send(Signal::Stop);
+        let _ = self.handle.join();
+    }
+}
+
+fn run_classifier(
+    rx: mpsc::Receiver<Signal>,
+    engine: Engine,
+    mut store: SqliteStore,
+    transport: Box<dyn ModelTransport>,
+    interval: Duration,
+    delivery: Option<SyncSender<Signal>>,
+) {
+    let mut wait = Duration::ZERO;
+    loop {
+        if matches!(
+            rx.recv_timeout(wait),
+            Ok(Signal::Stop) | Err(RecvTimeoutError::Disconnected)
+        ) {
+            return;
+        }
+        // One batch per turn, so a stop never waits behind many calls.
+        wait = interval;
+        match engine.classify_due(&mut store, transport.as_ref(), 1) {
+            Ok(report) => {
+                if report.calls + report.released + report.abandoned > 0 {
+                    eprintln!("{}", classify_line(&report));
+                }
+                if report.decided + report.released + report.abandoned > 0
+                    && let Some(tx) = &delivery
+                {
+                    let _ = tx.try_send(Signal::Wake);
+                }
+                if report.calls > 0 {
+                    // There may be more due; keep draining.
+                    wait = Duration::ZERO;
+                }
+            }
+            Err(e) => eprintln!("{}", serde_json::json!({"classify_error": e.to_string()})),
+        }
+    }
+}
+
+/// A server ready to run: its router and, unless disabled, its background
+/// threads.
 #[derive(Debug)]
 pub struct Prepared {
     pub router: Router,
     pub worker: Option<DeliveryWorker>,
+    pub classifier: Option<ClassifierWorker>,
     pub listen: String,
+}
+
+impl Prepared {
+    /// Stops the classifier, then delivery, so the last decisions are
+    /// delivered before exit.
+    pub fn shutdown(self) {
+        if let Some(classifier) = self.classifier {
+            classifier.stop();
+        }
+        if let Some(worker) = self.worker {
+            worker.stop();
+        }
+    }
 }
 
 /// Opens the engine, store and sinks for `loaded` and builds the router.
@@ -197,6 +288,7 @@ pub fn prepare(loaded: &Loaded, start_delivery: bool) -> Result<Prepared, String
     let engine = build_engine(loaded)?;
     let mut store = open_store(loaded)?;
     engine.pin_profiles(&mut store).map_err(|e| e.to_string())?;
+    let transport = build_transport(loaded)?;
     let worker = if start_delivery {
         Some(DeliveryWorker::start(
             open_store(loaded)?,
@@ -206,6 +298,17 @@ pub fn prepare(loaded: &Loaded, start_delivery: bool) -> Result<Prepared, String
         ))
     } else {
         None
+    };
+    let interval = Duration::from_millis(http.delivery_interval_ms);
+    let classifier = match transport {
+        Some(transport) if start_delivery => Some(ClassifierWorker::start(
+            build_engine(loaded)?,
+            open_store(loaded)?,
+            transport,
+            interval,
+            worker.as_ref().map(DeliveryWorker::sender),
+        )),
+        _ => None,
     };
     let tokens = http
         .tokens
@@ -219,12 +322,17 @@ pub fn prepare(loaded: &Loaded, start_delivery: bool) -> Result<Prepared, String
         engine,
         store: Mutex::new(store),
         tokens,
-        wake: worker.as_ref().map(DeliveryWorker::sender),
+        wake: classifier
+            .iter()
+            .map(ClassifierWorker::sender)
+            .chain(worker.iter().map(DeliveryWorker::sender))
+            .collect(),
         max_batch: http.max_batch_events,
     });
     Ok(Prepared {
         router: router(state, http.max_body_bytes),
         worker,
+        classifier,
         listen: http.listen.clone(),
     })
 }
@@ -360,7 +468,7 @@ async fn post_event(
     match result {
         Ok(Ok(outcome)) => {
             if matches!(outcome, AdmissionOutcome::Accepted { .. }) {
-                state.wake_delivery();
+                state.wake_workers();
             }
             admission_response(outcome)
         }
@@ -414,7 +522,7 @@ async fn post_batch(
                 .iter()
                 .any(|o| matches!(o, AdmissionOutcome::Accepted { .. }))
             {
-                state.wake_delivery();
+                state.wake_workers();
             }
             (StatusCode::OK, axum::Json(BatchResponse { results })).into_response()
         }

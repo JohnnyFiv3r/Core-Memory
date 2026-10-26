@@ -38,6 +38,18 @@ enum Command {
         /// Queue records without delivering them.
         #[arg(long)]
         no_deliver: bool,
+        /// Keep records held for a model type until their deadline instead
+        /// of releasing them as pending when the run ends.
+        #[arg(long)]
+        keep_holds: bool,
+    },
+    /// Run a model classification pass (retries and late decisions), then
+    /// deliver.
+    Classify {
+        #[arg(long, default_value = "core-memory.toml")]
+        config: PathBuf,
+        #[arg(long)]
+        keep_holds: bool,
     },
     /// Serve the engine over HTTP, delivering records in the background.
     Serve {
@@ -73,7 +85,14 @@ fn main() -> ExitCode {
             config,
             input,
             no_deliver,
-        } => ingest(&config, &input, !no_deliver),
+            keep_holds,
+        } => ingest(&config, &input, !no_deliver, keep_holds),
+        Command::Classify { config, keep_holds } => Runtime::open(&config)
+            .and_then(|mut rt| {
+                rt.classify(keep_holds)?;
+                rt.deliver()
+            })
+            .map(exit_for_delivery),
         Command::Serve { config } => serve(&config),
         Command::Deliver { config } => Runtime::open(&config)
             .and_then(|mut rt| rt.deliver())
@@ -101,7 +120,12 @@ fn exit_for_delivery(complete: bool) -> ExitCode {
     }
 }
 
-fn ingest(config_path: &Path, input: &str, deliver: bool) -> Result<ExitCode, String> {
+fn ingest(
+    config_path: &Path,
+    input: &str,
+    deliver: bool,
+    keep_holds: bool,
+) -> Result<ExitCode, String> {
     let mut rt = Runtime::open(config_path)?;
     let grants = rt.loaded.grants();
     let reader: Box<dyn BufRead> = if input == "-" {
@@ -155,6 +179,7 @@ fn ingest(config_path: &Path, input: &str, deliver: bool) -> Result<ExitCode, St
     }
     out.flush().map_err(|e| format!("stdout: {e}"))?;
     eprintln!("{}", json!({"admitted": counts}));
+    rt.classify(keep_holds)?;
     if deliver {
         rt.deliver().map(exit_for_delivery)
     } else {
@@ -179,21 +204,20 @@ fn serve(config_path: &Path) -> Result<ExitCode, String> {
         .enable_all()
         .build()
         .map_err(|e| format!("cannot start the async runtime: {e}"))?;
+    let router = prepared.router.clone();
     let served = runtime.block_on(async {
         let listener = tokio::net::TcpListener::bind(&prepared.listen)
             .await
             .map_err(|e| format!("cannot listen on {}: {e}", prepared.listen))?;
         let addr = listener.local_addr().map_err(|e| e.to_string())?;
         eprintln!("{}", json!({"listening": addr.to_string()}));
-        axum::serve(listener, prepared.router)
+        axum::serve(listener, router)
             .with_graceful_shutdown(shutdown_signal())
             .await
             .map_err(|e| format!("server: {e}"))
     });
     // Deliver what was admitted before shutting down (ENG-03).
-    if let Some(worker) = prepared.worker {
-        worker.stop();
-    }
+    prepared.shutdown();
     served.map(|()| ExitCode::SUCCESS)
 }
 
