@@ -110,8 +110,20 @@ fn never_sent(kind: std::io::ErrorKind) -> bool {
 }
 
 /// Maps a non-success status to a transport error. 408, 409, 429 and 5xx
-/// (including 529 overloaded) are retryable; other 4xx are not.
-pub fn status_error(provider: &str, reply: &HttpReply) -> TransportError {
+/// (including 529 overloaded) are retryable; 413 means the request was too
+/// large, so a smaller batch may succeed; other 4xx are not retryable,
+/// unless the provider's own error body says otherwise.
+///
+/// `refused` is the adapter's reading of its provider's error bodies. It
+/// sees each other 4xx status with its body parsed as JSON, and returns
+/// true only for the documented shapes that mean the model declined the
+/// content or the request did not fit; those become
+/// [`TransportError::Refused`]. Everything else stays permanent.
+pub fn status_error(
+    provider: &str,
+    reply: &HttpReply,
+    refused: fn(u16, &serde_json::Value) -> bool,
+) -> TransportError {
     let snippet: String = reply.body.chars().take(ERROR_BODY_CHARS).collect();
     let message = format!("{provider} returned {}: {snippet}", reply.status);
     match reply.status {
@@ -119,6 +131,12 @@ pub fn status_error(provider: &str, reply: &HttpReply) -> TransportError {
             message,
             retry_after_ms: reply.retry_after_ms,
         },
+        413 => TransportError::Refused { message },
+        status @ 400..=499
+            if serde_json::from_str(&reply.body).is_ok_and(|body| refused(status, &body)) =>
+        {
+            TransportError::Refused { message }
+        }
         _ => TransportError::Permanent { message },
     }
 }
@@ -272,23 +290,51 @@ mod tests {
         }
     }
 
+    fn never(_: u16, _: &serde_json::Value) -> bool {
+        false
+    }
+
+    fn always(_: u16, _: &serde_json::Value) -> bool {
+        true
+    }
+
     #[test]
     fn retryable_statuses_are_transient() {
         for status in [408, 409, 429, 500, 503, 529] {
             assert!(matches!(
-                status_error("p", &reply(status, Some(2000))),
+                status_error("p", &reply(status, Some(2000)), always),
                 TransportError::Transient {
                     retry_after_ms: Some(2000),
                     ..
                 }
             ));
         }
-        for status in [400, 401, 403, 404, 413] {
+        for status in [400, 401, 403, 404] {
             assert!(matches!(
-                status_error("p", &reply(status, None)),
+                status_error("p", &reply(status, None), never),
                 TransportError::Permanent { .. }
             ));
         }
+        assert!(matches!(
+            status_error("p", &reply(413, None), never),
+            TransportError::Refused { .. }
+        ));
+    }
+
+    #[test]
+    fn the_adapter_reads_other_client_errors() {
+        assert!(matches!(
+            status_error("p", &reply(400, None), always),
+            TransportError::Refused { .. }
+        ));
+        let unreadable = HttpReply {
+            body: "<html>bad request</html>".into(),
+            ..reply(400, None)
+        };
+        assert!(matches!(
+            status_error("p", &unreadable, always),
+            TransportError::Permanent { .. }
+        ));
     }
 
     #[test]
