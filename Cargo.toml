@@ -19,6 +19,7 @@ core-memory-core = { path = "crates/core-memory-core", version = "=2.0.0-alpha.1
 core-memory-store-sqlite = { path = "crates/core-memory-store-sqlite", version = "=2.0.0-alpha.1" }
 core-memory-source-jsonl = { path = "crates/core-memory-source-jsonl", version = "=2.0.0-alpha.1" }
 core-memory-sink-jsonl = { path = "crates/core-memory-sink-jsonl", version = "=2.0.0-alpha.1" }
+core-memory-conformance = { path = "crates/core-memory-conformance", version = "=2.0.0-alpha.1" }
 core-memory-model-http = { path = "crates/core-memory-model-http", version = "=2.0.0-alpha.1" }
 core-memory-model-anthropic = { path = "crates/core-memory-model-anthropic", version = "=2.0.0-alpha.1" }
 core-memory-model-openai = { path = "crates/core-memory-model-openai", version = "=2.0.0-alpha.1" }

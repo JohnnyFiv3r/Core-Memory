@@ -22,6 +22,8 @@ ALLOWED = {
     "core-memory-sink-*": ["core-memory-contract", "core-memory-core"],
     "core-memory-model-http": ["core-memory-contract", "core-memory-core"],
     "core-memory-model-*": ["core-memory-contract", "core-memory-core", "core-memory-model-http"],
+    # Test-only: adapters take it as a dev-dependency.
+    "core-memory-conformance": ["core-memory-contract", "core-memory-core"],
     "core-memory-sidecar": ["*"],
     "core-memory": ["*"],
 }

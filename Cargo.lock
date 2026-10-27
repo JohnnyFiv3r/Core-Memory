@@ -327,6 +327,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "core-memory-conformance"
+version = "2.0.0-alpha.1"
+dependencies = [
+ "core-memory-contract",
+ "core-memory-core",
+ "serde_json",
+ "toml",
+]
+
+[[package]]
 name = "core-memory-contract"
 version = "2.0.0-alpha.1"
 dependencies = [
@@ -412,7 +422,9 @@ dependencies = [
 name = "core-memory-sink-jsonl"
 version = "2.0.0-alpha.1"
 dependencies = [
+ "core-memory-conformance",
  "core-memory-core",
+ "serde_json",
  "tempfile",
 ]
 

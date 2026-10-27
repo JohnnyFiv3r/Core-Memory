@@ -130,7 +130,9 @@ decisions later. `core-memory serve` classifies in the background.
   an attempt journal. Without a classifier, chunks no rule types are
   `pending{no_classifier}`.
 - **Delivery** through a transactional outbox to JSONL, with per-sink
-  cursors.
+  cursors. Every sink adapter must pass the same conformance suite
+  (`core-memory-conformance`), which checks what the sink holds against
+  what the engine sent.
 - An embedded **SQLite** operational store whose ledger rows cannot be
   deleted.
 - An authenticated **HTTP sidecar** (`core-memory serve`) with per-token
@@ -151,6 +153,7 @@ deletion.
 | `core-memory-model-anthropic`, `core-memory-model-openai` | Model transports (`core-memory-model-http` holds their shared plumbing) |
 | `core-memory-sidecar` | The `core-memory` command: `ingest`, `serve`, `classify`, `deliver`, `check`, `token`, `schema`, `openapi` |
 | `core-memory` | Facade re-exporting the above |
+| `core-memory-conformance` | The conformance suite every sink adapter runs, with golden records (test-only) |
 
 ## Looking for Core Memory 1.x?
 
