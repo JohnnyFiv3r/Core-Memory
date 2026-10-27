@@ -152,8 +152,11 @@ pub enum TransportError {
         message: String,
         retry_after_ms: Option<u64>,
     },
-    /// The request itself is unacceptable: credentials, model, size.
+    /// The request itself is unacceptable: credentials, model, settings.
     Permanent { message: String },
+    /// The model declined this request's content, or the request or its
+    /// reply did not fit. The same chunks in a smaller batch may succeed.
+    Refused { message: String },
     /// The request may have been processed: a timeout after sending.
     InDoubt { message: String },
 }
@@ -163,6 +166,7 @@ impl fmt::Display for TransportError {
         match self {
             TransportError::Transient { message, .. } => write!(f, "transient: {message}"),
             TransportError::Permanent { message } => write!(f, "permanent: {message}"),
+            TransportError::Refused { message } => write!(f, "refused: {message}"),
             TransportError::InDoubt { message } => write!(f, "in doubt: {message}"),
         }
     }

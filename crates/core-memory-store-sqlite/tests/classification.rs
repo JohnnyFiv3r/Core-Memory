@@ -4,9 +4,11 @@
 
 use std::sync::Arc;
 
-use core_memory_contract::{PendingReason, Record, RecordBody, SourceEvent, TypeOutcome};
+use core_memory_contract::{
+    PendingReason, Record, RecordBody, SourceEvent, Timestamp, TypeOutcome,
+};
 use core_memory_core::model::{FnTransport, ModelRequest, ModelResponse, TransportError, Usage};
-use core_memory_core::store::OperationalStore;
+use core_memory_core::store::{OperationalStore, QueueAction, QueueUpdate, QueuedChunk};
 use core_memory_core::{Engine, EngineConfig, ManualClock, ScopeGrants};
 use core_memory_store_sqlite::SqliteStore;
 use serde_json::{Value, json};
@@ -199,4 +201,126 @@ fn claimed_batches_are_leased() {
             .len(),
         1
     );
+}
+
+/// The number in a chunk's text, `We decided item {id}.`
+fn ids(batch: &[QueuedChunk]) -> Vec<&str> {
+    batch
+        .iter()
+        .map(|q| {
+            q.text
+                .trim_start_matches("We decided item ")
+                .trim_end_matches('.')
+        })
+        .collect()
+}
+
+fn back(batch: &[QueuedChunk], cap: impl Fn(&QueuedChunk) -> Option<u32>) -> Vec<QueueUpdate> {
+    batch
+        .iter()
+        .map(|q| QueueUpdate {
+            chunk_id: q.chunk_id,
+            action: QueueAction::Retry {
+                reason: PendingReason::ProviderError,
+                next_attempt_at: None,
+                count_attempt: false,
+                release: None,
+                batch_cap: cap(q),
+            },
+        })
+        .collect()
+}
+
+#[test]
+fn claims_never_exceed_the_smallest_cap_among_their_chunks() {
+    let clock = Arc::new(ManualClock::at_unix_millis(T0));
+    let engine = engine(&clock, 100);
+    let mut store = SqliteStore::open_in_memory().unwrap();
+    for id in ["a", "b", "c", "d", "e"] {
+        engine
+            .admit(&mut store, &ScopeGrants::All, &chat(id))
+            .unwrap();
+    }
+    let now = Timestamp::from_unix_millis(T0);
+    let lease = now.plus_millis(60_000);
+
+    let first = store.claim_classification(now, lease, 4).unwrap();
+    assert_eq!(ids(&first), ["a", "b", "c", "d"]);
+    assert!(first.iter().all(|q| q.batch_cap.is_none()));
+    // a goes back capped at 1, the rest at 2. They keep their place.
+    let caps = |q: &QueuedChunk| Some(if q.text.contains(" a.") { 1 } else { 2 });
+    store.apply_classification(back(&first, caps)).unwrap();
+
+    let a = store.claim_classification(now, lease, 4).unwrap();
+    assert_eq!(ids(&a), ["a"]);
+    assert_eq!(a[0].batch_cap, Some(1));
+    let bc = store.claim_classification(now, lease, 4).unwrap();
+    assert_eq!(ids(&bc), ["b", "c"]);
+    assert!(bc.iter().all(|q| q.batch_cap == Some(2)));
+    // An uncapped chunk may join a capped one's batch, within the cap.
+    let de = store.claim_classification(now, lease, 4).unwrap();
+    assert_eq!(ids(&de), ["d", "e"]);
+
+    // e goes back as it was. a goes back behind it, asking for a cap of 4,
+    // which does not raise its cap of 1.
+    store
+        .apply_classification(back(&de[1..], |_| None))
+        .unwrap();
+    let later = now.plus_millis(10);
+    store
+        .apply_classification(vec![QueueUpdate {
+            chunk_id: a[0].chunk_id,
+            action: QueueAction::Retry {
+                reason: PendingReason::ProviderError,
+                next_attempt_at: Some(later),
+                count_attempt: true,
+                release: None,
+                batch_cap: Some(4),
+            },
+        }])
+        .unwrap();
+    // A batch led by an uncapped chunk leaves a out, and a still goes
+    // alone.
+    let e = store.claim_classification(later, lease, 4).unwrap();
+    assert_eq!(ids(&e), ["e"]);
+    let a = store.claim_classification(later, lease, 4).unwrap();
+    assert_eq!(ids(&a), ["a"]);
+    assert_eq!((a[0].batch_cap, a[0].attempts), (Some(1), 1));
+}
+
+#[test]
+fn one_refused_chunk_in_a_batch_of_eight_on_sqlite() {
+    let clock = Arc::new(ManualClock::at_unix_millis(T0));
+    let engine = engine(&clock, 100);
+    let mut store = SqliteStore::open_in_memory().unwrap();
+    for i in 1..=8 {
+        let mut event = chat(&i.to_string());
+        if i == 3 {
+            event.content =
+                serde_json::from_value(json!({"text": "Text the model refuses."})).unwrap();
+        }
+        engine.admit(&mut store, &ScopeGrants::All, &event).unwrap();
+    }
+    let refusing = FnTransport(|request: &ModelRequest| {
+        if request.user.contains("refuses") {
+            Err(TransportError::Refused {
+                message: "declined".into(),
+            })
+        } else {
+            decide_all(request)
+        }
+    });
+    let (mut calls, mut decided, mut abandoned) = (0, 0, 0);
+    for _ in 0..10 {
+        let r = engine.classify_due(&mut store, &refusing, 2).unwrap();
+        assert!(r.calls <= 4, "{r:?}");
+        calls += r.calls;
+        decided += r.decided;
+        abandoned += r.abandoned;
+        clock.advance_millis(60_000);
+    }
+    assert_eq!((decided, abandoned), (7, 1));
+    // [1-8] [1-4] [1 2] [3 4] [5-8] [4], and [3] alone five times.
+    assert_eq!(calls, 11);
+    assert_eq!(store.classification_queue_len().unwrap(), 0);
 }
