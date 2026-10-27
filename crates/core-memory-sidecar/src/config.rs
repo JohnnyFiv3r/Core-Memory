@@ -127,6 +127,10 @@ pub struct SinkConfig {
     /// `webhook`: the most bytes the receiver takes in one request body.
     #[serde(default)]
     pub max_request_bytes: Option<u64>,
+    /// `memoriesql`: PEM certificates of a private CA to trust as well as
+    /// the public roots, relative to the config file.
+    #[serde(default)]
+    pub ca_file: Option<PathBuf>,
     /// Required sinks apply backpressure and hold records until delivered.
     #[serde(default = "default_true")]
     pub required: bool,
@@ -170,6 +174,7 @@ impl SinkConfig {
                     ("workspace_id", self.workspace_id.is_some()),
                     ("system_of_record", self.system_of_record),
                     ("max_request_bytes", self.max_request_bytes.is_some()),
+                    ("ca_file", self.ca_file.is_some()),
                 ],
             ),
             SinkKind::Webhook => (
@@ -181,6 +186,7 @@ impl SinkConfig {
                     ("path", self.path.is_some()),
                     ("url_env", self.url_env.is_some()),
                     ("workspace_id", self.workspace_id.is_some()),
+                    ("ca_file", self.ca_file.is_some()),
                 ],
             ),
             // memoriesQL is always a system of record; it is not a setting.

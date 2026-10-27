@@ -479,6 +479,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio-postgres-rustls",
+ "uuid",
  "webpki-roots",
 ]
 

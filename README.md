@@ -84,7 +84,13 @@ kind = "memoriesql"
 url_env = "MEMORIESQL_DATABASE_URL"         # postgresql://... ; TLS when the server offers it
 secret_env = "MEMORIESQL_ENGINE_CREDENTIAL" # the paired-client secret
 workspace_id = "<memoriesQL workspace UUID>"
+# ca_file = "rds-ca.pem"                    # a private CA, such as Amazon RDS's
 ```
+
+The server's certificate is checked against the public web roots. A server
+whose certificate comes from a private or self-signed CA (Amazon RDS, or a
+distribution's default PostgreSQL certificate) needs `ca_file`: a failed TLS
+handshake is not retried without TLS.
 
 memoriesQL decides what the engine may deliver: types must be its governed
 bead types, so load them into the engine's vocabulary with

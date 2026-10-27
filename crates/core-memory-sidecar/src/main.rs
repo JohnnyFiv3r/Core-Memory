@@ -301,7 +301,7 @@ fn vocabulary(config_path: &Path, sink_id: &str) -> Result<ExitCode, String> {
         .iter()
         .find(|s| s.id == sink_id && matches!(s.kind, SinkKind::Memoriesql))
         .ok_or_else(|| format!("no memoriesql sink `{sink_id}` in the config"))?;
-    let json = runtime::memoriesql(sink)?
+    let json = runtime::memoriesql(&loaded, sink)?
         .vocabulary()
         .map_err(|e| e.to_string())?;
     let vocabulary: core_memory_core::Vocabulary =

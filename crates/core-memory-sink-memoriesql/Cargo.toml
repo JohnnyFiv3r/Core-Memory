@@ -19,6 +19,7 @@ tokio-postgres-rustls = "0.13"
 webpki-roots = "1"
 serde.workspace = true
 serde_json.workspace = true
+uuid.workspace = true
 
 [features]
 # Runs the conformance suite against a PostgreSQL template database that

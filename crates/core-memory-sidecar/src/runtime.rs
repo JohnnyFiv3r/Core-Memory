@@ -127,7 +127,7 @@ pub fn open_sinks(loaded: &Loaded) -> Result<Vec<BoxedSink>, String> {
                 ));
             }
             SinkKind::Webhook => sinks.push(Box::new(webhook(s)?)),
-            SinkKind::Memoriesql => sinks.push(Box::new(memoriesql(s)?)),
+            SinkKind::Memoriesql => sinks.push(Box::new(memoriesql(loaded, s)?)),
         }
     }
     Ok(sinks)
@@ -155,24 +155,24 @@ fn webhook(s: &SinkConfig) -> Result<WebhookSink, String> {
 
 /// The memoriesQL sink a `[[sink]]` describes. Validates its settings and
 /// environment without connecting.
-pub fn memoriesql(s: &SinkConfig) -> Result<MemoriesqlSink, String> {
-    let from_env = |name: &str, what: &str| {
-        let env = match name {
-            "url" => s.url_env.as_deref(),
-            _ => s.secret_env.as_deref(),
-        }
-        .unwrap_or_default();
+pub fn memoriesql(loaded: &Loaded, s: &SinkConfig) -> Result<MemoriesqlSink, String> {
+    let from_env = |env: Option<&str>, what: &str| {
+        let env = env.unwrap_or_default();
         std::env::var(env)
             .ok()
             .filter(|v| !v.trim().is_empty())
             .ok_or_else(|| format!("sink {}: ${env} must hold {what}", s.id))
     };
     let config = MemoriesqlConfig {
-        url: from_env("url", "the memoriesQL database URL")?,
-        credential: from_env("secret", "the memoriesQL paired-client credential")?,
+        url: from_env(s.url_env.as_deref(), "the memoriesQL database URL")?,
+        credential: from_env(
+            s.secret_env.as_deref(),
+            "the memoriesQL paired-client credential",
+        )?,
         workspace_id: s.workspace_id.clone().unwrap_or_default(),
         max_record_bytes: s.max_record_bytes,
         timeout: Duration::from_millis(s.timeout_ms),
+        ca_file: s.ca_file.as_deref().map(|path| loaded.resolve(path)),
     };
     MemoriesqlSink::new(&s.id, config)
 }

@@ -6,7 +6,7 @@
 //! and `CORE_MEMORY_TEST_MEMORIESQL_TEMPLATE`, a database memoriesQL has
 //! migrated to schema 55. Each harness copies the template, enrolls the
 //! engine scopes `acme` and `beta`, and pairs an engine service credential
-//! with write grants on both.
+//! with write grants on both, and read access unless a test leaves it out.
 
 #![cfg(feature = "postgres-tests")]
 #![allow(clippy::unwrap_used)]
@@ -14,8 +14,8 @@
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
-use core_memory_conformance::Harness;
-use core_memory_core::sink::Sink;
+use core_memory_conformance::{Harness, Scenario, checks};
+use core_memory_core::sink::{Sink, WriteOutcome};
 use core_memory_sink_memoriesql::{MemoriesqlConfig, MemoriesqlSink};
 use postgres::{Client, NoTls};
 use serde_json::Value;
@@ -43,6 +43,10 @@ struct MemoriesqlHarness {
 
 impl MemoriesqlHarness {
     fn new() -> Self {
+        Self::with_read_access(true)
+    }
+
+    fn with_read_access(reader: bool) -> Self {
         let admin = std::env::var("CORE_MEMORY_TEST_MEMORIESQL_URL")
             .expect("set CORE_MEMORY_TEST_MEMORIESQL_URL to an administrator URL");
         let template = std::env::var("CORE_MEMORY_TEST_MEMORIESQL_TEMPLATE")
@@ -75,13 +79,13 @@ impl MemoriesqlHarness {
             database,
             url,
         };
-        harness.setup(&mut config.connect(NoTls).unwrap());
+        harness.setup(&mut config.connect(NoTls).unwrap(), reader);
         harness
     }
 
     /// The owner bootstraps, enrolls both engine scopes, pairs the engine
     /// and grants it write on each, all through memoriesQL's functions.
-    fn setup(&self, db: &mut Client) {
+    fn setup(&self, db: &mut Client, reader: bool) {
         let owner = sha(OWNER_SECRET);
         db.batch_execute(&format!(
             "BEGIN; SET LOCAL ROLE memoriesql_application;
@@ -135,12 +139,17 @@ impl MemoriesqlHarness {
             })
             .collect();
         // Read access lets a conflict carry the stored record (REC-07).
+        let (capabilities, grants) = if reader {
+            ("'engine.records.deliver', 'source.read'", "'read', 'write'")
+        } else {
+            ("'engine.records.deliver'", "'write'")
+        };
         let engine = uuid(200);
         as_owner(
             db,
             &format!(
                 "SELECT memoriesql.pair_local_client('{engine}', '{}', '{}', '{}', 'service', \
-                 'background_service', ARRAY['engine.records.deliver', 'source.read'], \
+                 'background_service', ARRAY[{capabilities}], \
                  ARRAY['{}', '{}']::uuid[], '{}', now(), now() + interval '1 hour')",
                 uuid(201),
                 uuid(202),
@@ -155,7 +164,7 @@ impl MemoriesqlHarness {
                 db,
                 &format!(
                     "SELECT * FROM memoriesql.grant_exact_source_v1('{}', '{source}', '{engine}', \
-                     ARRAY['read', 'write'], now(), now() + interval '1 hour')",
+                     ARRAY[{grants}], now(), now() + interval '1 hour')",
                     uuid(300 + n as u32)
                 ),
             );
@@ -204,6 +213,7 @@ impl Harness for MemoriesqlHarness {
             workspace_id: WORKSPACE.into(),
             max_record_bytes,
             timeout: Duration::from_secs(10),
+            ca_file: None,
         };
         Box::new(MemoriesqlSink::new("memoriesql", config).unwrap())
     }
@@ -249,3 +259,21 @@ impl Harness for MemoriesqlHarness {
 }
 
 core_memory_conformance::sink_conformance!(MemoriesqlHarness::new());
+
+/// An engine paired without read access learns only that a different record
+/// holds the key; memoriesQL still keeps the first one.
+#[test]
+fn a_writer_without_read_access_is_not_shown_the_stored_record() {
+    let mut harness = MemoriesqlHarness::with_read_access(false);
+    checks::a_system_of_record_keeps_the_first_writer(&mut harness);
+
+    let first = Scenario::standard().outbox().swap_remove(0);
+    let mut other: Value = serde_json::from_str(&first.record_json).unwrap();
+    other["memory"]["chunk"]["text"] = Value::String("Altered again.".into());
+    let mut second = first;
+    second.record_json = other.to_string();
+    assert_eq!(
+        harness.open(u64::MAX).write(&[second]).unwrap(),
+        vec![WriteOutcome::Conflict { stored: None }]
+    );
+}

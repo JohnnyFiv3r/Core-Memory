@@ -14,6 +14,7 @@
 //! itself a system of record (REC-07).
 
 use std::fmt;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -21,6 +22,8 @@ use core_memory_contract::Sha256Digest;
 use core_memory_core::sink::{Sink, SinkCaps, SinkError, WriteOutcome};
 use core_memory_core::store::OutboxEntry;
 use postgres::Client;
+use rustls::pki_types::CertificateDer;
+use rustls::pki_types::pem::PemObject;
 use serde::Deserialize;
 use tokio_postgres_rustls::MakeRustlsConnect;
 
@@ -32,6 +35,10 @@ const MAX_REQUEST_BYTES: usize = 15 << 20;
 
 /// The largest record the sink can send at all.
 pub const MAX_RECORD_BYTES: u64 = (MAX_REQUEST_BYTES - 1024) as u64;
+
+/// How long an idle connection is probed before it is dropped as dead.
+const KEEPALIVE_INTERVAL: Duration = Duration::from_secs(1);
+const KEEPALIVE_RETRIES: u32 = 3;
 
 const RETRY_SOON_MS: u64 = 1_000;
 const RETRY_MS: u64 = 5_000;
@@ -46,8 +53,12 @@ pub struct MemoriesqlConfig {
     pub credential: String,
     pub workspace_id: String,
     pub max_record_bytes: u64,
-    /// Limit for one call, from connecting to the reply.
+    /// Limit for one call, from connecting to the reply. A connection that
+    /// goes silent is dropped a few seconds after it.
     pub timeout: Duration,
+    /// PEM certificates to trust as well as the public web roots, for a
+    /// server whose certificate comes from a private or self-signed CA.
+    pub ca_file: Option<PathBuf>,
 }
 
 impl fmt::Debug for MemoriesqlConfig {
@@ -58,6 +69,7 @@ impl fmt::Debug for MemoriesqlConfig {
             .field("workspace_id", &self.workspace_id)
             .field("max_record_bytes", &self.max_record_bytes)
             .field("timeout", &self.timeout)
+            .field("ca_file", &self.ca_file)
             .finish()
     }
 }
@@ -130,17 +142,43 @@ impl MemoriesqlSink {
             .url
             .parse()
             .map_err(|e| format!("sink {id}: the memoriesQL url does not parse: {e}"))?;
-        pg.connect_timeout(config.timeout);
+        // statement_timeout bounds the server; the client's own reads need
+        // keepalives, or a silent network would block delivery for good.
+        pg.connect_timeout(config.timeout)
+            .keepalives(true)
+            .keepalives_idle(config.timeout)
+            .keepalives_interval(KEEPALIVE_INTERVAL)
+            .keepalives_retries(KEEPALIVE_RETRIES)
+            .tcp_user_timeout(config.timeout + KEEPALIVE_INTERVAL * KEEPALIVE_RETRIES);
         if config.credential.trim().is_empty() {
             return Err(format!("sink {id}: the memoriesQL credential is empty"));
         }
-        if !is_uuid(&config.workspace_id) {
-            return Err(format!("sink {id}: workspace_id must be a UUID"));
-        }
+        let workspace_id = uuid::Uuid::try_parse(&config.workspace_id)
+            .map_err(|_| format!("sink {id}: workspace_id must be a UUID"))?
+            .hyphenated()
+            .to_string();
         let provider = Arc::new(rustls::crypto::ring::default_provider());
-        let roots = rustls::RootCertStore {
+        let mut roots = rustls::RootCertStore {
             roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
         };
+        if let Some(path) = &config.ca_file {
+            let pem = std::fs::read(path)
+                .map_err(|e| format!("sink {id}: ca_file {}: {e}", path.display()))?;
+            let certs = CertificateDer::pem_slice_iter(&pem)
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| format!("sink {id}: ca_file {}: {e}", path.display()))?;
+            if certs.is_empty() {
+                return Err(format!(
+                    "sink {id}: ca_file {} holds no certificate",
+                    path.display()
+                ));
+            }
+            for cert in certs {
+                roots
+                    .add(cert)
+                    .map_err(|e| format!("sink {id}: ca_file {}: {e}", path.display()))?;
+            }
+        }
         let tls = rustls::ClientConfig::builder_with_provider(provider)
             .with_safe_default_protocol_versions()
             .map_err(|e| format!("sink {id}: TLS setup: {e}"))?
@@ -150,7 +188,7 @@ impl MemoriesqlSink {
             id,
             config: pg,
             credential_sha256: Sha256Digest::of(config.credential.as_bytes()).to_hex(),
-            workspace_id: config.workspace_id,
+            workspace_id,
             max_record_bytes: config.max_record_bytes.min(MAX_RECORD_BYTES),
             timeout: config.timeout,
             tls: MakeRustlsConnect::new(tls),
@@ -251,9 +289,14 @@ impl MemoriesqlSink {
     }
 }
 
-/// PostgreSQL cannot store U+0000 in text or jsonb.
+/// PostgreSQL cannot store U+0000 in text or jsonb. JSON writes it as the
+/// escape `\u0000`. When an odd number of backslashes precede it, its `\`
+/// is itself escaped and the text is a literal backslash and `u0000`.
 fn unstorable(entry: &OutboxEntry) -> bool {
-    entry.record_json.contains("\\u0000")
+    let json = entry.record_json.as_bytes();
+    json.windows(6).enumerate().any(|(i, w)| {
+        w == b"\\u0000" && json[..i].iter().rev().take_while(|&&b| b == b'\\').count() % 2 == 0
+    })
 }
 
 fn describe(e: &postgres::Error) -> (String, u64) {
@@ -271,15 +314,6 @@ fn describe(e: &postgres::Error) -> (String, u64) {
         format!("memoriesQL {}: {}", db.code().code(), db.message()),
         retry,
     )
-}
-
-fn is_uuid(s: &str) -> bool {
-    let b = s.as_bytes();
-    b.len() == 36
-        && b.iter().enumerate().all(|(i, c)| match i {
-            8 | 13 | 18 | 23 => *c == b'-',
-            _ => c.is_ascii_hexdigit(),
-        })
 }
 
 impl Sink for MemoriesqlSink {
@@ -359,6 +393,77 @@ mod tests {
             workspace_id: "01a17995-de2f-770f-97ac-c63d1b24fc20".into(),
             max_record_bytes: 1 << 40,
             timeout: Duration::from_secs(10),
+            ca_file: None,
+        }
+    }
+
+    fn entry(record_json: &str) -> OutboxEntry {
+        OutboxEntry {
+            seq: 1,
+            record_key: "chunk:1".into(),
+            record_json: record_json.into(),
+        }
+    }
+
+    #[test]
+    fn only_a_real_nul_is_unstorable() {
+        // A NUL character, an escaped backslash then a NUL, and text that
+        // only reads like the escape.
+        let nul = serde_json::json!({"text": "a\u{0}b"}).to_string();
+        let both = serde_json::json!({"text": "a\\\u{0}b"}).to_string();
+        let literal = serde_json::json!({"text": r#"printf("\u0000")"#}).to_string();
+        let doubled = serde_json::json!({"text": r"\\u0000"}).to_string();
+        assert!(unstorable(&entry(&nul)), "{nul}");
+        assert!(unstorable(&entry(&both)), "{both}");
+        assert!(!unstorable(&entry(&literal)), "{literal}");
+        assert!(!unstorable(&entry(&doubled)), "{doubled}");
+    }
+
+    #[test]
+    fn a_silent_connection_is_dropped_after_the_timeout() {
+        let sink = MemoriesqlSink::new("memoriesql", config()).unwrap();
+        assert!(sink.config.get_keepalives());
+        assert_eq!(sink.config.get_keepalives_idle(), Duration::from_secs(10));
+        assert_eq!(
+            sink.config.get_tcp_user_timeout(),
+            Some(&Duration::from_secs(13))
+        );
+    }
+
+    #[test]
+    fn the_workspace_id_is_sent_in_canonical_form() {
+        let sink = MemoriesqlSink::new(
+            "memoriesql",
+            MemoriesqlConfig {
+                workspace_id: "01A17995DE2F770F97ACC63D1B24FC20".into(),
+                ..config()
+            },
+        )
+        .unwrap();
+        assert_eq!(sink.workspace_id, "01a17995-de2f-770f-97ac-c63d1b24fc20");
+    }
+
+    #[test]
+    fn a_private_ca_is_trusted_from_a_pem_file() {
+        let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+        let with_ca = MemoriesqlConfig {
+            ca_file: Some(fixtures.join("fictional-ca.pem")),
+            ..config()
+        };
+        assert!(MemoriesqlSink::new("memoriesql", with_ca).is_ok());
+        for bad in [
+            fixtures.join("missing.pem"),
+            fixtures.join("..").join("conformance.rs"),
+        ] {
+            let err = MemoriesqlSink::new(
+                "memoriesql",
+                MemoriesqlConfig {
+                    ca_file: Some(bad),
+                    ..config()
+                },
+            )
+            .unwrap_err();
+            assert!(err.contains("ca_file"), "{err}");
         }
     }
 
