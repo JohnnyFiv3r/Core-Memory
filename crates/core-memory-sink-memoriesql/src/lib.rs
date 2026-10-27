@@ -1,5 +1,5 @@
 //! Delivers records to memoriesQL, the system of record, through
-//! `memoriesql.accept_engine_records_v1` (memoriesQL schema 54).
+//! `memoriesql.accept_engine_records_v1` (memoriesQL schema 55).
 //!
 //! The sink connects to memoriesQL's PostgreSQL database and authenticates
 //! the way every memoriesQL client does: inside each transaction it takes
@@ -220,7 +220,7 @@ impl MemoriesqlSink {
 
     fn send(&mut self, group: &[&OutboxEntry]) -> Result<Vec<WriteOutcome>, SinkError> {
         let mut body =
-            String::from("{\"contract_version\":1,\"expected_schema_version\":54,\"records\":[");
+            String::from("{\"contract_version\":1,\"expected_schema_version\":55,\"records\":[");
         for (i, entry) in group.iter().enumerate() {
             if i > 0 {
                 body.push(',');

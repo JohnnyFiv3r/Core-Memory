@@ -77,9 +77,9 @@ jobs:
           --health-cmd "pg_isready -U postgres"
           --health-interval 2s --health-timeout 5s --health-retries 30
     env:
-      # memoriesQL at the commit that adds schema 54, engine record intake.
+      # memoriesQL at the commit that adds schema 55, engine record intake.
       # Bump deliberately: this pins what the memoriesQL sink is proven against.
-      MEMORIESQL_REF: 64a8ae8fd5d27fdd0ad690f1d99741b5b22199d9
+      MEMORIESQL_REF: 03c457a8610ee4be035a6d5f044765e34cb5449c
       CORE_MEMORY_TEST_MEMORIESQL_URL: postgresql://postgres:synthetic@127.0.0.1:5432/postgres
       CORE_MEMORY_TEST_MEMORIESQL_TEMPLATE: memoriesql_template
     steps:
@@ -88,7 +88,7 @@ jobs:
         with:
           python-version: "3.13"
       - run: python -m pip install "memoriesql @ git+https://github.com/JohnnyFiv3r/memoriesql@${MEMORIESQL_REF}"
-      - name: Migrate a memoriesQL template database to schema 54
+      - name: Migrate a memoriesQL template database to schema 55
         run: |
           python - <<'PY'
           import os
@@ -100,7 +100,7 @@ jobs:
           with psycopg.connect(admin, autocommit=True) as connection:
               connection.execute(f"CREATE DATABASE {name}")
           with psycopg.connect(make_conninfo(admin, dbname=name), autocommit=True) as connection:
-              print(migrate(connection, expected_current_version=0, target_version=54).to_version)
+              print(migrate(connection, expected_current_version=0, target_version=55).to_version)
           PY
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2

@@ -65,9 +65,10 @@ stops accepting requests and delivers what it admitted before exiting.
 
 ### Delivering to memoriesQL
 
-memoriesQL is the reference system of record. Its schema 54 (engine record
+memoriesQL is the reference system of record. Its schema 55 (engine record
 intake) accepts the engine's records exactly as delivered, keeps the first
-record under each key, and lets a pending type be decided once.
+record under each key in each engine scope, and lets a pending type be decided
+once.
 
 In memoriesQL, enroll each engine scope as an exact source
 (`source_system = "core-memory"`, `object_kind = "engine_scope"`, the scope as

@@ -4,7 +4,7 @@
 //! Needs the `postgres-tests` feature and two variables:
 //! `CORE_MEMORY_TEST_MEMORIESQL_URL`, an administrator URL for the server,
 //! and `CORE_MEMORY_TEST_MEMORIESQL_TEMPLATE`, a database memoriesQL has
-//! migrated to schema 54. Each harness copies the template, enrolls the
+//! migrated to schema 55. Each harness copies the template, enrolls the
 //! engine scopes `acme` and `beta`, and pairs an engine service credential
 //! with write grants on both.
 
@@ -46,7 +46,7 @@ impl MemoriesqlHarness {
         let admin = std::env::var("CORE_MEMORY_TEST_MEMORIESQL_URL")
             .expect("set CORE_MEMORY_TEST_MEMORIESQL_URL to an administrator URL");
         let template = std::env::var("CORE_MEMORY_TEST_MEMORIESQL_TEMPLATE")
-            .expect("set CORE_MEMORY_TEST_MEMORIESQL_TEMPLATE to a schema-54 database");
+            .expect("set CORE_MEMORY_TEST_MEMORIESQL_TEMPLATE to a schema-55 database");
         let database = format!(
             "cm_conformance_{}_{}",
             std::process::id(),
