@@ -41,6 +41,11 @@ pub struct AttemptRow {
     pub finish: Option<AttemptFinish>,
 }
 
+/// A batch cap as a batch length; a cap is at least one chunk.
+fn cap_len(cap: u32) -> usize {
+    usize::try_from(cap.max(1)).unwrap_or(usize::MAX)
+}
+
 impl MemoryStore {
     pub fn new() -> Self {
         Self::default()
@@ -109,6 +114,7 @@ impl OperationalStore for MemoryStore {
                         deadline_at: held.deadline_at,
                         attempts: 0,
                         last_reason: None,
+                        batch_cap: None,
                     },
                 },
             );
@@ -193,9 +199,14 @@ impl OperationalStore for MemoryStore {
             return Ok(Vec::new());
         };
         let group = (first.chunk.scope.clone(), first.chunk.profile_id.clone());
+        let limit = first
+            .chunk
+            .batch_cap
+            .map_or(limit, |cap| limit.min(cap_len(cap)));
         let ids: Vec<ChunkId> = due
             .iter()
             .filter(|r| (&r.chunk.scope, &r.chunk.profile_id) == (&group.0, &group.1))
+            .filter(|r| r.chunk.batch_cap.is_none_or(|cap| cap_len(cap) >= limit))
             .take(limit)
             .map(|r| r.chunk.chunk_id)
             .collect();
@@ -257,6 +268,7 @@ impl OperationalStore for MemoryStore {
                     next_attempt_at,
                     count_attempt,
                     release,
+                    batch_cap,
                 } => {
                     row.chunk.last_reason = Some(reason);
                     row.lease_until = None;
@@ -265,6 +277,10 @@ impl OperationalStore for MemoryStore {
                     }
                     if count_attempt {
                         row.chunk.attempts += 1;
+                    }
+                    if let Some(cap) = batch_cap {
+                        row.chunk.batch_cap =
+                            Some(row.chunk.batch_cap.map_or(cap, |old| old.min(cap)));
                     }
                     if let (true, Some(record)) = (held, release) {
                         row.chunk.held_record = None;
