@@ -80,7 +80,7 @@ fn per_record_answers_map_to_outcomes() {
                 {"outcome": "already_accepted"},
                 {"outcome": "rejected", "reason": "unknown scope"},
                 {"outcome": "conflict", "stored": {"record_key": "chunk:3"}},
-                {"outcome": "retryable", "retry_after_ms": 1500}
+                {"outcome": "retryable", "retry_after_ms": 1500, "reason": "scope gamma is unknown"}
             ]}),
         )
     });
@@ -95,7 +95,8 @@ fn per_record_answers_map_to_outcomes() {
                 stored: Some(r#"{"record_key":"chunk:3"}"#.into())
             },
             WriteOutcome::Retryable {
-                retry_after_ms: 1500
+                retry_after_ms: 1500,
+                reason: Some("scope gamma is unknown".into())
             },
         ]
     );
@@ -172,7 +173,8 @@ fn answers_may_leave_out_their_details() {
                 reason: "the receiver gave no reason".into()
             },
             WriteOutcome::Retryable {
-                retry_after_ms: 5000
+                retry_after_ms: 5000,
+                reason: None
             },
         ]
     );
@@ -266,19 +268,20 @@ fn a_failed_later_request_keeps_the_earlier_answers() {
         Arc::new(ManualClock::at_unix_millis(T0)),
         limit as u64,
     );
+    let outcomes = sink.write(&records).unwrap();
     assert_eq!(
-        sink.write(&records).unwrap(),
-        vec![
-            WriteOutcome::Accepted,
-            WriteOutcome::Accepted,
-            WriteOutcome::Retryable {
-                retry_after_ms: 2000
-            },
-            WriteOutcome::Retryable {
-                retry_after_ms: 2000
-            },
-        ]
+        outcomes[..2],
+        [WriteOutcome::Accepted, WriteOutcome::Accepted]
     );
+    for outcome in &outcomes[2..] {
+        match outcome {
+            WriteOutcome::Retryable {
+                retry_after_ms: 2000,
+                reason: Some(reason),
+            } => assert!(reason.contains("503"), "{reason}"),
+            other => panic!("{other:?}"),
+        }
+    }
 }
 
 #[test]

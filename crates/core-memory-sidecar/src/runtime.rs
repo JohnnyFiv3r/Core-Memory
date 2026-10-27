@@ -12,6 +12,7 @@ use core_memory_core::{
 use core_memory_model_anthropic::AnthropicTransport;
 use core_memory_model_openai::{Dialect, OpenAiTransport};
 use core_memory_sink_jsonl::JsonlSink;
+use core_memory_sink_memoriesql::{MemoriesqlConfig, MemoriesqlSink};
 use core_memory_sink_webhook::{
     DEFAULT_MAX_REQUEST_BYTES, MIN_SECRET_BYTES, WebhookConfig, WebhookSink,
 };
@@ -127,6 +128,7 @@ pub fn open_sinks(loaded: &Loaded) -> Result<Vec<BoxedSink>, String> {
                 ));
             }
             SinkKind::Webhook => sinks.push(Box::new(webhook(s)?)),
+            SinkKind::Memoriesql => sinks.push(Box::new(memoriesql(loaded, s)?)),
         }
     }
     Ok(sinks)
@@ -150,6 +152,30 @@ fn webhook(s: &SinkConfig) -> Result<WebhookSink, String> {
         system_of_record: s.system_of_record,
     };
     WebhookSink::new(&s.id, config, Arc::new(SystemClock))
+}
+
+/// The memoriesQL sink a `[[sink]]` describes. Validates its settings and
+/// environment without connecting.
+pub fn memoriesql(loaded: &Loaded, s: &SinkConfig) -> Result<MemoriesqlSink, String> {
+    let from_env = |env: Option<&str>, what: &str| {
+        let env = env.unwrap_or_default();
+        std::env::var(env)
+            .ok()
+            .filter(|v| !v.trim().is_empty())
+            .ok_or_else(|| format!("sink {}: ${env} must hold {what}", s.id))
+    };
+    let config = MemoriesqlConfig {
+        url: from_env(s.url_env.as_deref(), "the memoriesQL database URL")?,
+        credential: from_env(
+            s.secret_env.as_deref(),
+            "the memoriesQL paired-client credential",
+        )?,
+        workspace_id: s.workspace_id.clone().unwrap_or_default(),
+        max_record_bytes: s.max_record_bytes,
+        timeout: Duration::from_millis(s.timeout_ms),
+        ca_file: s.ca_file.as_deref().map(|path| loaded.resolve(path)),
+    };
+    MemoriesqlSink::new(&s.id, config)
 }
 
 /// Delivers to every sink until each is idle or asks to retry, then prunes
@@ -177,6 +203,7 @@ pub fn delivery_line(id: &str, r: &DeliveryReport) -> String {
         "failed": r.failed,
         "skipped_gap": r.skipped_gap,
         "retry_after_ms": r.retry_after_ms,
+        "retry_reason": r.retry_reason,
     })
     .to_string()
 }

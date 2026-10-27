@@ -37,8 +37,13 @@ pub enum WriteOutcome {
     Rejected {
         reason: String,
     },
+    /// Not written yet. Delivery to this sink stops here, in order, and
+    /// resumes from this record after the delay.
     Retryable {
         retry_after_ms: u64,
+        /// What the record is waiting for, when the sink says, such as an
+        /// engine scope the receiver has not enrolled.
+        reason: Option<String>,
     },
 }
 
@@ -70,6 +75,8 @@ pub struct DeliveryReport {
     pub skipped_gap: u64,
     /// Set when the sink asked to retry; delivery stopped there.
     pub retry_after_ms: Option<u64>,
+    /// The sink's reason for that retry, naming what holds delivery back.
+    pub retry_reason: Option<String>,
     /// True when the sink has caught up with the outbox.
     pub idle: bool,
 }
@@ -181,8 +188,12 @@ pub fn deliver_once(
                     detail: format!("rejected: {reason}"),
                 });
             }
-            WriteOutcome::Retryable { retry_after_ms } => {
+            WriteOutcome::Retryable {
+                retry_after_ms,
+                reason,
+            } => {
                 report.retry_after_ms = Some(retry_after_ms);
+                report.retry_reason = reason;
                 store.advance_sink_cursor(&sink_id, advanced_to, &kept_failures)?;
                 return Ok(report);
             }
@@ -353,12 +364,19 @@ mod tests {
             caps: SinkCaps::accepts_all_v1(1 << 20),
             script: vec![
                 WriteOutcome::Accepted,
-                WriteOutcome::Retryable { retry_after_ms: 50 },
+                WriteOutcome::Retryable {
+                    retry_after_ms: 50,
+                    reason: Some("scope gamma is not enrolled".into()),
+                },
             ],
             received: vec![],
         };
         let first = deliver_once(&mut store, &mut sink, 10).unwrap();
         assert_eq!(first.retry_after_ms, Some(50));
+        assert_eq!(
+            first.retry_reason.as_deref(),
+            Some("scope gamma is not enrolled")
+        );
         assert_eq!(store.sink_cursor("scripted").unwrap(), 1);
         let second = deliver_all(&mut store, &mut sink, 10).unwrap();
         assert_eq!(second.accepted, 2);

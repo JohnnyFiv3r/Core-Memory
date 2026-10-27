@@ -63,6 +63,55 @@ scopes = ["acme"]
 A background thread delivers records to the sinks. On SIGTERM the server
 stops accepting requests and delivers what it admitted before exiting.
 
+### Delivering to memoriesQL
+
+memoriesQL is the reference system of record. Its schema 55 (engine record
+intake) accepts the engine's records exactly as delivered, keeps the first
+record under each key in each engine scope, and lets a pending type be decided
+once.
+
+In memoriesQL, enroll each engine scope as an exact source
+(`source_system = "core-memory"`, `object_kind = "engine_scope"`, the scope as
+`external_object_id`), pair the engine as a `background_service` with the
+`engine.records.deliver` capability, and grant it `write` on those sources.
+memoriesQL shows the stored record in a conflict only to a reader, so to see
+it, also give the engine `source.read` and a `read` grant.
+
+Enroll and grant a scope before the engine admits events for it. Delivery to
+a sink is strictly in order, and memoriesQL answers a record for a scope it
+has not enrolled, or not granted to the engine, with `retryable`. That record
+then holds back every later record, in every scope, until an operator
+enrolls or grants the scope. The delivery line on stderr names the scope in
+`retry_reason`, and `/v1/ready` answers 503 once the sink falls too far
+behind. Then:
+
+```toml
+[[sink]]
+id = "memoriesql"
+kind = "memoriesql"
+url_env = "MEMORIESQL_DATABASE_URL"         # postgresql://... ; TLS when the server offers it
+secret_env = "MEMORIESQL_ENGINE_CREDENTIAL" # the paired-client secret
+workspace_id = "<memoriesQL workspace UUID>"
+# ca_file = "rds-ca.pem"                    # a private CA, such as Amazon RDS's
+```
+
+The server's certificate is checked against the public web roots. A server
+whose certificate comes from a private or self-signed CA (Amazon RDS, or a
+distribution's default PostgreSQL certificate) needs `ca_file`: a failed TLS
+handshake is not retried without TLS.
+
+memoriesQL decides what the engine may deliver: types must be its governed
+bead types, so load them into the engine's vocabulary with
+
+```bash
+core-memory vocabulary --sink memoriesql    # prints a [vocabulary] block
+```
+
+A record memoriesQL cannot accept yet (an engine scope it has not enrolled or
+granted) is retried; one it refuses (an ungoverned type, a mismatched hash) is
+recorded as a delivery failure. The sink runs the conformance suite against a
+real memoriesQL database in CI.
+
 ### Delivering to your own service
 
 A `webhook` sink posts records to a URL you run, in batches, signed with a
@@ -160,8 +209,8 @@ decisions later. `core-memory serve` classifies in the background.
   (Anthropic or OpenAI-compatible) in closed-world batches, with budgets and
   an attempt journal. Without a classifier, chunks no rule types are
   `pending{no_classifier}`.
-- **Delivery** through a transactional outbox to JSONL files or signed
-  webhooks, with per-sink cursors. Every sink adapter must pass the same conformance suite
+- **Delivery** through a transactional outbox to memoriesQL, JSONL files or
+  signed webhooks, with per-sink cursors. Every sink adapter must pass the same conformance suite
   (`core-memory-conformance`), which checks what the sink holds against
   what the engine sent.
 - An embedded **SQLite** operational store whose ledger rows cannot be
@@ -169,8 +218,7 @@ decisions later. `core-memory serve` classifies in the background.
 - An authenticated **HTTP sidecar** (`core-memory serve`) with per-token
   scope grants, readiness, background delivery and an OpenAPI document.
 
-Not built yet: relationship judging, the memoriesQL sink and governed
-deletion.
+Not built yet: relationship judging and governed deletion.
 
 ## Workspace
 
@@ -182,8 +230,9 @@ deletion.
 | `core-memory-store-sqlite` | Default operational store |
 | `core-memory-source-jsonl`, `core-memory-sink-jsonl` | JSON Lines adapters |
 | `core-memory-sink-webhook` | Signed HTTP delivery to a service you run |
+| `core-memory-sink-memoriesql` | Delivery to memoriesQL, the system of record |
 | `core-memory-model-anthropic`, `core-memory-model-openai` | Model transports (`core-memory-model-http` holds their shared plumbing) |
-| `core-memory-sidecar` | The `core-memory` command: `ingest`, `serve`, `classify`, `deliver`, `check`, `token`, `schema`, `openapi` |
+| `core-memory-sidecar` | The `core-memory` command: `ingest`, `serve`, `classify`, `deliver`, `check`, `token`, `schema`, `openapi`, `vocabulary` |
 | `core-memory` | Facade re-exporting the above |
 | `core-memory-conformance` | The conformance suite every sink adapter runs, with golden records (test-only) |
 

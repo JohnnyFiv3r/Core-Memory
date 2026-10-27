@@ -16,6 +16,8 @@ default = ["sqlite", "jsonl", "webhook"]
 sqlite = ["dep:core-memory-store-sqlite"]
 jsonl = ["dep:core-memory-source-jsonl", "dep:core-memory-sink-jsonl"]
 webhook = ["dep:core-memory-sink-webhook"]
+# PostgreSQL client and TLS; off by default.
+memoriesql = ["dep:core-memory-sink-memoriesql"]
 
 [dependencies]
 core-memory-chunker.workspace = true
@@ -23,6 +25,7 @@ core-memory-contract.workspace = true
 core-memory-core.workspace = true
 core-memory-sink-jsonl = { workspace = true, optional = true }
 core-memory-sink-webhook = { workspace = true, optional = true }
+core-memory-sink-memoriesql = { workspace = true, optional = true }
 core-memory-source-jsonl = { workspace = true, optional = true }
 core-memory-store-sqlite = { workspace = true, optional = true }
 

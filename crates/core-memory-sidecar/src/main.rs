@@ -9,8 +9,8 @@ use std::time::Duration;
 use clap::{Parser, Subcommand};
 use core_memory_contract::schema::Contract;
 use core_memory_contract::{AdmissionOutcome, FieldError, RefusalReason, Sha256Digest};
-use core_memory_sidecar::config::Loaded;
-use core_memory_sidecar::runtime::{Runtime, build_engine};
+use core_memory_sidecar::config::{Loaded, SinkKind};
+use core_memory_sidecar::runtime::{self, Runtime, build_engine};
 use core_memory_sidecar::{openapi, server};
 use core_memory_source_jsonl::{JsonlSource, SourceItem};
 use serde_json::json;
@@ -76,6 +76,15 @@ enum Command {
     Schema { name: Option<String> },
     /// Print the HTTP API's OpenAPI document.
     Openapi,
+    /// Print memoriesQL's governed types as a `[vocabulary]` block for
+    /// core-memory.toml, read through a configured memoriesql sink.
+    Vocabulary {
+        #[arg(long, default_value = "core-memory.toml")]
+        config: PathBuf,
+        /// The memoriesql sink to read through.
+        #[arg(long)]
+        sink: String,
+    },
 }
 
 fn main() -> ExitCode {
@@ -101,6 +110,7 @@ fn main() -> ExitCode {
         Command::Token { id } => token(&id),
         Command::Schema { name } => schema(name.as_deref()),
         Command::Openapi => print_json(&openapi::document()),
+        Command::Vocabulary { config, sink } => vocabulary(&config, &sink),
     };
     match result {
         Ok(code) => code,
@@ -280,6 +290,31 @@ fn token(id: &str) -> Result<ExitCode, String> {
     println!("id = \"{id}\"");
     println!("sha256 = \"{hash}\"");
     println!("scopes = [\"<scope>\"]");
+    Ok(ExitCode::SUCCESS)
+}
+
+fn vocabulary(config_path: &Path, sink_id: &str) -> Result<ExitCode, String> {
+    let loaded = Loaded::read(config_path)?;
+    let sink = loaded
+        .config
+        .sinks
+        .iter()
+        .find(|s| s.id == sink_id && matches!(s.kind, SinkKind::Memoriesql))
+        .ok_or_else(|| format!("no memoriesql sink `{sink_id}` in the config"))?;
+    let json = runtime::memoriesql(&loaded, sink)?
+        .vocabulary()
+        .map_err(|e| e.to_string())?;
+    let vocabulary: core_memory_core::Vocabulary =
+        serde_json::from_str(&json).map_err(|e| format!("memoriesQL vocabulary: {e}"))?;
+    let mut table = toml::Table::new();
+    table.insert(
+        "vocabulary".into(),
+        toml::Value::try_from(&vocabulary).map_err(|e| e.to_string())?,
+    );
+    println!(
+        "# memoriesQL's governed bead types. Paste over the [vocabulary] table;\n\
+         # the engine never registers types of its own.\n{table}"
+    );
     Ok(ExitCode::SUCCESS)
 }
 
