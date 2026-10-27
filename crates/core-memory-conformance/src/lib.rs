@@ -17,9 +17,10 @@
 //! record. Tombstone, relationship and erase-plan checks join when the
 //! engine produces those record kinds.
 //!
-//! `golden/records.jsonl` holds the exact records the standard run
-//! produces. A change to that file is a change to what every sink
-//! receives, so it needs the same review as a contract change.
+//! `golden/standard.jsonl` and `golden/late-type.jsonl` hold the exact
+//! records the standard and late-type runs produce. A change to either
+//! file is a change to what every sink receives, so it needs the same
+//! review as a contract change.
 
 use std::sync::Arc;
 

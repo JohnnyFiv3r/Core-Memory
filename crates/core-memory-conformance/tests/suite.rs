@@ -151,7 +151,7 @@ fn records_match_the_golden_files() {
         ("standard.jsonl", Scenario::standard()),
         ("late-type.jsonl", Scenario::late_type(|_| {})),
     ]);
-    let bless = std::env::var_os("CORE_MEMORY_BLESS").is_some();
+    let bless = std::env::var("CORE_MEMORY_BLESS").as_deref() == Ok("1");
     for (file, scenario) in runs {
         let mut actual = String::new();
         for entry in scenario.outbox() {
