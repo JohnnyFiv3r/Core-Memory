@@ -12,7 +12,9 @@ use core_memory_core::{
 use core_memory_model_anthropic::AnthropicTransport;
 use core_memory_model_openai::{Dialect, OpenAiTransport};
 use core_memory_sink_jsonl::JsonlSink;
-use core_memory_sink_webhook::{MIN_SECRET_BYTES, WebhookConfig, WebhookSink};
+use core_memory_sink_webhook::{
+    DEFAULT_MAX_REQUEST_BYTES, MIN_SECRET_BYTES, WebhookConfig, WebhookSink,
+};
 use core_memory_store_sqlite::SqliteStore;
 use serde_json::json;
 
@@ -143,6 +145,7 @@ fn webhook(s: &SinkConfig) -> Result<WebhookSink, String> {
         secret: secret.into_bytes(),
         timeout: Duration::from_millis(s.timeout_ms),
         max_record_bytes: s.max_record_bytes,
+        max_request_bytes: s.max_request_bytes.unwrap_or(DEFAULT_MAX_REQUEST_BYTES),
         system_of_record: s.system_of_record,
     };
     WebhookSink::new(&s.id, config, Arc::new(SystemClock))

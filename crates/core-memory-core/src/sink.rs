@@ -28,9 +28,10 @@ pub struct SinkCaps {
 pub enum WriteOutcome {
     Accepted,
     AlreadyAccepted,
-    /// Terminal. The sink holds a different record under this key.
+    /// Terminal. The sink holds a different record under this key: the
+    /// stored record, unless the sink withholds it from this writer.
     Conflict {
-        stored: String,
+        stored: Option<String>,
     },
     /// Terminal.
     Rejected {
@@ -166,7 +167,10 @@ pub fn deliver_once(
                 kept_failures.push(DeliveryFailure {
                     seq: entry.seq,
                     record_key: entry.record_key.clone(),
-                    detail: format!("conflict: sink holds {stored}"),
+                    detail: match stored {
+                        Some(stored) => format!("conflict: sink holds {stored}"),
+                        None => "conflict: sink holds a different record".into(),
+                    },
                 });
             }
             WriteOutcome::Rejected { reason } => {

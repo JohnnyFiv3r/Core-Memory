@@ -3,7 +3,8 @@
 //!
 //! # Protocol
 //!
-//! Each sink write is one `POST` to the configured URL:
+//! Each sink write is one or more `POST`s to the configured URL, each body
+//! at most `max_request_bytes`:
 //!
 //! ```text
 //! POST /core-memory HTTP/1.1
@@ -22,6 +23,8 @@
 //!   being rotated; one match is enough.
 //! - Delivery is at least once: after a failure, the same records come
 //!   again. Receivers deduplicate by `record_key`.
+//! - Redirects are not followed. Following one would turn the `POST` into a
+//!   `GET` without the records, and its answer could read as acceptance.
 //!
 //! The receiver answers with one of:
 //!
@@ -35,8 +38,10 @@
 //! `{"outcome": "already_accepted"}`,
 //! `{"outcome": "conflict", "stored": <the record it holds>}`,
 //! `{"outcome": "rejected", "reason": "..."}` or
-//! `{"outcome": "retryable", "retry_after_ms": 1000}`. `conflict` and
-//! `rejected` are final for that record.
+//! `{"outcome": "retryable", "retry_after_ms": 1000}`. `stored`, `reason`
+//! and `retry_after_ms` may be left out, for example to withhold the stored
+//! record from a writer that may not read it. `conflict` and `rejected` are
+//! final for that record.
 
 use std::fmt;
 use std::sync::Arc;
@@ -64,6 +69,13 @@ const DEFAULT_RETRY_MS: u64 = 5_000;
 /// Most of an error response kept in a delivery error.
 const ERROR_BODY_CHARS: usize = 300;
 
+/// The request body limit when none is configured, the common proxy default.
+pub const DEFAULT_MAX_REQUEST_BYTES: u64 = 1 << 20;
+
+/// Most bytes read from one reply. A reply can be larger than its request,
+/// because each conflict carries the record the receiver holds.
+const MAX_REPLY_BYTES: u64 = 64 << 20;
+
 #[derive(Clone)]
 pub struct WebhookConfig {
     pub url: String,
@@ -72,6 +84,9 @@ pub struct WebhookConfig {
     /// Limit for one whole request, from connecting to reading the reply.
     pub timeout: Duration,
     pub max_record_bytes: u64,
+    /// Most bytes in one request body. A larger batch goes as several
+    /// requests, and a record that cannot fit in one is refused.
+    pub max_request_bytes: u64,
     /// The receiver keeps the first record written under each key and
     /// answers a different one with `conflict` (REC-07).
     pub system_of_record: bool,
@@ -84,6 +99,7 @@ impl fmt::Debug for WebhookConfig {
             .field("secret", &"<redacted>")
             .field("timeout", &self.timeout)
             .field("max_record_bytes", &self.max_record_bytes)
+            .field("max_request_bytes", &self.max_request_bytes)
             .field("system_of_record", &self.system_of_record)
             .finish()
     }
@@ -115,10 +131,17 @@ impl WebhookSink {
                 "sink {id}: the signing secret must be at least {MIN_SECRET_BYTES} bytes"
             ));
         }
+        if config.max_request_bytes <= envelope_bytes(&id) {
+            return Err(format!(
+                "sink {id}: max_request_bytes must leave room for a record"
+            ));
+        }
         let agent = Agent::new_with_config(
             Agent::config_builder()
                 .timeout_global(Some(config.timeout))
                 .http_status_as_error(false)
+                .max_redirects(0)
+                .max_redirects_will_error(false)
                 .build(),
         );
         Ok(Self {
@@ -136,6 +159,103 @@ impl WebhookSink {
             retry_after_ms,
         }
     }
+
+    /// Sends `batch` as one request and reads one outcome per record.
+    fn send(&self, batch: &[OutboxEntry]) -> Result<Vec<WriteOutcome>, SinkError> {
+        let body = body(&self.id, batch);
+        let t = self.clock.now().unix_millis().div_euclid(1000);
+        let signature = sign(&self.config.secret, t, body.as_bytes());
+        let mut response = self
+            .agent
+            .post(&self.config.url)
+            .header("content-type", "application/json")
+            .header(SIGNATURE_HEADER, &signature)
+            .send(&body)
+            .map_err(|e| self.error(format!("{}: {e}", self.config.url), DEFAULT_RETRY_MS))?;
+        let status = response.status().as_u16();
+        let header = |name: &str| {
+            response
+                .headers()
+                .get(name)
+                .and_then(|v| v.to_str().ok())
+                .map(str::to_string)
+        };
+        let retry_after_ms = header("retry-after")
+            .and_then(|v| v.trim().parse::<u64>().ok())
+            .map(|seconds| seconds.saturating_mul(1000));
+        let location = header("location");
+        let reply = response
+            .body_mut()
+            .with_config()
+            .limit(MAX_REPLY_BYTES)
+            .read_to_vec()
+            .map_err(|e| self.error(format!("reading the reply: {e}"), DEFAULT_RETRY_MS))?;
+        if (300..400).contains(&status) {
+            return Err(self.error(
+                format!(
+                    "the receiver answered {status}, a redirect to {}; set the sink's url to \
+                     the final address",
+                    location.as_deref().unwrap_or("an unnamed location")
+                ),
+                retry_after_ms.unwrap_or(DEFAULT_RETRY_MS),
+            ));
+        }
+        if !(200..300).contains(&status) {
+            let snippet: String = String::from_utf8_lossy(&reply)
+                .chars()
+                .take(ERROR_BODY_CHARS)
+                .collect();
+            return Err(self.error(
+                format!("the receiver answered {status}: {snippet}"),
+                retry_after_ms.unwrap_or(DEFAULT_RETRY_MS),
+            ));
+        }
+        let reply: Option<serde_json::Value> = serde_json::from_slice(&reply).ok();
+        let Some(results) = reply.as_ref().and_then(|r| r.get("results")) else {
+            return Ok(vec![WriteOutcome::Accepted; batch.len()]);
+        };
+        // The receiver answered per record, so a malformed answer cannot be
+        // read as acceptance.
+        let results: Vec<Answer> = serde_json::from_value(results.clone())
+            .map_err(|e| self.error(format!("unreadable results: {e}"), DEFAULT_RETRY_MS))?;
+        if results.len() != batch.len() {
+            return Err(self.error(
+                format!(
+                    "the receiver answered {} results for {} records",
+                    results.len(),
+                    batch.len()
+                ),
+                DEFAULT_RETRY_MS,
+            ));
+        }
+        Ok(results.into_iter().map(Into::into).collect())
+    }
+}
+
+/// Bytes of the envelope around the records, for `sink_id`.
+fn envelope_bytes(sink_id: &str) -> u64 {
+    body(sink_id, &[]).len() as u64
+}
+
+/// Splits `batch` into consecutive runs whose request bodies fit in
+/// `max_bytes`. A record too large to share a request goes alone.
+fn requests<'a>(sink_id: &str, batch: &'a [OutboxEntry], max_bytes: u64) -> Vec<&'a [OutboxEntry]> {
+    let envelope = envelope_bytes(sink_id);
+    let mut runs = Vec::new();
+    let (mut start, mut size) = (0, envelope);
+    for (i, entry) in batch.iter().enumerate() {
+        let record = entry.record_json.len() as u64;
+        if i > start && size + 1 + record > max_bytes {
+            runs.push(&batch[start..i]);
+            (start, size) = (i, envelope + record);
+        } else {
+            size += record + u64::from(i > start);
+        }
+    }
+    if start < batch.len() {
+        runs.push(&batch[start..]);
+    }
+    runs
 }
 
 /// The request body for `batch`: the records verbatim inside the envelope.
@@ -227,9 +347,26 @@ pub fn verify(
 enum Answer {
     Accepted,
     AlreadyAccepted,
-    Conflict { stored: serde_json::Value },
-    Rejected { reason: String },
-    Retryable { retry_after_ms: u64 },
+    Conflict {
+        #[serde(default)]
+        stored: Option<serde_json::Value>,
+    },
+    Rejected {
+        #[serde(default = "no_reason")]
+        reason: String,
+    },
+    Retryable {
+        #[serde(default = "default_retry_ms")]
+        retry_after_ms: u64,
+    },
+}
+
+fn no_reason() -> String {
+    "the receiver gave no reason".into()
+}
+
+fn default_retry_ms() -> u64 {
+    DEFAULT_RETRY_MS
 }
 
 impl From<Answer> for WriteOutcome {
@@ -238,7 +375,7 @@ impl From<Answer> for WriteOutcome {
             Answer::Accepted => WriteOutcome::Accepted,
             Answer::AlreadyAccepted => WriteOutcome::AlreadyAccepted,
             Answer::Conflict { stored } => WriteOutcome::Conflict {
-                stored: stored.to_string(),
+                stored: stored.map(|record| record.to_string()),
             },
             Answer::Rejected { reason } => WriteOutcome::Rejected { reason },
             Answer::Retryable { retry_after_ms } => WriteOutcome::Retryable { retry_after_ms },
@@ -252,60 +389,42 @@ impl Sink for WebhookSink {
     }
 
     fn caps(&self) -> SinkCaps {
+        // A record that cannot fit in one request could never be delivered.
+        let fits = self.config.max_request_bytes - envelope_bytes(&self.id);
         SinkCaps {
             system_of_record: self.config.system_of_record,
-            ..SinkCaps::accepts_all_v1(self.config.max_record_bytes)
+            ..SinkCaps::accepts_all_v1(self.config.max_record_bytes.min(fits))
         }
     }
 
     fn write(&mut self, batch: &[OutboxEntry]) -> Result<Vec<WriteOutcome>, SinkError> {
-        let body = body(&self.id, batch);
-        let t = self.clock.now().unix_millis().div_euclid(1000);
-        let signature = sign(&self.config.secret, t, body.as_bytes());
-        let mut response = self
-            .agent
-            .post(&self.config.url)
-            .header("content-type", "application/json")
-            .header(SIGNATURE_HEADER, &signature)
-            .send(&body)
-            .map_err(|e| self.error(format!("{}: {e}", self.config.url), DEFAULT_RETRY_MS))?;
-        let status = response.status().as_u16();
-        let retry_after_ms = response
-            .headers()
-            .get("retry-after")
-            .and_then(|v| v.to_str().ok())
-            .and_then(|v| v.trim().parse::<u64>().ok())
-            .map(|seconds| seconds.saturating_mul(1000));
-        let text = response
-            .body_mut()
-            .read_to_string()
-            .map_err(|e| self.error(format!("reading the reply: {e}"), DEFAULT_RETRY_MS))?;
-        if !(200..300).contains(&status) {
-            let snippet: String = text.chars().take(ERROR_BODY_CHARS).collect();
-            return Err(self.error(
-                format!("the receiver answered {status}: {snippet}"),
-                retry_after_ms.unwrap_or(DEFAULT_RETRY_MS),
-            ));
+        let mut outcomes = Vec::with_capacity(batch.len());
+        for run in requests(&self.id, batch, self.config.max_request_bytes) {
+            let answers = match self.send(run) {
+                Ok(answers) => answers,
+                Err(e) if outcomes.is_empty() => return Err(e),
+                // Earlier requests were answered; the rest is sent again.
+                Err(e) => {
+                    let retry = WriteOutcome::Retryable {
+                        retry_after_ms: e.retry_after_ms,
+                    };
+                    outcomes.resize(batch.len(), retry);
+                    return Ok(outcomes);
+                }
+            };
+            let retry = answers
+                .iter()
+                .find(|a| matches!(a, WriteOutcome::Retryable { .. }))
+                .cloned();
+            outcomes.extend(answers);
+            // The engine stops at the first retryable record, so nothing
+            // after it needs sending now.
+            if let Some(retry) = retry {
+                outcomes.resize(batch.len(), retry);
+                return Ok(outcomes);
+            }
         }
-        let reply: Option<serde_json::Value> = serde_json::from_str(&text).ok();
-        let Some(results) = reply.as_ref().and_then(|r| r.get("results")) else {
-            return Ok(vec![WriteOutcome::Accepted; batch.len()]);
-        };
-        // The receiver answered per record, so a malformed answer cannot be
-        // read as acceptance.
-        let results: Vec<Answer> = serde_json::from_value(results.clone())
-            .map_err(|e| self.error(format!("unreadable results: {e}"), DEFAULT_RETRY_MS))?;
-        if results.len() != batch.len() {
-            return Err(self.error(
-                format!(
-                    "the receiver answered {} results for {} records",
-                    results.len(),
-                    batch.len()
-                ),
-                DEFAULT_RETRY_MS,
-            ));
-        }
-        Ok(results.into_iter().map(Into::into).collect())
+        Ok(outcomes)
     }
 }
 
@@ -387,6 +506,7 @@ mod tests {
             secret: SECRET.to_vec(),
             timeout: Duration::from_secs(5),
             max_record_bytes: 1 << 20,
+            max_request_bytes: DEFAULT_MAX_REQUEST_BYTES,
             system_of_record: false,
         };
         assert!(!format!("{config:?}").contains("0123456789abcdef"));

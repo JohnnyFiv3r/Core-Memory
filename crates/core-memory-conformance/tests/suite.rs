@@ -56,7 +56,9 @@ impl Sink for MemorySink {
                 (Behavior::SystemOfRecord, Some(stored)) if stored == entry.record_json => {
                     WriteOutcome::AlreadyAccepted
                 }
-                (Behavior::SystemOfRecord, Some(stored)) => WriteOutcome::Conflict { stored },
+                (Behavior::SystemOfRecord, Some(stored)) => WriteOutcome::Conflict {
+                    stored: Some(stored),
+                },
                 (Behavior::DropsTypeDecisions, _)
                     if entry
                         .record_json

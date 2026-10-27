@@ -292,10 +292,14 @@ pub fn a_system_of_record_keeps_the_first_writer(h: &mut dyn Harness) {
     assert_eq!(accepted, vec![WriteOutcome::Accepted]);
     let outcomes = sink.write(&[second]).expect("second write");
     match outcomes.as_slice() {
+        // A sink may withhold the stored record from a writer that cannot
+        // read it. What it holds is checked below either way.
         [WriteOutcome::Conflict { stored }] => {
-            let stored: Value = serde_json::from_str(stored)
-                .unwrap_or_else(|e| panic!("Conflict must carry the stored record: {e}"));
-            assert_eq!(stored, first_value, "Conflict carried another record");
+            if let Some(stored) = stored {
+                let stored: Value = serde_json::from_str(stored)
+                    .unwrap_or_else(|e| panic!("Conflict must carry the stored record: {e}"));
+                assert_eq!(stored, first_value, "Conflict carried another record");
+            }
         }
         other => panic!("a second record under one key got {other:?}"),
     }

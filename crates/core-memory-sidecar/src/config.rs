@@ -115,6 +115,9 @@ pub struct SinkConfig {
     /// conflicts (REC-07).
     #[serde(default)]
     pub system_of_record: bool,
+    /// `webhook`: the most bytes the receiver takes in one request body.
+    #[serde(default)]
+    pub max_request_bytes: Option<u64>,
     /// Required sinks apply backpressure and hold records until delivered.
     #[serde(default = "default_true")]
     pub required: bool,
@@ -154,6 +157,7 @@ impl SinkConfig {
                     ("url", self.url.is_some()),
                     ("secret_env", self.secret_env.is_some()),
                     ("system_of_record", self.system_of_record),
+                    ("max_request_bytes", self.max_request_bytes.is_some()),
                 ],
             ),
             SinkKind::Webhook => (
