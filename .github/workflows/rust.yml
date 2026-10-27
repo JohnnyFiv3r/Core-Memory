@@ -77,9 +77,10 @@ jobs:
           --health-cmd "pg_isready -U postgres"
           --health-interval 2s --health-timeout 5s --health-retries 30
     env:
-      # memoriesQL at the commit that adds schema 55, engine record intake.
-      # Bump deliberately: this pins what the memoriesQL sink is proven against.
-      MEMORIESQL_REF: 03c457a8610ee4be035a6d5f044765e34cb5449c
+      # memoriesQL main at the merge of #114, which adds schema 55, engine
+      # record intake. Bump deliberately: this pins what the memoriesQL sink
+      # is proven against.
+      MEMORIESQL_REF: 114c7263ee95ff44d75fc45995d4c7164fc2174b
       CORE_MEMORY_TEST_MEMORIESQL_URL: postgresql://postgres:synthetic@127.0.0.1:5432/postgres
       CORE_MEMORY_TEST_MEMORIESQL_TEMPLATE: memoriesql_template
     steps:
