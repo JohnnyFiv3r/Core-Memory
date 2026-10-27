@@ -95,6 +95,20 @@ impl AnthropicTransport {
     }
 }
 
+/// The error reply for a prompt longer than the model's context window: a
+/// 400 `invalid_request_error` whose message starts "prompt is too long".
+/// A smaller batch may fit. Requests over the size limit come back as 413,
+/// which the shared client already treats the same way; every other error
+/// keeps its status mapping.
+fn too_long(status: u16, body: &Value) -> bool {
+    let error = &body["error"];
+    status == 400
+        && error["type"] == "invalid_request_error"
+        && error["message"]
+            .as_str()
+            .is_some_and(|m| m.starts_with("prompt is too long"))
+}
+
 impl ModelTransport for AnthropicTransport {
     fn send(
         &self,
@@ -112,12 +126,12 @@ impl ModelTransport for AnthropicTransport {
             &Self::body(binding, request),
         )?;
         if !(200..300).contains(&reply.status) {
-            return Err(status_error(PROVIDER, &reply));
+            return Err(status_error(PROVIDER, &reply, too_long));
         }
         let body = parse_body(PROVIDER, &reply)?;
         match body["stop_reason"].as_str() {
             Some("refusal") => {
-                return Err(TransportError::Permanent {
+                return Err(TransportError::Refused {
                     message: format!(
                         "anthropic declined the request (refusal, category {})",
                         body["stop_details"]["category"]
@@ -125,7 +139,7 @@ impl ModelTransport for AnthropicTransport {
                 });
             }
             Some("max_tokens" | "model_context_window_exceeded") => {
-                return Err(TransportError::Permanent {
+                return Err(TransportError::Refused {
                     message: format!(
                         "the reply was cut off ({}); raise the binding's max_output_tokens",
                         body["stop_reason"]
@@ -242,7 +256,7 @@ mod tests {
         let transport = AnthropicTransport::new("sk-test", Duration::from_secs(5));
         let err = transport.send(&binding(&url), &request()).unwrap_err();
         assert!(
-            matches!(&err, TransportError::Permanent { message } if message.contains("declined")),
+            matches!(&err, TransportError::Refused { message } if message.contains("declined")),
             "{err:?}"
         );
 
@@ -253,8 +267,35 @@ mod tests {
         );
         let err = transport.send(&binding(&url), &request()).unwrap_err();
         assert!(
-            matches!(&err, TransportError::Permanent { message } if message.contains("max_output_tokens"))
+            matches!(&err, TransportError::Refused { message } if message.contains("max_output_tokens"))
         );
+    }
+
+    #[test]
+    fn a_prompt_too_long_for_the_context_window_is_refused() {
+        let transport = AnthropicTransport::new("sk-test", Duration::from_secs(5));
+        let (url, _s) = serve_once(
+            400,
+            &[],
+            r#"{"type": "error", "error": {"type": "invalid_request_error",
+                "message": "prompt is too long: 215000 tokens > 200000 maximum"},
+                "request_id": "req_1"}"#,
+        );
+        let err = transport.send(&binding(&url), &request()).unwrap_err();
+        assert!(
+            matches!(&err, TransportError::Refused { message } if message.contains("prompt is too long")),
+            "{err:?}"
+        );
+
+        // Any other invalid request is not something a smaller batch fixes.
+        let (url, _s) = serve_once(
+            400,
+            &[],
+            r#"{"type": "error", "error": {"type": "invalid_request_error",
+                "message": "max_tokens: Field required"}}"#,
+        );
+        let err = transport.send(&binding(&url), &request()).unwrap_err();
+        assert!(matches!(err, TransportError::Permanent { .. }), "{err:?}");
     }
 
     #[test]

@@ -20,7 +20,9 @@ use hmac::{Hmac, KeyInit, Mac};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use sha2::Sha256;
 
-const SCHEMA_VERSION: i64 = 1;
+/// Version 2 adds `classification_queue.batch_cap`. Version 1 stores are
+/// upgraded in place when opened.
+const SCHEMA_VERSION: i64 = 2;
 const LEDGER_KEY_DOMAIN: &str = "core-memory/ledger-key/v1";
 
 const SCHEMA: &str = r#"
@@ -89,7 +91,11 @@ CREATE TABLE IF NOT EXISTS classification_queue (
     next_attempt_at INTEGER NOT NULL,
     lease_until INTEGER,
     attempts INTEGER NOT NULL DEFAULT 0,
-    last_reason TEXT
+    last_reason TEXT,
+    -- The largest batch the chunk may be claimed in, set when a batch it
+    -- was in is split or it is refused on its own. It only shrinks. NULL
+    -- means no limit beyond the batch size.
+    batch_cap INTEGER
 ) STRICT;
 
 -- rowid gives first-in, first-out order among chunks due at the same time.
@@ -160,7 +166,7 @@ impl SqliteStore {
         Self::init(Connection::open_in_memory().map_err(backend)?)
     }
 
-    fn init(conn: Connection) -> Result<Self, StoreError> {
+    fn init(mut conn: Connection) -> Result<Self, StoreError> {
         conn.pragma_update(None, "journal_mode", "WAL")
             .map_err(backend)?;
         conn.pragma_update(None, "synchronous", "FULL")
@@ -187,6 +193,7 @@ impl SqliteStore {
                 )
                 .map_err(backend)?;
             }
+            Some(1) => upgrade_from_v1(&mut conn)?,
             Some(SCHEMA_VERSION) => {}
             Some(other) => {
                 return Err(StoreError::Corrupt(format!(
@@ -262,6 +269,36 @@ impl SqliteStore {
     }
 }
 
+/// Adds `batch_cap` to a version 1 store. Its queued chunks keep no cap. A
+/// version 1 store opened before the queue existed got the column from
+/// [`SCHEMA`] already.
+fn upgrade_from_v1(conn: &mut Connection) -> Result<(), StoreError> {
+    let tx = conn
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(backend)?;
+    let has_cap: bool = tx
+        .query_row(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('classification_queue')
+             WHERE name = 'batch_cap'",
+            [],
+            |r| r.get(0),
+        )
+        .map_err(backend)?;
+    if !has_cap {
+        tx.execute(
+            "ALTER TABLE classification_queue ADD COLUMN batch_cap INTEGER",
+            [],
+        )
+        .map_err(backend)?;
+    }
+    tx.execute(
+        "UPDATE meta SET value = ?1 WHERE key = 'schema_version'",
+        params![SCHEMA_VERSION],
+    )
+    .map_err(backend)?;
+    tx.commit().map_err(backend)
+}
+
 fn read_entry(conn: &Connection, key_mac: &[u8]) -> Result<Option<LedgerEntry>, StoreError> {
     let row: Option<(String, String, Vec<u8>)> = conn
         .query_row(
@@ -306,7 +343,7 @@ fn read_entry(conn: &Connection, key_mac: &[u8]) -> Result<Option<LedgerEntry>, 
 }
 
 const QUEUE_COLUMNS: &str = "chunk_id, event_id, scope, profile_id, text, held_key, held_json, \
-                             deadline_at, attempts, last_reason";
+                             deadline_at, attempts, last_reason, batch_cap";
 
 fn queued_from_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<RawQueued> {
     Ok(RawQueued {
@@ -320,6 +357,7 @@ fn queued_from_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<RawQueued> {
         deadline_at: r.get(7)?,
         attempts: r.get(8)?,
         last_reason: r.get(9)?,
+        batch_cap: r.get(10)?,
     })
 }
 
@@ -334,6 +372,7 @@ struct RawQueued {
     deadline_at: i64,
     attempts: i64,
     last_reason: Option<String>,
+    batch_cap: Option<i64>,
 }
 
 impl RawQueued {
@@ -361,8 +400,16 @@ impl RawQueued {
             deadline_at: Timestamp::from_unix_millis(self.deadline_at),
             attempts: u32::try_from(self.attempts).unwrap_or(u32::MAX),
             last_reason: self.last_reason.as_deref().map(parse_reason).transpose()?,
+            batch_cap: self.batch_cap.map(parse_cap).transpose()?,
         })
     }
+}
+
+fn parse_cap(cap: i64) -> Result<u32, StoreError> {
+    u32::try_from(cap)
+        .ok()
+        .filter(|&c| c >= 1)
+        .ok_or_else(|| StoreError::Corrupt(format!("batch cap {cap} is not a positive count")))
 }
 
 fn reason_str(reason: PendingReason) -> &'static str {
@@ -610,29 +657,36 @@ impl OperationalStore for SqliteStore {
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(backend)?;
         let due = "next_attempt_at <= ?1 AND (lease_until IS NULL OR lease_until <= ?1)";
-        let group: Option<(String, String)> = tx
+        let first: Option<(String, String, Option<i64>)> = tx
             .query_row(
                 &format!(
-                    "SELECT scope, profile_id FROM classification_queue WHERE {due}
+                    "SELECT scope, profile_id, batch_cap FROM classification_queue WHERE {due}
                      ORDER BY next_attempt_at, rowid LIMIT 1"
                 ),
                 params![now],
-                |r| Ok((r.get(0)?, r.get(1)?)),
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
             )
             .optional()
             .map_err(backend)?;
-        let Some((scope, profile_id)) = group else {
+        let Some((scope, profile_id, cap)) = first else {
             return Ok(Vec::new());
+        };
+        // The first chunk's cap bounds the batch; chunks capped below that
+        // wait until one of them comes first.
+        let limit = i64::try_from(limit).unwrap_or(i64::MAX);
+        let limit = match cap {
+            Some(cap) => limit.min(i64::from(parse_cap(cap)?)),
+            None => limit,
         };
         let rows: Vec<RawQueued> = {
             let mut stmt = tx
                 .prepare(&format!(
                     "SELECT {QUEUE_COLUMNS} FROM classification_queue
                      WHERE {due} AND scope = ?2 AND profile_id = ?3
+                       AND (batch_cap IS NULL OR batch_cap >= ?4)
                      ORDER BY next_attempt_at, rowid LIMIT ?4"
                 ))
                 .map_err(backend)?;
-            let limit = i64::try_from(limit).unwrap_or(i64::MAX);
             stmt.query_map(params![now, scope, profile_id, limit], queued_from_row)
                 .map_err(backend)?
                 .collect::<Result<_, _>>()
@@ -710,18 +764,23 @@ impl OperationalStore for SqliteStore {
                     next_attempt_at,
                     count_attempt,
                     release,
+                    batch_cap,
                 } => {
+                    // A cap only ever shrinks; NULL leaves it as it is.
                     tx.execute(
                         "UPDATE classification_queue
                          SET last_reason = ?1, lease_until = NULL,
                              next_attempt_at = COALESCE(?2, next_attempt_at),
-                             attempts = attempts + ?3
+                             attempts = attempts + ?3,
+                             batch_cap = CASE WHEN ?5 IS NULL OR batch_cap <= ?5
+                                              THEN batch_cap ELSE ?5 END
                          WHERE chunk_id = ?4",
                         params![
                             reason_str(reason),
                             next_attempt_at.map(|t| t.unix_millis()),
                             i64::from(count_attempt),
-                            id
+                            id,
+                            batch_cap.map(|c| i64::from(c.max(1))),
                         ],
                     )
                     .map_err(backend)?;
@@ -988,6 +1047,79 @@ mod tests {
             store.pin(PinKind::SourceProfile, "p", 1, &b).unwrap(),
             PinResult::Mismatch { stored: a }
         );
+    }
+
+    #[test]
+    fn version_1_stores_gain_batch_caps_when_opened() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("store.sqlite");
+        let k = key("e1");
+        let chunk_id = ChunkId::derive(&k, "c", 1, 0, 1);
+        {
+            let mut store = SqliteStore::open(&path).unwrap();
+            let mut w = write(&k, std::slice::from_ref(&chunk_id), 0);
+            w.held = vec![core_memory_core::store::HeldChunk {
+                chunk_id,
+                event_id: w.event_id,
+                scope: "acme".into(),
+                profile_id: "p".into(),
+                text: "t".into(),
+                record: OutboxRecord {
+                    record_key: "r".into(),
+                    record_json: "{}".into(),
+                },
+                deadline_at: Timestamp::from_unix_millis(10),
+            }];
+            store.commit_admission(w).unwrap();
+            // Turn it back into a version 1 store, as #447 wrote them.
+            store
+                .conn
+                .execute_batch(
+                    "ALTER TABLE classification_queue DROP COLUMN batch_cap;
+                     UPDATE meta SET value = 1 WHERE key = 'schema_version';",
+                )
+                .unwrap();
+        }
+        let version = |store: &SqliteStore| -> i64 {
+            store
+                .conn
+                .query_row(
+                    "SELECT value FROM meta WHERE key = 'schema_version'",
+                    [],
+                    |r| r.get(0),
+                )
+                .unwrap()
+        };
+        let mut store = SqliteStore::open(&path).unwrap();
+        assert_eq!(version(&store), SCHEMA_VERSION);
+        let now = Timestamp::from_unix_millis(0);
+        let claimed = store
+            .claim_classification(now, now.plus_millis(1), 8)
+            .unwrap();
+        assert_eq!(claimed.len(), 1);
+        assert_eq!(claimed[0].batch_cap, None);
+        drop(store);
+        // Opening an upgraded store changes nothing.
+        let store = SqliteStore::open(&path).unwrap();
+        assert_eq!(version(&store), SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn newer_stores_are_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("store.sqlite");
+        {
+            let store = SqliteStore::open(&path).unwrap();
+            store
+                .conn
+                .execute(
+                    "UPDATE meta SET value = 99 WHERE key = 'schema_version'",
+                    [],
+                )
+                .unwrap();
+        }
+        let err = SqliteStore::open(&path).unwrap_err();
+        assert!(err.to_string().contains("not supported"), "{err}");
     }
 
     #[test]

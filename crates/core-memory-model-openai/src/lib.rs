@@ -113,6 +113,18 @@ impl OpenAiTransport {
     }
 }
 
+/// The error replies that mean a smaller batch may succeed: a 400 whose
+/// `error.code` is `context_length_exceeded` (the messages exceed the
+/// model's context window) or `content_filter` (Azure OpenAI's filter
+/// declined the prompt). Every other error keeps its status mapping.
+fn declined_or_too_long(status: u16, body: &Value) -> bool {
+    status == 400
+        && matches!(
+            body["error"]["code"].as_str(),
+            Some("context_length_exceeded" | "content_filter")
+        )
+}
+
 impl ModelTransport for OpenAiTransport {
     fn send(
         &self,
@@ -132,12 +144,12 @@ impl ModelTransport for OpenAiTransport {
             .client
             .post_json(&url, &headers, &self.body(binding, request))?;
         if !(200..300).contains(&reply.status) {
-            return Err(status_error(provider, &reply));
+            return Err(status_error(provider, &reply, declined_or_too_long));
         }
         let body = parse_body(provider, &reply)?;
         let choice = &body["choices"][0];
         if !choice["message"]["refusal"].is_null() || choice["finish_reason"] == "content_filter" {
-            return Err(TransportError::Permanent {
+            return Err(TransportError::Refused {
                 message: format!(
                     "{provider} declined the request: {}",
                     choice["message"]["refusal"]
@@ -145,7 +157,7 @@ impl ModelTransport for OpenAiTransport {
             });
         }
         if choice["finish_reason"] == "length" {
-            return Err(TransportError::Permanent {
+            return Err(TransportError::Refused {
                 message: "the reply was cut off (length); raise the binding's max_output_tokens"
                     .into(),
             });
@@ -249,7 +261,7 @@ mod tests {
         );
         assert!(matches!(
             transport.send(&binding("openai", &url), &request()),
-            Err(TransportError::Permanent { .. })
+            Err(TransportError::Refused { .. })
         ));
         let (url, _s) = serve_once(429, &[("retry-after", "3")], "{}");
         assert!(matches!(
@@ -266,6 +278,46 @@ mod tests {
         );
         assert!(matches!(
             transport.send(&binding("openai", &url), &request()),
+            Err(TransportError::Refused { .. })
+        ));
+    }
+
+    #[test]
+    fn oversized_and_filtered_prompts_are_refused() {
+        let transport =
+            OpenAiTransport::new(Dialect::OpenAi, Some("k".into()), Duration::from_secs(5));
+        let send = |status: u16, body: &str, provider: &str| {
+            let (url, _s) = serve_once(status, &[], body);
+            transport.send(&binding(provider, &url), &request())
+        };
+
+        let too_long = r#"{"error": {"message": "This model's maximum context length is 128000 tokens. However, your messages resulted in 131072 tokens. Please reduce the length of the messages.",
+            "type": "invalid_request_error", "param": "messages", "code": "context_length_exceeded"}}"#;
+        let err = send(400, too_long, "openai").unwrap_err();
+        assert!(
+            matches!(&err, TransportError::Refused { message } if message.contains("context_length_exceeded")),
+            "{err:?}"
+        );
+
+        // Azure OpenAI, configured as an OpenAI-compatible server.
+        let filtered = r#"{"error": {"message": "The response was filtered due to the prompt triggering Azure OpenAI's content management policy.",
+            "type": null, "param": "prompt", "code": "content_filter", "status": 400,
+            "innererror": {"code": "ResponsibleAIPolicyViolation"}}}"#;
+        assert!(matches!(
+            send(400, filtered, "openai-compatible"),
+            Err(TransportError::Refused { .. })
+        ));
+
+        // Other bad requests, and the same codes on other statuses, are not
+        // something a smaller batch fixes.
+        let bad_schema = r#"{"error": {"message": "Invalid schema for response_format 'core_memory_classification'.",
+            "type": "invalid_request_error", "param": "response_format", "code": "invalid_value"}}"#;
+        assert!(matches!(
+            send(400, bad_schema, "openai"),
+            Err(TransportError::Permanent { .. })
+        ));
+        assert!(matches!(
+            send(403, filtered, "openai-compatible"),
             Err(TransportError::Permanent { .. })
         ));
     }
