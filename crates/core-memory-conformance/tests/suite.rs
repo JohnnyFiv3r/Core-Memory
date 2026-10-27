@@ -56,7 +56,9 @@ impl Sink for MemorySink {
                 (Behavior::SystemOfRecord, Some(stored)) if stored == entry.record_json => {
                     WriteOutcome::AlreadyAccepted
                 }
-                (Behavior::SystemOfRecord, Some(stored)) => WriteOutcome::Conflict { stored },
+                (Behavior::SystemOfRecord, Some(stored)) => WriteOutcome::Conflict {
+                    stored: Some(stored),
+                },
                 (Behavior::DropsTypeDecisions, _)
                     if entry
                         .record_json
@@ -151,7 +153,7 @@ fn records_match_the_golden_files() {
         ("standard.jsonl", Scenario::standard()),
         ("late-type.jsonl", Scenario::late_type(|_| {})),
     ]);
-    let bless = std::env::var_os("CORE_MEMORY_BLESS").is_some();
+    let bless = std::env::var("CORE_MEMORY_BLESS").as_deref() == Ok("1");
     for (file, scenario) in runs {
         let mut actual = String::new();
         for entry in scenario.outbox() {

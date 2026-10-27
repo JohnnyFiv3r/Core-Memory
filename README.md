@@ -110,6 +110,7 @@ kind = "webhook"
 url = "https://memory.internal.example.com/core-memory"
 secret_env = "CORE_MEMORY_WEBHOOK_SECRET"   # at least 16 bytes
 timeout_ms = 10000
+max_request_bytes = 1048576                 # your receiver's body limit
 ```
 
 Each request body is `{"contract": "core_memory.record.v1", "sink": "host",
@@ -122,8 +123,11 @@ Answer `204` (or any `2xx`) to accept the whole batch, or `200` with
 `{"results": [...]}`, one `{"outcome": ...}` per record (`accepted`,
 `already_accepted`, `conflict`, `rejected`, `retryable`). Any other status
 means nothing was written; the batch is sent again later, after
-`Retry-After` if you give one. The `core-memory-sink-webhook` crate
-documents the protocol and exports `verify` for Rust receivers.
+`Retry-After` if you give one. A batch larger than `max_request_bytes`
+(default 1 MiB) goes as several requests, and a record that cannot fit in
+one request is refused rather than retried forever. Redirects are not
+followed, so point `url` at the final address. The `core-memory-sink-webhook`
+crate documents the protocol and exports `verify` for Rust receivers.
 
 ### Model classification
 

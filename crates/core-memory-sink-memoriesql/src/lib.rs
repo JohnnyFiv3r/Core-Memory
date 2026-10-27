@@ -114,10 +114,7 @@ impl From<Answer> for WriteOutcome {
             Answer::Accepted => WriteOutcome::Accepted,
             Answer::AlreadyAccepted => WriteOutcome::AlreadyAccepted,
             Answer::Conflict { stored } => WriteOutcome::Conflict {
-                stored: stored.map_or_else(
-                    || "a different record (the engine needs read access to see it)".into(),
-                    |record| record.to_string(),
-                ),
+                stored: stored.map(|record| record.to_string()),
             },
             Answer::Rejected { reason } => WriteOutcome::Rejected { reason },
             Answer::Retryable { retry_after_ms } => WriteOutcome::Retryable { retry_after_ms },
@@ -408,11 +405,9 @@ mod tests {
         assert_eq!(
             outcomes,
             vec![
+                WriteOutcome::Conflict { stored: None },
                 WriteOutcome::Conflict {
-                    stored: "a different record (the engine needs read access to see it)".into()
-                },
-                WriteOutcome::Conflict {
-                    stored: r#"{"a":1}"#.into()
+                    stored: Some(r#"{"a":1}"#.into())
                 },
             ]
         );

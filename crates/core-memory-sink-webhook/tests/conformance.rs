@@ -13,7 +13,9 @@ use core_memory_conformance::Harness;
 use core_memory_contract::RECORD_CONTRACT_V1;
 use core_memory_core::SystemClock;
 use core_memory_core::sink::Sink;
-use core_memory_sink_webhook::{SIGNATURE_HEADER, WebhookConfig, WebhookSink, verify};
+use core_memory_sink_webhook::{
+    DEFAULT_MAX_REQUEST_BYTES, SIGNATURE_HEADER, WebhookConfig, WebhookSink, verify,
+};
 use serde_json::{Value, json};
 
 /// Answers like a host callback that appends what it gets (`204`), or
@@ -80,6 +82,7 @@ impl Harness for WebhookHarness {
             secret: SECRET.to_vec(),
             timeout: Duration::from_secs(10),
             max_record_bytes,
+            max_request_bytes: DEFAULT_MAX_REQUEST_BYTES,
             system_of_record: self.system_of_record,
         };
         Box::new(WebhookSink::new("host", config, Arc::new(SystemClock)).unwrap())
