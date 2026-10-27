@@ -312,6 +312,7 @@ dependencies = [
  "core-memory-contract",
  "core-memory-core",
  "core-memory-sink-jsonl",
+ "core-memory-sink-webhook",
  "core-memory-source-jsonl",
  "core-memory-store-sqlite",
 ]
@@ -405,6 +406,7 @@ dependencies = [
  "core-memory-model-http",
  "core-memory-model-openai",
  "core-memory-sink-jsonl",
+ "core-memory-sink-webhook",
  "core-memory-source-jsonl",
  "core-memory-store-sqlite",
  "getrandom 0.4.3",
@@ -426,6 +428,21 @@ dependencies = [
  "core-memory-core",
  "serde_json",
  "tempfile",
+]
+
+[[package]]
+name = "core-memory-sink-webhook"
+version = "2.0.0-alpha.1"
+dependencies = [
+ "core-memory-conformance",
+ "core-memory-contract",
+ "core-memory-core",
+ "hmac",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror",
+ "ureq",
 ]
 
 [[package]]

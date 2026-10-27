@@ -36,7 +36,7 @@ fn event(id: &str, text: &str) -> SourceEvent {
     .unwrap()
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 struct Collect(Vec<String>);
 
 impl Sink for Collect {

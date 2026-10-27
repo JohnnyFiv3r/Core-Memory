@@ -21,7 +21,6 @@ use core_memory_contract::{
     AdmissionOutcome, FieldError, RefusalReason, Sha256Digest, SourceEvent,
 };
 use core_memory_core::{Engine, ModelTransport, ScopeGrants};
-use core_memory_sink_jsonl::JsonlSink;
 use core_memory_store_sqlite::SqliteStore;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -30,8 +29,8 @@ use serde_json::value::RawValue;
 use crate::config::{Loaded, grants_from};
 use crate::openapi;
 use crate::runtime::{
-    build_engine, build_transport, classify_line, deliver_round, delivery_line, open_sinks,
-    open_store,
+    BoxedSink, build_engine, build_transport, classify_line, deliver_round, delivery_line,
+    open_sinks, open_store,
 };
 
 /// A configured caller.
@@ -119,7 +118,7 @@ pub struct DeliveryWorker {
 impl DeliveryWorker {
     pub fn start(
         store: SqliteStore,
-        sinks: Vec<JsonlSink>,
+        sinks: Vec<BoxedSink>,
         required: Vec<String>,
         interval: Duration,
     ) -> Self {
@@ -142,7 +141,7 @@ impl DeliveryWorker {
 fn run_delivery(
     rx: mpsc::Receiver<Signal>,
     mut store: SqliteStore,
-    mut sinks: Vec<JsonlSink>,
+    mut sinks: Vec<BoxedSink>,
     required: Vec<String>,
     interval: Duration,
 ) {
