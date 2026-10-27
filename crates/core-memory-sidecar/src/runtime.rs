@@ -202,6 +202,7 @@ pub fn delivery_line(id: &str, r: &DeliveryReport) -> String {
         "failed": r.failed,
         "skipped_gap": r.skipped_gap,
         "retry_after_ms": r.retry_after_ms,
+        "retry_reason": r.retry_reason,
     })
     .to_string()
 }

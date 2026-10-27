@@ -38,10 +38,12 @@
 //! `{"outcome": "already_accepted"}`,
 //! `{"outcome": "conflict", "stored": <the record it holds>}`,
 //! `{"outcome": "rejected", "reason": "..."}` or
-//! `{"outcome": "retryable", "retry_after_ms": 1000}`. `stored`, `reason`
-//! and `retry_after_ms` may be left out, for example to withhold the stored
-//! record from a writer that may not read it. `conflict` and `rejected` are
-//! final for that record.
+//! `{"outcome": "retryable", "retry_after_ms": 1000, "reason": "..."}`.
+//! `stored`, `reason` and `retry_after_ms` may be left out, for example to
+//! withhold the stored record from a writer that may not read it.
+//! `conflict` and `rejected` are final for that record. A `retryable`
+//! record stops delivery to this sink in order until it is taken, so its
+//! `reason` should say what it waits for.
 
 use std::fmt;
 use std::sync::Arc;
@@ -358,6 +360,8 @@ enum Answer {
     Retryable {
         #[serde(default = "default_retry_ms")]
         retry_after_ms: u64,
+        #[serde(default)]
+        reason: Option<String>,
     },
 }
 
@@ -378,7 +382,13 @@ impl From<Answer> for WriteOutcome {
                 stored: stored.map(|record| record.to_string()),
             },
             Answer::Rejected { reason } => WriteOutcome::Rejected { reason },
-            Answer::Retryable { retry_after_ms } => WriteOutcome::Retryable { retry_after_ms },
+            Answer::Retryable {
+                retry_after_ms,
+                reason,
+            } => WriteOutcome::Retryable {
+                retry_after_ms,
+                reason,
+            },
         }
     }
 }
@@ -407,6 +417,7 @@ impl Sink for WebhookSink {
                 Err(e) => {
                     let retry = WriteOutcome::Retryable {
                         retry_after_ms: e.retry_after_ms,
+                        reason: Some(e.message),
                     };
                     outcomes.resize(batch.len(), retry);
                     return Ok(outcomes);

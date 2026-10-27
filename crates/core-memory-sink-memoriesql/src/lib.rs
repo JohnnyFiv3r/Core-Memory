@@ -12,6 +12,11 @@
 //! memoriesQL keeps the first record written under a key and answers a
 //! different one with `conflict` and the stored record, so the sink declares
 //! itself a system of record (REC-07).
+//!
+//! Delivery is strictly in order. A record for a scope memoriesQL has not
+//! enrolled, or not granted to this credential, comes back `retryable` with
+//! memoriesQL's reason, which names the scope, and holds back every later
+//! record until an operator enrolls or grants it.
 
 use std::fmt;
 use std::path::PathBuf;
@@ -117,6 +122,9 @@ enum Answer {
     },
     Retryable {
         retry_after_ms: u64,
+        /// memoriesQL names the engine scope it cannot take records for.
+        #[serde(default)]
+        reason: Option<String>,
     },
 }
 
@@ -129,7 +137,13 @@ impl From<Answer> for WriteOutcome {
                 stored: stored.map(|record| record.to_string()),
             },
             Answer::Rejected { reason } => WriteOutcome::Rejected { reason },
-            Answer::Retryable { retry_after_ms } => WriteOutcome::Retryable { retry_after_ms },
+            Answer::Retryable {
+                retry_after_ms,
+                reason,
+            } => WriteOutcome::Retryable {
+                retry_after_ms,
+                reason,
+            },
         }
     }
 }
@@ -376,6 +390,7 @@ impl Sink for MemoriesqlSink {
             .map(|o| {
                 o.unwrap_or(WriteOutcome::Retryable {
                     retry_after_ms: RETRY_MS,
+                    reason: None,
                 })
             })
             .collect())

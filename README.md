@@ -75,7 +75,15 @@ In memoriesQL, enroll each engine scope as an exact source
 `external_object_id`), pair the engine as a `background_service` with the
 `engine.records.deliver` capability, and grant it `write` on those sources.
 memoriesQL shows the stored record in a conflict only to a reader, so to see
-it, also give the engine `source.read` and a `read` grant. Then:
+it, also give the engine `source.read` and a `read` grant.
+
+Enroll and grant a scope before the engine admits events for it. Delivery to
+a sink is strictly in order, and memoriesQL answers a record for a scope it
+has not enrolled, or not granted to the engine, with `retryable`. That record
+then holds back every later record, in every scope, until an operator
+enrolls or grants the scope. The delivery line on stderr names the scope in
+`retry_reason`, and `/v1/ready` answers 503 once the sink falls too far
+behind. Then:
 
 ```toml
 [[sink]]

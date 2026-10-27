@@ -277,3 +277,25 @@ fn a_writer_without_read_access_is_not_shown_the_stored_record() {
         vec![WriteOutcome::Conflict { stored: None }]
     );
 }
+
+/// A record for a scope memoriesQL has not enrolled waits, and so does every
+/// record after it. The sink passes on memoriesQL's reason, naming the scope.
+#[test]
+fn an_unenrolled_scope_holds_back_delivery_and_is_named() {
+    let mut harness = MemoriesqlHarness::new();
+    let mut entries = Scenario::standard().outbox();
+    let mut first: Value = serde_json::from_str(&entries[0].record_json).unwrap();
+    first["scope"] = Value::String("gamma".into());
+    entries[0].record_json = first.to_string();
+    let outcomes = harness.open(u64::MAX).write(&entries[..2]).unwrap();
+    for outcome in &outcomes {
+        match outcome {
+            WriteOutcome::Retryable {
+                reason: Some(reason),
+                ..
+            } => assert!(reason.contains("gamma"), "{reason}"),
+            other => panic!("{other:?}"),
+        }
+    }
+    assert!(harness.read().is_empty());
+}
