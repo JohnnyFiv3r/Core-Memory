@@ -7,10 +7,14 @@
 //! record if it is still held, otherwise as a type decision record (CLS-04,
 //! REC-03). No store transaction is open while a model call runs (RUN-02).
 //!
-//! A batch the model refuses, or answers invalidly twice, is split in half
-//! and each half is sent on its own, so one chunk cannot keep the others in
-//! its batch pending. A chunk refused on its own is retried like any other
-//! failure.
+//! Each claimed batch makes at most two calls: the first and one repair.
+//! A batch of more than one chunk that the model refuses, or answers
+//! invalidly twice, is split: its chunks go back to the queue capped at half
+//! the batch's size, without counting an attempt, and later claims send each
+//! half on its own. One chunk cannot keep the others in its batch pending,
+//! and a pass of `max_batches` claims never makes more than twice that many
+//! calls. A chunk refused on its own keeps a cap of one, so it is never
+//! batched with other chunks again, and is retried like any other failure.
 
 use std::collections::BTreeSet;
 
@@ -35,19 +39,22 @@ const RELEASE_LIMIT: usize = 1024;
 /// What one pass did.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ClassifyReport {
-    /// Model calls sent, including repair calls.
+    /// Model calls sent, including repair calls: at most two per batch.
     pub calls: u32,
     /// Replies rejected by the validator and retried once.
     pub repaired: u32,
     /// Chunks that got a final decision.
     pub decided: u32,
-    /// Chunks put back for a later attempt.
+    /// Chunks put back for a later attempt. Chunks of a split batch are
+    /// counted under `split` instead.
     pub retried: u32,
     /// Held records delivered as pending because their deadline passed.
     pub released: u32,
     /// Chunks that ran out of attempts and stay pending.
     pub abandoned: u32,
-    /// Batches split in half after a refusal or a second invalid reply.
+    /// Batches of more than one chunk sent back to the queue capped at half
+    /// their size, after a refusal or a second invalid reply. Their chunks
+    /// are due again at once, in smaller batches.
     pub split: u32,
     /// A batch was refused because its scope's budget for the day is spent.
     pub budget_exhausted: bool,
@@ -82,8 +89,10 @@ impl Engine {
         let Some(c) = &self.classifier else {
             return Ok(report);
         };
-        // Claim only what was due when the pass began, so a chunk is tried
-        // at most once per pass even when its retry falls due mid-pass.
+        // Claim only what was due when the pass began, so a failed chunk is
+        // tried at most once per pass even when its retry falls due
+        // mid-pass. The chunks of a split batch keep their place in the
+        // queue, so the pass sends the halves next while it has batches left.
         let started = self.clock.now();
         report.released = self.release_holds(store, started)?;
         for _ in 0..max_batches {
@@ -122,6 +131,7 @@ impl Engine {
                         next_attempt_at: None,
                         count_attempt: false,
                         release: Some(with_type(held, TypeOutcome::Pending { reason }, None)?),
+                        batch_cap: None,
                     },
                 });
                 released += 1;
@@ -173,20 +183,23 @@ impl Engine {
                         PendingReason::Capacity,
                         now.next_utc_midnight(),
                         false,
+                        None,
                     )?;
                     report.retried += len32(&updates);
                     return store.apply_classification(updates).map_err(Into::into);
                 }
                 Call::Failed { refused: true, .. } if batch.len() > 1 => {
-                    return self.split(store, transport, c, batch, report);
+                    return self.split(store, &batch, report);
                 }
                 Call::Failed {
                     reason,
                     retry_after_ms,
-                    ..
+                    refused,
                 } => {
                     let delay = backoff(c, &batch).max(retry_after_ms.unwrap_or(0));
-                    let updates = retry(c, &batch, reason, now.plus_millis(delay), true)?;
+                    // A chunk refused on its own stays on its own.
+                    let cap = refused.then_some(1);
+                    let updates = retry(c, &batch, reason, now.plus_millis(delay), true, cap)?;
                     self.count(&updates, report);
                     return store.apply_classification(updates).map_err(Into::into);
                 }
@@ -224,14 +237,16 @@ impl Engine {
         }
         let Some(decisions) = decisions else {
             if batch.len() > 1 {
-                return self.split(store, transport, c, batch, report);
+                return self.split(store, &batch, report);
             }
+            // A chunk answered invalidly twice on its own stays on its own.
             let updates = retry(
                 c,
                 &batch,
                 PendingReason::ProviderError,
                 now.plus_millis(backoff(c, &batch)),
                 true,
+                Some(1),
             )?;
             self.count(&updates, report);
             return store.apply_classification(updates).map_err(Into::into);
@@ -302,21 +317,34 @@ impl Engine {
         store.apply_classification(updates).map_err(Into::into)
     }
 
-    /// Classifies each half of `batch` as its own batch, within this pass.
-    /// Each split halves the batch, so a batch of n chunks makes at most
-    /// 2n - 1 batches in all.
+    /// Sends a batch of more than one chunk back to the queue with a batch
+    /// cap of half its size, rounded up, without counting an attempt. The
+    /// chunks keep their place and are due at once, so the next claims take
+    /// each half on its own. The work is persisted rather than done here, so
+    /// a claim stays within two calls and its lease. Caps never rise, so
+    /// splits stop at one chunk per batch.
     fn split(
         &self,
         store: &mut dyn OperationalStore,
-        transport: &dyn ModelTransport,
-        c: &CompiledClassifier,
-        mut batch: Vec<QueuedChunk>,
+        batch: &[QueuedChunk],
         report: &mut ClassifyReport,
     ) -> Result<(), EngineError> {
         report.split += 1;
-        let second = batch.split_off(batch.len() / 2);
-        self.classify_batch(store, transport, c, batch, report)?;
-        self.classify_batch(store, transport, c, second, report)
+        let cap = len32(batch).div_ceil(2);
+        let updates = batch
+            .iter()
+            .map(|q| QueueUpdate {
+                chunk_id: q.chunk_id,
+                action: QueueAction::Retry {
+                    reason: PendingReason::ProviderError,
+                    next_attempt_at: None,
+                    count_attempt: false,
+                    release: None,
+                    batch_cap: Some(cap),
+                },
+            })
+            .collect();
+        store.apply_classification(updates).map_err(Into::into)
     }
 
     /// Reserves budget, sends one request and classifies transport errors.
@@ -401,13 +429,15 @@ impl Engine {
     }
 }
 
-/// Retries every chunk at `next`, or abandons those out of attempts.
+/// Retries every chunk at `next`, lowering its batch cap to `batch_cap` if
+/// given, or abandons those out of attempts.
 fn retry(
     c: &CompiledClassifier,
     batch: &[QueuedChunk],
     reason: PendingReason,
     next: Timestamp,
     count_attempt: bool,
+    batch_cap: Option<u32>,
 ) -> Result<Vec<QueueUpdate>, EngineError> {
     batch
         .iter()
@@ -427,6 +457,7 @@ fn retry(
                     next_attempt_at: Some(next),
                     count_attempt,
                     release: None,
+                    batch_cap,
                 }
             };
             Ok(QueueUpdate {

@@ -66,6 +66,9 @@ pub struct QueuedChunk {
     pub deadline_at: Timestamp,
     pub attempts: u32,
     pub last_reason: Option<PendingReason>,
+    /// The largest batch this chunk may be claimed in. Absent until a batch
+    /// it was in is split or it is refused on its own; it only ever shrinks.
+    pub batch_cap: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -86,12 +89,14 @@ pub enum QueueAction {
         if_released: OutboxRecord,
     },
     /// Not decided yet. Keep the chunk queued with `reason`; move its next
-    /// attempt if given; release the held record as `release` if still held.
+    /// attempt if given; release the held record as `release` if still held;
+    /// lower its batch cap to `batch_cap` if given (a cap never rises).
     Retry {
         reason: PendingReason,
         next_attempt_at: Option<Timestamp>,
         count_attempt: bool,
         release: Option<OutboxRecord>,
+        batch_cap: Option<u32>,
     },
     /// Stop trying. Release the held record if still held and leave the
     /// queue; the chunk stays pending until a backfill.
@@ -260,6 +265,11 @@ pub trait OperationalStore {
     /// Claims up to `limit` due chunks (next attempt reached, no live lease)
     /// sharing one (scope, profile), leasing them until `lease_until`.
     /// Batches never mix scopes (SEC-04).
+    ///
+    /// The first due chunk, by next attempt and then queue order, picks the
+    /// group and the batch size: `limit`, or its batch cap if smaller. Only
+    /// chunks with no cap or a cap of at least that size join it, so a batch
+    /// is never larger than the smallest cap among its chunks.
     fn claim_classification(
         &mut self,
         now: Timestamp,
