@@ -1,11 +1,12 @@
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
+use core_memory_contract::record::{chunk_record_key, type_decision_record_key};
 use core_memory_contract::{ChunkId, EventKey, Sha256Digest, Timestamp};
 
 use super::{
-    AdmissionWrite, AttemptFinish, AttemptReservation, AttemptState, CommitResult, DeliveryFailure,
-    LedgerEntry, OperationalStore, OutboxEntry, OutboxRecord, PinKind, PinResult, QueueAction,
-    QueueUpdate, QueuedChunk, ReserveOutcome,
+    AdmissionWrite, AttemptFinish, AttemptReservation, AttemptState, ChunkHome, CommitResult,
+    DeliveryFailure, ForgetReport, LedgerEntry, OperationalStore, OutboxEntry, OutboxRecord,
+    PinKind, PinResult, QueueAction, QueueUpdate, QueuedChunk, ReserveOutcome,
 };
 use crate::error::StoreError;
 
@@ -22,6 +23,9 @@ pub struct MemoryStore {
     queue: BTreeMap<ChunkId, QueueRow>,
     queue_seq: u64,
     attempts: Vec<AttemptRow>,
+    /// Every admitted chunk's event key, kept after a tombstone.
+    chunk_keys: BTreeMap<ChunkId, EventKey>,
+    forgotten: BTreeSet<ChunkId>,
 }
 
 #[derive(Debug, Clone)]
@@ -51,8 +55,8 @@ impl MemoryStore {
         Self::default()
     }
 
-    /// Marks a key as erased. Erasure governance (plan, approval, limits)
-    /// is not implemented yet; this exists for tests of tombstone handling.
+    /// Marks a key as erased directly, as forgetting its last chunk would.
+    /// For tests of tombstone handling.
     pub fn tombstone(&mut self, key: &EventKey) {
         self.ledger.insert(key.clone(), LedgerEntry::Tombstoned);
     }
@@ -93,6 +97,9 @@ impl OperationalStore for MemoryStore {
                 chunk_ids: write.chunk_ids.to_vec(),
             },
         );
+        for id in write.chunk_ids {
+            self.chunk_keys.insert(*id, write.key.clone());
+        }
         for record in write.records {
             self.push_outbox(record);
         }
@@ -338,5 +345,54 @@ impl OperationalStore for MemoryStore {
         row.state = Some(finish.state);
         row.finish = Some(finish.clone());
         Ok(())
+    }
+
+    fn chunk_home(&self, chunk_id: &ChunkId) -> Result<Option<ChunkHome>, StoreError> {
+        Ok(self.chunk_keys.get(chunk_id).map(|key| ChunkHome {
+            chunk_id: *chunk_id,
+            scope: key.scope.clone(),
+            forgotten: self.forgotten.contains(chunk_id),
+        }))
+    }
+
+    fn forget_chunks(
+        &mut self,
+        chunk_ids: &[ChunkId],
+        _at: Timestamp,
+    ) -> Result<ForgetReport, StoreError> {
+        let mut report = ForgetReport::default();
+        let mut events = BTreeSet::new();
+        for id in chunk_ids {
+            let Some(key) = self.chunk_keys.get(id) else {
+                continue;
+            };
+            if !self.forgotten.insert(*id) {
+                continue;
+            }
+            report.forgotten += 1;
+            events.insert(key.clone());
+            if self.queue.remove(id).is_some() {
+                report.queued_dropped += 1;
+            }
+            let keys = [chunk_record_key(id), type_decision_record_key(id)];
+            let before = self.outbox.len();
+            self.outbox.retain(|e| !keys.contains(&e.record_key));
+            report.records_dropped += (before - self.outbox.len()) as u64;
+            for (_, failure) in &mut self.failures {
+                if keys.contains(&failure.record_key) {
+                    failure.detail = "forgotten".into();
+                }
+            }
+        }
+        for key in events {
+            let Some(LedgerEntry::Live { chunk_ids, .. }) = self.ledger.get(&key) else {
+                continue;
+            };
+            if chunk_ids.iter().all(|c| self.forgotten.contains(c)) {
+                self.ledger.insert(key, LedgerEntry::Tombstoned);
+                report.events_tombstoned += 1;
+            }
+        }
+        Ok(report)
     }
 }

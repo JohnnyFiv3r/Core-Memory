@@ -5,6 +5,7 @@
 //! Record envelope). It depends on no other crate in the workspace.
 
 pub mod event;
+pub mod forget;
 pub mod hash;
 pub mod ids;
 pub mod outcome;
@@ -16,6 +17,7 @@ pub use event::{
     Actor, Content, ContentKind, CorrelationKey, DocumentPosition, EventKey, FieldError, ObjectRef,
     OccurredAt, RecordObject, SourceEvent, Structure, TimePrecision,
 };
+pub use forget::{ForgetOutcome, ForgetRefusal, ForgetRequest};
 pub use hash::{FieldHasher, Sha256Digest};
 pub use ids::{ChunkId, DecisionId, EventId};
 pub use outcome::{

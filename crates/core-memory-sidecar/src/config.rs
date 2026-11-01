@@ -62,6 +62,11 @@ pub struct TokenConfig {
     pub sha256: Sha256Digest,
     /// Scopes this caller may write. `["*"]` grants every scope.
     pub scopes: Vec<String>,
+    /// Whether this caller may tell the engine to forget chunks a system of
+    /// record erased (`POST /v1/forget`), within its scopes. Give it only to
+    /// the system of record.
+    #[serde(default)]
+    pub forget: bool,
 }
 
 fn default_listen() -> String {

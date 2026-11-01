@@ -6,7 +6,8 @@
 use schemars::generate::SchemaSettings;
 use serde_json::{Value, json};
 
-use core_memory_contract::{AdmissionOutcome, SourceEvent};
+use core_memory_contract::forget::MAX_FORGET_CHUNKS;
+use core_memory_contract::{AdmissionOutcome, ForgetOutcome, ForgetRequest, SourceEvent};
 
 use crate::server::{BatchRequest, BatchResponse, ErrorResponse, ReadyResponse};
 
@@ -18,6 +19,8 @@ pub fn document() -> Value {
     let outcome = generator.subschema_for::<AdmissionOutcome>();
     let batch_request = generator.subschema_for::<BatchRequest>();
     let batch_response = generator.subschema_for::<BatchResponse>();
+    let forget_request = generator.subschema_for::<ForgetRequest>();
+    let forget_outcome = generator.subschema_for::<ForgetOutcome>();
     let ready = generator.subschema_for::<ReadyResponse>();
     let error = generator.subschema_for::<ErrorResponse>();
     let schemas = generator.take_definitions(true);
@@ -27,6 +30,7 @@ pub fn document() -> Value {
         |description: &str| json!({"description": description, "content": json_body(&outcome)});
     let error_response =
         |description: &str| json!({"description": description, "content": json_body(&error)});
+    let forget_response = |description: &str| json!({"description": description, "content": json_body(&forget_outcome)});
 
     json!({
         "openapi": "3.1.0",
@@ -70,6 +74,22 @@ pub fn document() -> Value {
                         "400": error_response("The body is not {\"events\": [...]}"),
                         "401": error_response("Missing or unknown bearer token"),
                         "413": error_response("Too many events in one batch"),
+                    },
+                },
+            },
+            "/v1/forget": {
+                "post": {
+                    "operationId": "forgetChunks",
+                    "summary": "Forget chunks the system of record erased",
+                    "description": "Drops what the engine still holds of each chunk: text waiting for a model type, records not yet delivered to every sink, and delivery failure details. An event whose chunks are all forgotten is tombstoned, so offering it again is refused. Only a token marked `forget` may call this.",
+                    "security": [{"bearer": []}],
+                    "requestBody": {"required": true, "content": json_body(&forget_request)},
+                    "responses": {
+                        "200": forget_response("Forgotten. Chunks forgotten before, or never held, are counted and change nothing."),
+                        "400": forget_response("Refused as malformed: no chunks, or a chunk named twice"),
+                        "401": error_response("Missing or unknown bearer token"),
+                        "403": forget_response("Refused: the token may not forget, or holds no grant for a chunk's scope"),
+                        "413": forget_response(&format!("Refused: more than {MAX_FORGET_CHUNKS} chunks in one request")),
                     },
                 },
             },

@@ -57,6 +57,7 @@ scopes = ["acme"]
 |---|---|
 | `POST /v1/events` | Admit one SourceEvent. The body is the typed outcome; the status maps it (200 accepted or replay, 409 identity conflict, 403 scope denied, 410 tombstoned, 413 oversize, 422 invalid profile, 400 malformed, 503 busy with `Retry-After`). |
 | `POST /v1/events/batch` | `{"events": [...]}`, one outcome per event, in order. |
+| `POST /v1/forget` | `{"chunk_ids": [...]}` from the system of record, after it erases them. Only a token with `forget = true`. See below. |
 | `GET /v1/ready` | 503 while the slowest required sink is too far behind, so hosts can pause intake. |
 | `GET /v1/openapi.json` | OpenAPI 3.1, generated from the contract types. |
 
@@ -111,6 +112,49 @@ A record memoriesQL cannot accept yet (an engine scope it has not enrolled or
 granted) is retried; one it refuses (an ungoverned type, a mismatched hash) is
 recorded as a delivery failure. The sink runs the conformance suite against a
 real memoriesQL database in CI.
+
+### When memoriesQL erases
+
+Deletion is governed in memoriesQL, the system of record: it decides what is
+erased, when, and who approves it. The engine keeps no deletion plans,
+approvals or accounting of its own. It keeps a chunk's text only while it
+still has work to do with it: until every required sink has the record
+(the next delivery round then prunes it from the outbox) and, for a chunk
+waiting for a model type, until the type is decided.
+
+When memoriesQL erases chunks, it tells the engine to forget them:
+
+```toml
+[[http.token]]
+id = "memoriesql"
+sha256 = "<from core-memory token>"
+scopes = ["acme"]
+forget = true          # may call POST /v1/forget within its scopes
+```
+
+```bash
+curl -X POST http://127.0.0.1:7600/v1/forget \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"chunk_ids": ["0b6f..."]}'
+```
+
+For each chunk the engine drops what it still holds: its text if it is still
+waiting for a model type (so it is not sent to a provider afterwards; a call
+already in flight finishes and its answer is discarded), its records if a
+sink has not received them yet, and any delivery failure detail that could
+quote it. Once every chunk of an event is forgotten, the event's key
+is tombstoned. The plain key is cleared and only a keyed hash is kept, so
+offering the event again is refused with `410 tombstoned`. The SQLite store
+overwrites deleted rows and empties its write-ahead log after a forget, so
+the text does not linger in the store's files. (A store written by an
+earlier build may still hold text of rows it deleted before upgrading, in
+free pages, until SQLite reuses them.)
+
+The call takes exact chunk IDs only, at most 10,000 per request. Forgetting
+a chunk twice, or one the engine never held, changes nothing; the response
+counts each. A token without `forget = true` gets `403 not_permitted`, and a
+chunk outside the token's scopes refuses the whole request with `403
+scope_denied`.
 
 ### Delivering to your own service
 
@@ -213,12 +257,16 @@ decisions later. `core-memory serve` classifies in the background.
   signed webhooks, with per-sink cursors. Every sink adapter must pass the same conformance suite
   (`core-memory-conformance`), which checks what the sink holds against
   what the engine sent.
+- **Forgetting** what the system of record erased (`POST /v1/forget`):
+  queued text, undelivered records and failure details go, and fully
+  forgotten events are tombstoned.
 - An embedded **SQLite** operational store whose ledger rows cannot be
-  deleted.
+  deleted, and which overwrites the rows it does delete.
 - An authenticated **HTTP sidecar** (`core-memory serve`) with per-token
   scope grants, readiness, background delivery and an OpenAPI document.
 
-Not built yet: relationship judging and governed deletion.
+Not built yet: relationship judging. Deletion is governed in memoriesQL; the
+engine only forgets what memoriesQL erased.
 
 ## Workspace
 

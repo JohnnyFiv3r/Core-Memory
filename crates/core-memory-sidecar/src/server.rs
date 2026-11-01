@@ -1,7 +1,8 @@
 //! `core-memory serve`: the engine over HTTP/JSON.
 //!
 //! Callers authenticate with a bearer token; each token carries its own
-//! scope grants (SEC-01). Admission happens on one store connection behind
+//! scope grants (SEC-01), and only a token marked `forget` may tell the
+//! engine to forget chunks. Admission happens on one store connection behind
 //! a lock. A delivery thread with its own connection to the same SQLite file
 //! drains the outbox to the sinks, woken after each admission.
 
@@ -18,7 +19,8 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use core_memory_contract::schema::Contract;
 use core_memory_contract::{
-    AdmissionOutcome, FieldError, RefusalReason, Sha256Digest, SourceEvent,
+    AdmissionOutcome, FieldError, ForgetOutcome, ForgetRefusal, ForgetRequest, RefusalReason,
+    Sha256Digest, SourceEvent,
 };
 use core_memory_core::{Engine, ModelTransport, ScopeGrants};
 use core_memory_store_sqlite::SqliteStore;
@@ -38,6 +40,7 @@ use crate::runtime::{
 struct Token {
     hash: Sha256Digest,
     grants: ScopeGrants,
+    forget: bool,
 }
 
 /// Shared server state.
@@ -315,6 +318,7 @@ pub fn prepare(loaded: &Loaded, start_delivery: bool) -> Result<Prepared, String
         .map(|t| Token {
             hash: t.sha256,
             grants: grants_from(&t.scopes),
+            forget: t.forget,
         })
         .collect();
     let state = Arc::new(AppState {
@@ -340,6 +344,7 @@ pub fn router(state: Arc<AppState>, max_body_bytes: usize) -> Router {
     Router::new()
         .route("/v1/events", post(post_event))
         .route("/v1/events/batch", post(post_batch))
+        .route("/v1/forget", post(post_forget))
         .route("/v1/ready", get(get_ready))
         .route(
             "/v1/health",
@@ -525,6 +530,62 @@ async fn post_batch(
             }
             (StatusCode::OK, axum::Json(BatchResponse { results })).into_response()
         }
+        Ok(Err(e)) => internal(e),
+        Err(e) => internal(e),
+    }
+}
+
+/// HTTP status for a forget outcome. The body is always the outcome.
+pub fn forget_status(outcome: &ForgetOutcome) -> StatusCode {
+    match outcome {
+        ForgetOutcome::Forgotten { .. } => StatusCode::OK,
+        ForgetOutcome::Refused { reason, .. } => match reason {
+            ForgetRefusal::Malformed => StatusCode::BAD_REQUEST,
+            ForgetRefusal::TooManyChunks => StatusCode::PAYLOAD_TOO_LARGE,
+            ForgetRefusal::ScopeDenied | ForgetRefusal::NotPermitted => StatusCode::FORBIDDEN,
+        },
+    }
+}
+
+fn forget_response(outcome: ForgetOutcome) -> Response {
+    (forget_status(&outcome), axum::Json(&outcome)).into_response()
+}
+
+/// Forgets chunks the system of record erased. Nothing new is admitted or
+/// queued, so the workers are not woken.
+async fn post_forget(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    let grants = match state.authorize(&headers) {
+        Ok(token) if token.forget => token.grants.clone(),
+        Ok(_) => {
+            return forget_response(ForgetOutcome::Refused {
+                reason: ForgetRefusal::NotPermitted,
+                problems: vec![FieldError::new(
+                    "token",
+                    "this token is not marked `forget = true`",
+                )],
+            });
+        }
+        Err(response) => return *response,
+    };
+    let request: ForgetRequest = match serde_json::from_slice(&body) {
+        Ok(request) => request,
+        Err(e) => {
+            return forget_response(ForgetOutcome::Refused {
+                reason: ForgetRefusal::Malformed,
+                problems: vec![FieldError::new("body", e.to_string())],
+            });
+        }
+    };
+    let st = Arc::clone(&state);
+    let result =
+        tokio::task::spawn_blocking(move || st.engine.forget(&mut *st.store(), &grants, &request))
+            .await;
+    match result {
+        Ok(Ok(outcome)) => forget_response(outcome),
         Ok(Err(e)) => internal(e),
         Err(e) => internal(e),
     }
