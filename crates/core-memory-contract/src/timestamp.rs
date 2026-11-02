@@ -37,7 +37,10 @@ impl Timestamp {
     /// the representable range.
     pub fn plus_millis(self, millis: u64) -> Self {
         let delta = time::Duration::milliseconds(i64::try_from(millis).unwrap_or(i64::MAX));
-        Self(self.0.checked_add(delta).unwrap_or(self.0))
+        match self.0.checked_add(delta) {
+            Some(later) if later <= Self::max().0 => Self(later),
+            _ => Self::max(),
+        }
     }
 
     /// The UTC calendar date, `YYYY-MM-DD`.
@@ -111,6 +114,18 @@ impl JsonSchema for Timestamp {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn adding_saturates_at_the_latest_instant() {
+        let now = Timestamp::from_unix_millis(1_793_000_000_000);
+        assert_eq!(now.plus_millis(u64::MAX), Timestamp::max());
+        assert_eq!(
+            now.plus_millis(u64::from(u32::MAX) * 86_400_000),
+            Timestamp::max(),
+            "a far-off deadline saturates; it never falls back to now"
+        );
+        assert_eq!(now.plus_millis(1).unix_millis(), 1_793_000_000_001);
+    }
 
     #[test]
     fn equal_instants_format_identically() {

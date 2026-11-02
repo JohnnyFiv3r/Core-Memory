@@ -3,7 +3,8 @@
 //! [`Engine::admit`] takes one SourceEvent, checks its identity, chunks it,
 //! computes facets, classifies each chunk and commits the ledger entry and
 //! its records to the outbox in one transaction. [`sink::deliver_all`]
-//! moves records from the outbox to a sink.
+//! moves records from the outbox to a sink. [`Engine::forget`] drops what the
+//! engine holds of chunks a system of record erased.
 //!
 //! This crate imports no store, source, sink or model-provider crate. Those
 //! plug in through [`store::OperationalStore`] and [`sink::Sink`].
@@ -16,6 +17,7 @@ pub mod content;
 pub mod engine;
 pub mod error;
 pub mod facets;
+mod forget;
 mod ident;
 pub mod model;
 pub mod profile;

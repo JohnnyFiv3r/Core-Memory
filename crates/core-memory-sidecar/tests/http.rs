@@ -17,6 +17,8 @@ use tower::ServiceExt;
 
 const WRITER: &str = "cm_test_writer";
 const OUTSIDER: &str = "cm_test_outsider";
+const ERASER: &str = "cm_test_eraser";
+const FAR_ERASER: &str = "cm_test_far_eraser";
 
 fn write_config(dir: &Path, extra: &str) -> Loaded {
     let config = format!(
@@ -336,6 +338,7 @@ async fn describes_itself() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(doc["openapi"], "3.1.0");
     assert!(doc["paths"]["/v1/events"]["post"].is_object());
+    assert!(doc["paths"]["/v1/forget"]["post"].is_object());
     let (status, ..) = call(&s.router, "GET", "/v1/schemas/record", None, None).await;
     assert_eq!(status, StatusCode::OK);
     let (status, ..) = call(&s.router, "GET", "/v1/schemas/nope", None, None).await;
@@ -344,6 +347,112 @@ async fn describes_itself() {
     assert_eq!(
         (status, body["status"].as_str()),
         (StatusCode::OK, Some("ok"))
+    );
+}
+
+/// Tokens marked to forget, one for `acme` and one for another scope.
+fn erasers() -> String {
+    format!(
+        r#"
+[[http.token]]
+id = "memoriesql"
+sha256 = "{}"
+scopes = ["acme"]
+forget = true
+
+[[http.token]]
+id = "far-memoriesql"
+sha256 = "{}"
+scopes = ["elsewhere"]
+forget = true
+"#,
+        Sha256Digest::of(ERASER.as_bytes()),
+        Sha256Digest::of(FAR_ERASER.as_bytes()),
+    )
+}
+
+#[tokio::test]
+async fn forgetting_takes_a_token_marked_to_forget() {
+    let dir = tempfile::tempdir().unwrap();
+    let s = server(dir.path(), &erasers(), false);
+    let r = &s.router;
+    let (_, admitted, _) = call(
+        r,
+        "POST",
+        "/v1/events",
+        Some(WRITER),
+        Some(event("f1", "Erase me later.")),
+    )
+    .await;
+    let forget = json!({"chunk_ids": admitted["chunk_ids"]});
+
+    let (status, ..) = call(r, "POST", "/v1/forget", None, Some(forget.clone())).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    let (status, body, _) = call(r, "POST", "/v1/forget", Some(WRITER), Some(forget.clone())).await;
+    assert_eq!(
+        (status, body["reason"].as_str()),
+        (StatusCode::FORBIDDEN, Some("not_permitted"))
+    );
+    let (status, body, _) = call(
+        r,
+        "POST",
+        "/v1/forget",
+        Some(FAR_ERASER),
+        Some(forget.clone()),
+    )
+    .await;
+    assert_eq!(
+        (status, body["reason"].as_str()),
+        (StatusCode::FORBIDDEN, Some("scope_denied"))
+    );
+    let (status, body, _) = call(
+        r,
+        "POST",
+        "/v1/forget",
+        Some(ERASER),
+        Some(json!({"chunk_ids": admitted["chunk_ids"], "older_than": "7d"})),
+    )
+    .await;
+    assert_eq!(
+        (status, body["reason"].as_str()),
+        (StatusCode::BAD_REQUEST, Some("malformed"))
+    );
+    let many = vec![admitted["chunk_ids"][0].clone(); 10_001];
+    let (status, body, _) = call(
+        r,
+        "POST",
+        "/v1/forget",
+        Some(ERASER),
+        Some(json!({"chunk_ids": many})),
+    )
+    .await;
+    assert_eq!(
+        (status, body["reason"].as_str()),
+        (StatusCode::PAYLOAD_TOO_LARGE, Some("too_many_chunks"))
+    );
+
+    let (status, body, _) = call(r, "POST", "/v1/forget", Some(ERASER), Some(forget)).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["outcome"], "forgotten");
+    assert_eq!(
+        (
+            &body["forgotten"],
+            &body["records_dropped"],
+            &body["events_tombstoned"]
+        ),
+        (&json!(1), &json!(1), &json!(1))
+    );
+    let (status, body, _) = call(
+        r,
+        "POST",
+        "/v1/events",
+        Some(WRITER),
+        Some(event("f1", "Erase me later.")),
+    )
+    .await;
+    assert_eq!(
+        (status, body["reason"].as_str()),
+        (StatusCode::GONE, Some("tombstoned"))
     );
 }
 

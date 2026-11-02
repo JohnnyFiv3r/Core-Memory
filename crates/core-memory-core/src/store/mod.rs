@@ -2,8 +2,9 @@
 //!
 //! It holds the event-key ledger and tombstones, profile pins, the outbox
 //! of records waiting for delivery, chunks waiting for a model type
-//! decision, and the attempt journal of model calls. It is never queried by
-//! consumers and exposes no retrieval API.
+//! decision, the attempt journal of model calls, and the chunks a system of
+//! record erased and had the engine forget. It is never queried by consumers
+//! and exposes no retrieval API.
 
 mod memory;
 
@@ -221,8 +222,30 @@ pub struct DeliveryFailure {
     pub detail: String,
 }
 
+/// Where a chunk lives, for forgetting it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChunkHome {
+    pub chunk_id: ChunkId,
+    pub scope: String,
+    /// A system of record erased it and the engine has forgotten it.
+    pub forgotten: bool,
+}
+
+/// What forgetting chunks dropped.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ForgetReport {
+    pub forgotten: u64,
+    /// Chunk texts still waiting for a model type.
+    pub queued_dropped: u64,
+    /// Records still in the outbox.
+    pub records_dropped: u64,
+    /// Events whose chunks are now all forgotten: their keys are tombstoned.
+    pub events_tombstoned: u64,
+}
+
 /// Durable operational state. Implementations must make
-/// [`OperationalStore::commit_admission`] atomic.
+/// [`OperationalStore::commit_admission`] and
+/// [`OperationalStore::forget_chunks`] atomic.
 pub trait OperationalStore {
     fn ledger_get(&self, key: &EventKey) -> Result<Option<LedgerEntry>, StoreError>;
 
@@ -295,6 +318,21 @@ pub trait OperationalStore {
 
     /// Records how a started call ended.
     fn finish_attempt(&mut self, finish: &AttemptFinish) -> Result<(), StoreError>;
+
+    /// Where a chunk lives, or `None` if the ledger holds no such chunk.
+    fn chunk_home(&self, chunk_id: &ChunkId) -> Result<Option<ChunkHome>, StoreError>;
+
+    /// Forgets chunks a system of record erased. For each one it drops the
+    /// classification row and its text and any of the chunk's records still
+    /// in the outbox, clears delivery failure details that could quote it,
+    /// and marks it forgotten for good. Then it tombstones each event whose
+    /// chunks are now all forgotten, keeping only the keyed hash. Unknown and
+    /// already forgotten chunks are skipped.
+    fn forget_chunks(
+        &mut self,
+        chunk_ids: &[ChunkId],
+        at: Timestamp,
+    ) -> Result<ForgetReport, StoreError>;
 
     /// Records queued but not yet delivered to the slowest required sink.
     fn outbox_backlog(&self, required: &[String]) -> Result<u64, StoreError> {

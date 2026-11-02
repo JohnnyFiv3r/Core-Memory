@@ -3,26 +3,29 @@
 //! The ledger is keyed by an HMAC of the event key under a per-store secret,
 //! so a tombstone can block re-admission without keeping the erased key in
 //! plain form (ING-05). Ledger rows cannot be deleted and their identity
-//! columns cannot change: triggers enforce both (deletion safeguard 4).
+//! columns cannot change: triggers enforce both (deletion safeguard 4). The
+//! record of which chunks a system of record had the engine forget cannot be
+//! changed or deleted either.
 
 use std::path::Path;
 
+use core_memory_contract::record::{chunk_record_key, type_decision_record_key};
 use core_memory_contract::{
     ChunkId, EventId, EventKey, FieldHasher, PendingReason, Sha256Digest, Timestamp,
 };
 use core_memory_core::StoreError;
 use core_memory_core::store::{
-    AdmissionWrite, AttemptFinish, AttemptReservation, CommitResult, DeliveryFailure, LedgerEntry,
-    OperationalStore, OutboxEntry, OutboxRecord, PinKind, PinResult, QueueAction, QueueUpdate,
-    QueuedChunk, ReserveOutcome,
+    AdmissionWrite, AttemptFinish, AttemptReservation, ChunkHome, CommitResult, DeliveryFailure,
+    ForgetReport, LedgerEntry, OperationalStore, OutboxEntry, OutboxRecord, PinKind, PinResult,
+    QueueAction, QueueUpdate, QueuedChunk, ReserveOutcome,
 };
 use hmac::{Hmac, KeyInit, Mac};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use sha2::Sha256;
 
-/// Version 2 adds `classification_queue.batch_cap`. Version 1 stores are
-/// upgraded in place when opened.
-const SCHEMA_VERSION: i64 = 2;
+/// Version 2 adds `classification_queue.batch_cap`; version 3 adds
+/// `forgotten_chunks`. Older stores are upgraded in place when opened.
+const SCHEMA_VERSION: i64 = 3;
 const LEDGER_KEY_DOMAIN: &str = "core-memory/ledger-key/v1";
 
 const SCHEMA: &str = r#"
@@ -142,6 +145,23 @@ BEGIN SELECT RAISE(ABORT, 'pins cannot change'); END;
 
 CREATE TRIGGER IF NOT EXISTS pins_no_delete BEFORE DELETE ON pins
 BEGIN SELECT RAISE(ABORT, 'pins cannot be deleted'); END;
+
+CREATE INDEX IF NOT EXISTS ledger_chunks_by_id ON ledger_chunks (chunk_id);
+
+-- Chunks a system of record erased and had the engine forget. Times are
+-- Unix milliseconds. Rows are never changed or deleted.
+CREATE TABLE IF NOT EXISTS forgotten_chunks (
+    chunk_id TEXT PRIMARY KEY,
+    key_mac BLOB NOT NULL REFERENCES ledger (key_mac),
+    scope TEXT NOT NULL,
+    forgotten_at INTEGER NOT NULL
+) STRICT, WITHOUT ROWID;
+
+CREATE TRIGGER IF NOT EXISTS forgotten_chunks_fixed BEFORE UPDATE ON forgotten_chunks
+BEGIN SELECT RAISE(ABORT, 'a forgotten chunk stays forgotten'); END;
+
+CREATE TRIGGER IF NOT EXISTS forgotten_chunks_no_delete BEFORE DELETE ON forgotten_chunks
+BEGIN SELECT RAISE(ABORT, 'a forgotten chunk stays forgotten'); END;
 "#;
 
 /// A file-backed (or in-memory) SQLite [`OperationalStore`].
@@ -173,6 +193,10 @@ impl SqliteStore {
             .map_err(backend)?;
         conn.pragma_update(None, "foreign_keys", "ON")
             .map_err(backend)?;
+        // Deleted rows are overwritten, so text the engine forgets or prunes
+        // is not left in free pages of the file.
+        conn.pragma_update(None, "secure_delete", "ON")
+            .map_err(backend)?;
         conn.busy_timeout(std::time::Duration::from_secs(5))
             .map_err(backend)?;
         conn.execute_batch(SCHEMA).map_err(backend)?;
@@ -193,7 +217,12 @@ impl SqliteStore {
                 )
                 .map_err(backend)?;
             }
-            Some(1) => upgrade_from_v1(&mut conn)?,
+            Some(1) => {
+                upgrade_from_v1(&mut conn)?;
+                set_version(&conn, SCHEMA_VERSION)?;
+            }
+            // Version 3 only adds a table, which `SCHEMA` created.
+            Some(2) => set_version(&conn, SCHEMA_VERSION)?,
             Some(SCHEMA_VERSION) => {}
             Some(other) => {
                 return Err(StoreError::Corrupt(format!(
@@ -291,12 +320,18 @@ fn upgrade_from_v1(conn: &mut Connection) -> Result<(), StoreError> {
         )
         .map_err(backend)?;
     }
-    tx.execute(
+    tx.execute("UPDATE meta SET value = 2 WHERE key = 'schema_version'", [])
+        .map_err(backend)?;
+    tx.commit().map_err(backend)
+}
+
+fn set_version(conn: &Connection, version: i64) -> Result<(), StoreError> {
+    conn.execute(
         "UPDATE meta SET value = ?1 WHERE key = 'schema_version'",
-        params![SCHEMA_VERSION],
+        params![version],
     )
     .map_err(backend)?;
-    tx.commit().map_err(backend)
+    Ok(())
 }
 
 fn read_entry(conn: &Connection, key_mac: &[u8]) -> Result<Option<LedgerEntry>, StoreError> {
@@ -886,6 +921,126 @@ impl OperationalStore for SqliteStore {
         }
         Ok(())
     }
+
+    fn chunk_home(&self, chunk_id: &ChunkId) -> Result<Option<ChunkHome>, StoreError> {
+        // A tombstoned event's plain scope is gone; a forgotten chunk keeps
+        // its own.
+        let row: Option<(Option<String>, Option<String>)> = self
+            .conn
+            .query_row(
+                "SELECT l.scope, f.scope FROM ledger_chunks c
+                 JOIN ledger l USING (key_mac)
+                 LEFT JOIN forgotten_chunks f ON f.chunk_id = c.chunk_id
+                 WHERE c.chunk_id = ?1",
+                params![chunk_id.to_string()],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()
+            .map_err(backend)?;
+        let Some((ledger_scope, forgotten_scope)) = row else {
+            return Ok(None);
+        };
+        let forgotten = forgotten_scope.is_some();
+        let scope = forgotten_scope
+            .or(ledger_scope)
+            .ok_or_else(|| StoreError::Corrupt(format!("chunk {chunk_id} has no scope")))?;
+        Ok(Some(ChunkHome {
+            chunk_id: *chunk_id,
+            scope,
+            forgotten,
+        }))
+    }
+
+    fn forget_chunks(
+        &mut self,
+        chunk_ids: &[ChunkId],
+        at: Timestamp,
+    ) -> Result<ForgetReport, StoreError> {
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(backend)?;
+        let mut report = ForgetReport::default();
+        let mut events = std::collections::BTreeSet::new();
+        for chunk_id in chunk_ids {
+            let id = chunk_id.to_string();
+            let row: Option<(Vec<u8>, Option<String>)> = tx
+                .query_row(
+                    "SELECT c.key_mac, l.scope FROM ledger_chunks c JOIN ledger l USING (key_mac)
+                     WHERE c.chunk_id = ?1
+                       AND NOT EXISTS (SELECT 1 FROM forgotten_chunks f WHERE f.chunk_id = ?1)",
+                    params![id],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
+                .optional()
+                .map_err(backend)?;
+            // Unknown, already forgotten, or of an event tombstoned some other way.
+            let Some((key_mac, Some(scope))) = row else {
+                continue;
+            };
+            tx.execute(
+                "INSERT INTO forgotten_chunks (chunk_id, key_mac, scope, forgotten_at)
+                 VALUES (?1, ?2, ?3, ?4)",
+                params![id, key_mac, scope, at.unix_millis()],
+            )
+            .map_err(backend)?;
+            report.forgotten += 1;
+            report.queued_dropped += tx
+                .execute(
+                    "DELETE FROM classification_queue WHERE chunk_id = ?1",
+                    params![id],
+                )
+                .map_err(backend)? as u64;
+            let keys = [
+                chunk_record_key(chunk_id),
+                type_decision_record_key(chunk_id),
+            ];
+            report.records_dropped += tx
+                .execute(
+                    "DELETE FROM outbox WHERE record_key IN (?1, ?2)",
+                    params![keys[0], keys[1]],
+                )
+                .map_err(backend)? as u64;
+            // A conflict detail can quote the record a sink holds.
+            tx.execute(
+                "UPDATE delivery_failures SET detail = 'forgotten' WHERE record_key IN (?1, ?2)",
+                params![keys[0], keys[1]],
+            )
+            .map_err(backend)?;
+            events.insert(key_mac);
+        }
+        for key_mac in events {
+            let left: i64 = tx
+                .query_row(
+                    "SELECT COUNT(*) FROM ledger_chunks c
+                     LEFT JOIN forgotten_chunks f USING (chunk_id)
+                     WHERE c.key_mac = ?1 AND f.chunk_id IS NULL",
+                    params![key_mac],
+                    |r| r.get(0),
+                )
+                .map_err(backend)?;
+            if left == 0 {
+                // Keep the keyed hash and identity; drop the plain key.
+                report.events_tombstoned += tx
+                    .execute(
+                        "UPDATE ledger SET state = 'tombstoned', scope = NULL, source_ns = NULL,
+                                           external_id = NULL, revision = NULL
+                         WHERE key_mac = ?1 AND state = 'live'",
+                        params![key_mac],
+                    )
+                    .map_err(backend)? as u64;
+            }
+        }
+        tx.commit().map_err(backend)?;
+        if report.forgotten > 0 {
+            // The log still holds copies of the pages from before the
+            // forget. Fold them into the file and empty it.
+            self.conn
+                .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()))
+                .map_err(backend)?;
+        }
+        Ok(report)
+    }
 }
 
 #[cfg(test)]
@@ -1102,6 +1257,78 @@ mod tests {
         // Opening an upgraded store changes nothing.
         let store = SqliteStore::open(&path).unwrap();
         assert_eq!(version(&store), SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn forgotten_chunks_stay_forgotten() {
+        let mut store = SqliteStore::open_in_memory().unwrap();
+        let k = key("e1");
+        let id = ChunkId::derive(&k, "c", 1, 0, 1);
+        store
+            .commit_admission(write(&k, std::slice::from_ref(&id), 0))
+            .unwrap();
+        let at = Timestamp::from_unix_millis(5);
+        let report = store.forget_chunks(&[id, id], at).unwrap();
+        assert_eq!((report.forgotten, report.events_tombstoned), (1, 1));
+        assert_eq!(
+            store.forget_chunks(&[id], at).unwrap(),
+            ForgetReport::default()
+        );
+        for sql in [
+            "DELETE FROM forgotten_chunks",
+            "UPDATE forgotten_chunks SET scope = 'other'",
+        ] {
+            let err = store.conn.execute(sql, []).unwrap_err();
+            assert!(err.to_string().contains("stays forgotten"), "{err}");
+        }
+        let plain: (Option<String>, Option<String>) = store
+            .conn
+            .query_row("SELECT scope, external_id FROM ledger", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+        assert_eq!(plain, (None, None), "the tombstone keeps no plain key");
+        assert_eq!(store.ledger_get(&k).unwrap(), Some(LedgerEntry::Tombstoned));
+        let home = store.chunk_home(&id).unwrap().unwrap();
+        assert_eq!((home.scope.as_str(), home.forgotten), ("acme", true));
+    }
+
+    #[test]
+    fn version_2_stores_can_forget_when_opened() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("store.sqlite");
+        let k = key("e1");
+        let id = ChunkId::derive(&k, "c", 1, 0, 1);
+        {
+            let mut store = SqliteStore::open(&path).unwrap();
+            store
+                .commit_admission(write(&k, std::slice::from_ref(&id), 1))
+                .unwrap();
+            // Turn it back into a version 2 store, as #451 wrote them.
+            store
+                .conn
+                .execute_batch(
+                    "DROP TABLE forgotten_chunks;
+                     DROP INDEX ledger_chunks_by_id;
+                     UPDATE meta SET value = 2 WHERE key = 'schema_version';",
+                )
+                .unwrap();
+        }
+        let mut store = SqliteStore::open(&path).unwrap();
+        let version: i64 = store
+            .conn
+            .query_row(
+                "SELECT value FROM meta WHERE key = 'schema_version'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(version, SCHEMA_VERSION);
+        assert!(!store.chunk_home(&id).unwrap().unwrap().forgotten);
+        let report = store
+            .forget_chunks(&[id], Timestamp::from_unix_millis(5))
+            .unwrap();
+        assert_eq!(report.forgotten, 1);
     }
 
     #[test]

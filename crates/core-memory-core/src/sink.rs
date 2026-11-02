@@ -71,7 +71,8 @@ pub struct DeliveryReport {
     /// Records the sink refused for good, or the engine withheld because the
     /// sink cannot take them. They are kept in the store's failure list.
     pub failed: u64,
-    /// Entries pruned before this sink read them (optional sinks only).
+    /// Entries this sink never read: pruned before it got to them (optional
+    /// sinks only), or forgotten because the system of record erased them.
     pub skipped_gap: u64,
     /// Set when the sink asked to retry; delivery stopped there.
     pub retry_after_ms: Option<u64>,
