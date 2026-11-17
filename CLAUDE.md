@@ -21,8 +21,9 @@ auditable memory in PostgreSQL. For each SourceEvent it:
 4. asks a model for each chunk's type and where its entities, actions and
    outcomes are, when a reader is configured and the chunk's scope allows
    the model's destination;
-5. *planned:* compresses each tool call and asks a model for its action and
-   outcome;
+5. shortens each tool call by fixed rules and asks a model what the call
+   did and what came of it, when a tool reader is configured and the call's
+   scope allows the model's destination;
 6. *planned:* asks a judge model how new beads relate to recent ones.
 
 PostgreSQL is the only store and the system of record. The engine owns the
@@ -121,7 +122,9 @@ are facets and candidate seeds, not relationships.
 ### 6. Text lives in one place
 
 - Source text is stored once, in `chunk_text`. Every other table holds IDs,
-  ranges, enums and engine-side times.
+  ranges, enums and engine-side times, with one exception: `tool_outcomes`
+  holds what a model wrote about a tool call, an action of at most 120
+  characters and an outcome of at most 200. It is erased with the call.
 - Erasing a message removes its text and everything derived from that text,
   in one transaction. A new table that holds content must be erased with its
   source, and must say so in `docs/architecture.md`.
@@ -194,16 +197,25 @@ Tests fail if a function or a store call takes another lock first.
   function gives it.
 - Every call goes through the `ModelTransport` trait: one request, with no
   hidden retry or fallback. Core has no code for any one provider.
-- Nothing a model writes is stored. A type is a key of the vocabulary, an
-  abstention is one of a fixed set, and anything else the model reports is
-  a quote kept as the byte range where it was found in the chunk.
+- Nothing a model writes about a chunk is stored. A type is a key of the
+  vocabulary, an abstention is one of a fixed set, and anything else the
+  model reports is a quote kept as the byte range where it was found in
+  the chunk.
+- What a model writes about a tool call is stored in `tool_outcomes` and
+  nowhere else: two bounded lines and a status from a fixed set. A model
+  never sees a tool call's stored text whole. Code shortens it first, by
+  rules that are fixed and versioned (`core-memory-core::compress`), and
+  the receipt counts the bytes that were sent.
 - An abstention is a judgment and is stored. It is never retried as if the
   model had not answered, and never counted as a wrong answer.
 - A read is stored only for a chunk its call's receipt names, whose text
-  still exists and whose scope is still active.
+  still exists and whose scope is still active. A tool outcome is stored
+  only for the event the receipt's chunks belong to, on the same terms.
 - The queue, the receipts, the results and the logs hold IDs, counts and
-  problem codes. Never chunk text, and never what a model or a provider
+  problem codes. Never source text, and never what a model or a provider
   said.
+- A bead of a tool call is the call's event: one bead, with the event's ID,
+  however many chunks its text has.
 
 ---
 

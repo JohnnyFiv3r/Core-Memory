@@ -871,7 +871,8 @@ fn the_server_runs_and_stops_cleanly_with_no_one_reading_its_log() {
 
 /// A stand-in for a model server that speaks the chat completions API, on
 /// a local port. For every chunk it is shown it answers with the first
-/// listed type and marks the chunk's first word as an entity.
+/// listed type and marks the chunk's first word as an entity. Of a tool
+/// call it says what the tool was and how its output ends.
 struct StandIn {
     addr: std::net::SocketAddr,
     requests: std::sync::Arc<std::sync::Mutex<Vec<Value>>>,
@@ -942,21 +943,57 @@ impl StandIn {
             .store(status, std::sync::atomic::Ordering::SeqCst);
     }
 
-    /// The config lines for a reader that calls this server.
+    /// The config lines for a binding that calls this server.
+    fn binding(&self) -> String {
+        format!(
+            "\n[[binding]]\nid = \"local\"\nprovider = \"openai-compatible\"\nendpoint = \"http://{}/v1\"\nmodel = \"stand-in-1\"\nmax_output_tokens = 512\ntimeout_ms = 5000\n",
+            self.addr
+        )
+    }
+
+    /// The config lines for a reader of chunks that calls this server.
     fn config(&self, reader: &str) -> String {
         format!(
-            "\n[reader]\nbinding = \"local\"\n{reader}\n\n[[binding]]\nid = \"local\"\nprovider = \"openai-compatible\"\nendpoint = \"http://{}/v1\"\nmodel = \"stand-in-1\"\nmax_output_tokens = 512\ntimeout_ms = 5000\n",
-            self.addr
+            "\n[reader]\nbinding = \"local\"\n{reader}\n{}",
+            self.binding()
+        )
+    }
+
+    /// The config lines for readers of chunks and of tool calls that both
+    /// call this server.
+    fn config_with_tools(&self) -> String {
+        format!(
+            "\n[reader]\nbinding = \"local\"\n\n[tool_reader]\nbinding = \"local\"\n{}",
+            self.binding()
         )
     }
 }
 
-/// A chat completion that reads every chunk the request shows.
+/// A chat completion that reads what the request shows: every chunk of a
+/// batch, or one tool call.
 fn completion(request: &Value) -> Value {
     let shown: Value = request["messages"][1]["content"]
         .as_str()
         .and_then(|user| serde_json::from_str(user.lines().next().unwrap_or_default()).ok())
         .unwrap_or(Value::Null);
+    if let Some(tool) = shown["tool"].as_str() {
+        let last_line = shown["output"]
+            .as_str()
+            .and_then(|output| output.lines().last())
+            .unwrap_or_default();
+        let reading = serde_json::json!({
+            "action": format!("Called {tool}"),
+            "outcome": format!("Its output ends: {last_line}"),
+            "status": if shown["tool_reported_error"] == true { "failed" } else { "succeeded" },
+        });
+        return serde_json::json!({
+            "choices": [{
+                "message": {"role": "assistant", "content": reading.to_string(), "refusal": null},
+                "finish_reason": "stop",
+            }],
+            "usage": {"prompt_tokens": 700, "completion_tokens": 40},
+        });
+    }
     let first_type = shown["types"][0]["key"].clone();
     let items: Vec<Value> = shown["chunks"]
         .as_array()
@@ -1232,4 +1269,154 @@ fn the_service_reads_what_it_admits_and_still_stops_cleanly() {
     // The log says a chunk was read, and nothing of what it said.
     assert!(log.contains("\"stored\":1"), "{log}");
     assert!(!log.contains("Priya"), "{log}");
+}
+
+#[test]
+fn tool_calls_are_read_whole_and_what_was_read_is_exported() {
+    let model = StandIn::start();
+    let q = Quickstart::ready();
+    q.configure(&model.config_with_tools());
+    let checked = q.ok(&["check"]);
+    assert!(
+        checked
+            .iter()
+            .any(|l| l["tool_reader"]["binding"] == "local"),
+        "{checked:?}"
+    );
+
+    // One message and one call of a tool with a long, repetitive output.
+    let output: Vec<String> = (1..=300)
+        .map(|i| format!("test case_{i} ... ok"))
+        .chain(["test result: FAILED. 300 passed; 2 failed".to_string()])
+        .collect();
+    let message = serde_json::json!({
+        "scope": "acme", "source_ns": "agent/s1", "external_id": "msg_1",
+        "profile_id": "core.chat_transcript", "media_type": "text/plain",
+        "actor": {"id": "agent-1", "kind": "agent", "role": "assistant"},
+        "content": {"text": "Running the tests before I change the exporter."},
+        "parser_contract_version": "agent-log/1"
+    });
+    let call = serde_json::json!({
+        "scope": "acme", "source_ns": "agent/s1", "external_id": "toolu_01",
+        "profile_id": "core.tool_call", "media_type": "application/json",
+        "content": {"tool_call": {
+            "tool": "Bash",
+            "input": {"command": "cargo test -p exporter"},
+            "output": output.join("\n"),
+            "is_error": true
+        }},
+        "structure": {"parent": {"external_id": "msg_1"}},
+        "parser_contract_version": "agent-log/1"
+    });
+    std::fs::write(
+        q.dir.path().join("session.jsonl"),
+        format!("{message}\n{call}\n"),
+    )
+    .unwrap();
+    let admitted = q.ok(&["ingest", "--input", "session.jsonl"]);
+    assert!(
+        admitted
+            .iter()
+            .all(|line| line["result"]["outcome"] == "accepted"),
+        "{admitted:?}"
+    );
+    let call_id = admitted[1]["result"]["event_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // One line for each kind of work: the message's chunk, and the call.
+    let status = q.ok(&["read", "status"]);
+    assert_eq!(
+        (&status[0]["work"], &status[0]["ready"]),
+        (&Value::from("chunk_read"), &Value::from(1))
+    );
+    assert_eq!(
+        (&status[1]["work"], &status[1]["ready"]),
+        (&Value::from("tool_read"), &Value::from(1))
+    );
+
+    // Nothing is sent until the scope allows the model.
+    let put_off = q.ok(&["read", "run"]);
+    assert_eq!(put_off.len(), 2, "{put_off:?}");
+    assert!(put_off.iter().all(|r| r["read"]["problem"] == "no_consent"));
+    assert!(model.requests().is_empty());
+    q.ok(&["scope", "allow", "acme", "--binding", "local"]);
+
+    // Both kinds are read by one run: the chunk in a batch, the call alone.
+    let rounds = q.ok(&["read", "run"]);
+    assert_eq!(rounds.len(), 2, "{rounds:?}");
+    assert!(rounds.iter().all(|r| r["read"]["problem"].is_null()));
+    let read: Vec<(u64, u64)> = rounds
+        .iter()
+        .map(|r| {
+            (
+                r["read"]["chunks"].as_u64().unwrap(),
+                r["read"]["tool_calls"].as_u64().unwrap(),
+            )
+        })
+        .collect();
+    assert!(read.contains(&(1, 0)) && read.contains(&(0, 1)), "{read:?}");
+
+    // The model was shown the call with the repetition taken out, and
+    // none of the 300 passing lines but the first.
+    let shown: Vec<Value> = model
+        .requests()
+        .iter()
+        .filter_map(|request| {
+            serde_json::from_str::<Value>(request["messages"][1]["content"].as_str()?).ok()
+        })
+        .filter(|shown| shown["tool"] == "Bash")
+        .collect();
+    assert_eq!(shown.len(), 1);
+    let output_shown = shown[0]["output"].as_str().unwrap();
+    assert!(
+        output_shown.contains("[... 299 more lines like the one above]"),
+        "{output_shown}"
+    );
+    assert!(!output_shown.contains("case_17"), "{output_shown}");
+
+    // What was read is exported after the event it is about.
+    let records = q.ok(&["export"]);
+    let outcomes = of_kind(&records, "tool_outcome");
+    assert_eq!(outcomes.len(), 1);
+    let outcome = outcomes[0];
+    assert_eq!(outcome["event_id"], call_id.as_str());
+    assert_eq!(outcome["bead_id"], call_id.as_str());
+    assert_eq!(outcome["status"], "failed");
+    assert_eq!(outcome["action"], "Called Bash");
+    assert_eq!(
+        outcome["outcome"],
+        "Its output ends: test result: FAILED. 300 passed; 2 failed"
+    );
+    assert_eq!(outcome["compressor"]["id"], "tool.lines");
+    assert_eq!(outcome["reader"]["binding_id"], "local");
+    assert_eq!(of_kind(&records, "chunk_read").len(), 1);
+    let event = records
+        .iter()
+        .find(|r| r["record_kind"] == "event" && r["event_id"] == call_id.as_str())
+        .unwrap();
+    assert_eq!(event["content_kind"], "tool_call");
+    assert_eq!(event["tool_call"]["tool"], "Bash");
+    assert!(event["seq"].as_u64() < outcome["seq"].as_u64());
+    let status = q.ok(&["read", "status"]);
+    assert!(status.iter().all(|line| line["ready"] == 0), "{status:?}");
+
+    // Erasing the call takes what was read in it out of the export.
+    q.ok(&["erase", "--reason", "user_request", "event", &call_id]);
+    let after = q.ok(&["export"]);
+    assert!(of_kind(&after, "tool_outcome").is_empty());
+    assert_eq!(of_kind(&after, "chunk_read").len(), 1);
+    // Nothing is left to queue: the message was read, the call is gone.
+    let queued = q.ok(&["read", "queue", "acme"]);
+    assert_eq!(
+        queued
+            .iter()
+            .map(|line| (
+                line["work"].as_str().unwrap(),
+                line["queued"].as_u64().unwrap()
+            ))
+            .collect::<Vec<_>>(),
+        [("chunk_read", 0), ("tool_read", 0)]
+    );
 }

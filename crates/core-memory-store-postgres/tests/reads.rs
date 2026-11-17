@@ -14,10 +14,10 @@ use core_memory_core::model::{
     FnTransport, ModelRequest, ModelResponse, ScriptedTransport, TransportError, Usage,
 };
 use core_memory_core::store::{
-    CallFinish, CallResult, Change, Permit, PermitRequest, Purpose, ReadWrite, Store,
+    CallFinish, CallResult, Change, Permit, PermitRequest, Purpose, ReadWrite, Sending, Store,
 };
 use core_memory_core::{Clock, ReadReport, ReadRound};
-use core_memory_store_postgres::{ConnectConfig, PostgresStore, QueuedReads};
+use core_memory_store_postgres::{ConnectConfig, PostgresStore, QueuedReads, Reread};
 use serde_json::{Value, json};
 
 const DESTINATION: &str = "models.test:8080";
@@ -121,6 +121,7 @@ fn a_chunk_is_read_and_what_was_found_is_stored_as_ranges() {
         ReadReport {
             scope: "acme".into(),
             chunks: 1,
+            tool_calls: 0,
             stored: 1,
             dropped: 0,
             calls: 1,
@@ -319,12 +320,18 @@ fn chunks_stored_before_there_was_a_reader_are_queued_when_asked() {
     let now = w.clock.now();
     // Only what is live is queued, and only once.
     assert_eq!(
-        w.store.queue_reads("acme", None, now).unwrap(),
-        QueuedReads::Queued(1)
+        w.store.queue_reads("acme", Reread::default(), now).unwrap(),
+        QueuedReads::Queued {
+            chunks: 1,
+            tool_calls: 0
+        }
     );
     assert_eq!(
-        w.store.queue_reads("acme", None, now).unwrap(),
-        QueuedReads::Queued(0)
+        w.store.queue_reads("acme", Reread::default(), now).unwrap(),
+        QueuedReads::Queued {
+            chunks: 0,
+            tool_calls: 0
+        }
     );
     assert_eq!(handled(round(&mut w, &transport)).stored, 1);
 
@@ -334,8 +341,20 @@ fn chunks_stored_before_there_was_a_reader_are_queued_when_asked() {
     let vocabulary = w.engine.vocabulary().unwrap().catalog().clone();
     for current in [None, Some((&same, &vocabulary))] {
         assert_eq!(
-            w.store.queue_reads("acme", current, now).unwrap(),
-            QueuedReads::Queued(0)
+            w.store
+                .queue_reads(
+                    "acme",
+                    Reread {
+                        chunks: current,
+                        tool_calls: None
+                    },
+                    now
+                )
+                .unwrap(),
+            QueuedReads::Queued {
+                chunks: 0,
+                tool_calls: 0
+            }
         );
     }
     let other = engine_with(
@@ -346,19 +365,31 @@ fn chunks_stored_before_there_was_a_reader_are_queued_when_asked() {
     assert_ne!(changed.binding_rev, same.binding_rev);
     assert_eq!(
         w.store
-            .queue_reads("acme", Some((&changed, &vocabulary)), now)
+            .queue_reads(
+                "acme",
+                Reread {
+                    chunks: Some((&changed, &vocabulary)),
+                    tool_calls: None
+                },
+                now
+            )
             .unwrap(),
-        QueuedReads::Queued(1)
+        QueuedReads::Queued {
+            chunks: 1,
+            tool_calls: 0
+        }
     );
 
     // Nothing is queued for a scope that is not active.
     assert_eq!(
-        w.store.queue_reads("nowhere", None, now).unwrap(),
+        w.store
+            .queue_reads("nowhere", Reread::default(), now)
+            .unwrap(),
         QueuedReads::ScopeNotActive(None)
     );
     w.store.set_scope_state("acme", ScopeState::Paused).unwrap();
     assert_eq!(
-        w.store.queue_reads("acme", None, now).unwrap(),
+        w.store.queue_reads("acme", Reread::default(), now).unwrap(),
         QueuedReads::ScopeNotActive(Some(ScopeState::Paused))
     );
 }
@@ -430,7 +461,12 @@ fn reading_waits_for_a_migration_holding_nothing_else() {
         reader: &reader.reader_ref,
         attempt: 1,
         repairs: None,
-        reserved_tokens: 10,
+        sending: &|_| {
+            Some(Sending {
+                bytes: 30,
+                reserved_tokens: 10,
+            })
+        },
         budget: None,
         at: now,
     };
@@ -439,7 +475,7 @@ fn reading_waits_for_a_migration_holding_nothing_else() {
         panic!("not permitted");
     };
     let work = [core_memory_core::store::WorkUpdate {
-        chunk_id: ids[0],
+        item: core_memory_core::store::WorkItem::Chunk(ids[0]),
         next: core_memory_core::store::WorkNext::Retry {
             not_before: now,
             alone: false,
@@ -452,23 +488,29 @@ fn reading_waits_for_a_migration_holding_nothing_else() {
         result: core_memory_core::store::CallResult::NotSent,
         usage: None,
         reads: &[],
-        vocabulary: engine.vocabulary().unwrap().catalog(),
+        tool_outcome: None,
+        vocabulary: Some(engine.vocabulary().unwrap().catalog()),
         reader: &reader.reader_ref,
         work: &work,
         at: now,
     };
     behind_a_migration(db, "finish_call", || store.finish_call(&finish)).unwrap();
-    behind_a_migration(db, "update_work", || {
-        store.update_work(Purpose::ChunkRead, &work)
-    })
-    .unwrap();
+    behind_a_migration(db, "update_work", || store.update_work(&work)).unwrap();
     let counts = behind_a_migration(db, "work_counts", || store.work_counts(Purpose::ChunkRead));
     assert_eq!(counts.unwrap().ready, 1);
 
     // What an operator and a host call.
     assert_eq!(
-        behind_a_migration(db, "queue_reads", || store.queue_reads("acme", None, now)).unwrap(),
-        QueuedReads::Queued(0)
+        behind_a_migration(db, "queue_reads", || store.queue_reads(
+            "acme",
+            Reread::default(),
+            now
+        ))
+        .unwrap(),
+        QueuedReads::Queued {
+            chunks: 0,
+            tool_calls: 0
+        }
     );
     assert_eq!(
         behind_a_migration(db, "retry_failed_reads", || {
@@ -572,6 +614,7 @@ fn erasing_a_message_removes_what_was_read_in_it() {
         .map(|change| match change {
             Change::Event(_) => "event",
             Change::Read { .. } => "read",
+            Change::ToolOutcome { .. } => "tool outcome",
             Change::Erasure { .. } => "erasure",
         })
         .collect();
@@ -858,7 +901,12 @@ fn the_end_of_a_call_is_recorded_once_and_a_wild_token_count_is_no_obstacle() {
             reader: &reader,
             attempt: 1,
             repairs: None,
-            reserved_tokens: 10,
+            sending: &|_| {
+                Some(Sending {
+                    bytes: 9,
+                    reserved_tokens: 10,
+                })
+            },
             budget: None,
             at: now,
         })
@@ -884,7 +932,8 @@ fn the_end_of_a_call_is_recorded_once_and_a_wild_token_count_is_no_obstacle() {
             output_tokens: 7,
         }),
         reads: &reads,
-        vocabulary: vocabulary.catalog(),
+        tool_outcome: None,
+        vocabulary: Some(vocabulary.catalog()),
         reader: &reader,
         work: &[],
         at: now,
@@ -1166,7 +1215,14 @@ fn a_permit_covers_only_the_text_of_its_own_scope() {
             reader: &reader,
             attempt: 1,
             repairs: None,
-            reserved_tokens: 0,
+            // The reader is asked about the chunks it will be handed, and
+            // those are acme's alone.
+            sending: &|chunks| {
+                Some(Sending {
+                    bytes: chunks.iter().map(|c| c.text.len() as u64).sum(),
+                    reserved_tokens: 0,
+                })
+            },
             budget: None,
             at: w.clock.now(),
         })
@@ -1176,6 +1232,10 @@ fn a_permit_covers_only_the_text_of_its_own_scope() {
     };
     assert_eq!(chunks.len(), 1);
     assert_eq!(chunks[0].text, "acme's text");
+    assert_eq!(
+        w.count("SELECT bytes_sent FROM core_memory.outbound_calls"),
+        "acme's text".len() as i64
+    );
     assert_eq!(
         w.count("SELECT cardinality(chunk_ids)::bigint FROM core_memory.outbound_calls"),
         1,

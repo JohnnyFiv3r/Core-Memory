@@ -21,6 +21,11 @@ types = [
 # [reader]
 # binding = "small"
 #
+# To have a model say of each tool call what it did and what came of it:
+#
+# [tool_reader]
+# binding = "small"
+#
 # [[binding]]
 # id = "small"
 # provider = "anthropic"

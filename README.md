@@ -5,20 +5,25 @@
 # Core Memory 2.0 (in development)
 
 Core Memory 2.0 is a ground-up rewrite in Rust. It turns any stream of source
-events (messages, documents, record changes) into durable, auditable memory
-in PostgreSQL. For each event it:
+events (messages, documents, record changes, an agent's tool calls) into
+durable, auditable memory in PostgreSQL. For each event it:
 
 1. admits the event with its exact bytes and a stable identity;
 2. cuts it into deterministic chunks and attaches deterministic facets;
 3. commits the event, its chunks and their text in one transaction;
 4. if you configure a model, has it read each chunk: its type, and where
-   its entities, actions and outcomes are.
+   its entities, actions and outcomes are;
+5. if you configure a model for tool calls, has it say of each call what it
+   did and what came of it.
 
 The full chunk text is the memory. The engine never writes summaries or other
-generated text in its place. What a model reads is stored as a type from your
-vocabulary and as ranges of the chunk's own text.
+generated text in its place. What a model reads in a chunk is stored as a type
+from your vocabulary and as ranges of the chunk's own text. A tool call is the
+one exception: beside its full text, the engine keeps two short lines a model
+wrote about it, because a later reader is better served by those than by
+thousands of lines of output.
 
-Tool-call handling and relationship judging are designed and not built yet.
+Relationship judging is designed and not built yet.
 [docs/architecture.md](docs/architecture.md) describes the design, including
 the planned parts.
 
@@ -218,6 +223,42 @@ retry`. No call is made more often than that for one chunk, whatever fails,
 and a chunk the model declines when it is sent alone is set aside at once.
 Logs and receipts never hold chunk text or what a model said.
 
+### Tool calls
+
+An agent's call of a tool is an event like any other, with the call as its
+content:
+
+```json
+{"scope": "acme", "source_ns": "agent/session-7f3a", "external_id": "toolu_01HqPz",
+ "profile_id": "core.tool_call", "media_type": "application/json",
+ "content": {"tool_call": {"tool": "Bash", "input": {"command": "cargo test"},
+                           "output": "running 51 tests\n...", "is_error": true}},
+ "parser_contract_version": "agent-log/1"}
+```
+
+Its text is stored whole: the arguments, then the output. To have a model
+read tool calls, add a tool reader. It may use the same binding as the
+reader of chunks or another one:
+
+```toml
+[tool_reader]
+binding = "small"
+```
+
+The engine first shortens the call's text by fixed rules: repeated lines
+become one line and a count, the middle of a long output is left out except
+for lines that report trouble, and very long lines keep their start and
+end. A line that reports trouble is never counted in with lines that do
+not, and what is shown is never longer than what is stored. The model is
+shown what is left and writes an action of at most 120
+characters, an outcome of at most 200, and whether the call succeeded,
+failed, partly succeeded or cannot be told. That is exported as a
+`tool_outcome` record, and it is erased with the call it is about.
+
+Consent, receipts, budgets and retries work as they do for chunks.
+`read status` and `read queue` print one line for chunks and one for tool
+calls.
+
 ## Erasing
 
 ```bash
@@ -230,7 +271,8 @@ core-memory erase --reason account_closed scope acme
 ```
 
 Erasing removes a whole message: its text, its facets, its key, its hashes,
-its metadata and what a model read in it, in one transaction. Its IDs stay as
+its metadata and what a model read in it or wrote about it, in one
+transaction. Its IDs stay as
 a tombstone, so links to it do not dangle and the same message is refused if
 it is offered again. Each erasure is written to a journal with the reason and
 who asked, and exported as an `erasure` record.
@@ -341,13 +383,15 @@ written by code that does not know the new schema.
   actions and outcomes, behind per-scope consent, a receipt for every call
   and a daily budget. Transports for Anthropic, OpenAI and OpenAI-compatible
   servers.
+- **Tool calls**: stored whole as one bead, shortened by fixed rules, and
+  read by a model that records what each call did and what came of it.
 - **An authenticated HTTP service** with per-token scope grants, readiness and
   an OpenAPI document.
-- **Export** of events, chunks, reads and erasures as `core_memory.record.v2`
-  JSON Lines.
+- **Export** of events, chunks, reads, tool outcomes and erasures as
+  `core_memory.record.v2` JSON Lines.
 
-Not built yet: tool calls and relationship judging. Reading has been tested
-against stand-in models only, not yet against a live one.
+Not built yet: relationship judging. Reading has been tested against
+stand-in models only, not yet against a live one.
 
 ## Workspace
 

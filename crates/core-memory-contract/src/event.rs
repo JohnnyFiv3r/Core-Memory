@@ -324,6 +324,9 @@ impl SourceEvent {
         if let Some(checkpoint) = &self.checkpoint {
             checkpoint.validate(&mut errors);
         }
+        if let Content::ToolCall(call) = &self.content {
+            check_identifier(&mut errors, "content.tool_call.tool", &call.tool);
+        }
         errors.finish()
     }
 }
@@ -352,7 +355,7 @@ impl Checkpoint {
     }
 }
 
-/// The event's content: exact text, or a JSON value.
+/// The event's content: exact text, a JSON value, or one call of a tool.
 ///
 /// Text is kept byte for byte. JSON content is hashed and chunked in its
 /// RFC 8785 canonical form, and duplicate object keys are refused.
@@ -361,6 +364,7 @@ impl Checkpoint {
 pub enum Content {
     Text(String),
     Json(#[schemars(with = "serde_json::Value")] Box<RawValue>),
+    ToolCall(ToolCall),
 }
 
 impl Content {
@@ -368,8 +372,29 @@ impl Content {
         match self {
             Content::Text(_) => ContentKind::Text,
             Content::Json(_) => ContentKind::Json,
+            Content::ToolCall(_) => ContentKind::ToolCall,
         }
     }
+}
+
+/// One call of a tool by an agent, with what the tool returned.
+///
+/// The engine stores it as text: the arguments in RFC 8785 canonical JSON,
+/// a line feed, then the output byte for byte. An event of this kind is
+/// one bead, however many chunks its text is cut into.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ToolCall {
+    /// The tool's name, as the agent called it.
+    pub tool: String,
+    /// The arguments the agent gave: any JSON value.
+    #[schemars(with = "serde_json::Value")]
+    pub input: Box<RawValue>,
+    /// What the tool returned, as the agent received it.
+    pub output: String,
+    /// Whether the tool reported that the call failed, if it said.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub is_error: Option<bool>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
@@ -377,6 +402,7 @@ impl Content {
 pub enum ContentKind {
     Text,
     Json,
+    ToolCall,
 }
 
 /// When the event happened in the source, with its precision.
@@ -897,8 +923,52 @@ mod tests {
         .unwrap();
         match &event.content {
             Content::Json(raw) => assert_eq!(raw.get(), r#"{"b": 2, "a": 1}"#),
-            Content::Text(_) => panic!("expected json content"),
+            other => panic!("expected json content, not {other:?}"),
         }
+    }
+
+    #[test]
+    fn a_tool_call_is_a_tool_its_arguments_and_what_it_returned() {
+        let call = |content: &str| {
+            serde_json::from_str::<SourceEvent>(&format!(
+                r#"{{"scope":"a","source_ns":"agent/s1","external_id":"toolu_01",
+                    "profile_id":"core.tool_call","media_type":"application/json",
+                    "parser_contract_version":"1","structure":{{"parent":{{"external_id":"m7"}}}},
+                    "content":{{"tool_call":{content}}}}}"#
+            ))
+        };
+        let event = call(
+            r#"{"tool":"Bash","input":{"command":"cargo test","timeout":60},
+                "output":"test result: ok. 12 passed\n","is_error":false}"#,
+        )
+        .unwrap();
+        assert!(event.validate().is_ok());
+        assert_eq!(event.content.kind(), ContentKind::ToolCall);
+        let Content::ToolCall(tool_call) = &event.content else {
+            panic!("expected a tool call");
+        };
+        assert_eq!(tool_call.tool, "Bash");
+        // The arguments are kept as they were written until they are accepted.
+        assert_eq!(
+            tool_call.input.get(),
+            r#"{"command":"cargo test","timeout":60}"#
+        );
+        assert_eq!(tool_call.output, "test result: ok. 12 passed\n");
+        assert_eq!(tool_call.is_error, Some(false));
+        // It reads back as it was written.
+        let again: SourceEvent =
+            serde_json::from_str(&serde_json::to_string(&event).unwrap()).unwrap();
+        assert_eq!(again.content.kind(), ContentKind::ToolCall);
+
+        // The output is required, an unknown field is refused, and so is a
+        // duplicate key in the arguments.
+        assert!(call(r#"{"tool":"Bash","input":{}}"#).is_err());
+        assert!(call(r#"{"tool":"Bash","input":{},"output":"","stdout":"x"}"#).is_err());
+        assert!(call(r#"{"tool":"Bash","input":{"a":1,"a":2},"output":""}"#).is_err());
+        // A tool has a name.
+        let unnamed = call(r#"{"tool":"","input":null,"output":"x"}"#).unwrap();
+        let problems = unnamed.validate().unwrap_err();
+        assert_eq!(problems[0].field, "content.tool_call.tool");
     }
 
     #[test]

@@ -3,8 +3,9 @@
 //!
 //! Each record is one primitive. An event record carries what the source
 //! declared; a chunk record carries one exact slice of its content; a
-//! chunk-read record carries what a model read in a chunk; an erasure
-//! record says an event is gone. Records are written once and never change.
+//! chunk-read record carries what a model read in a chunk; a tool-outcome
+//! record carries what a model read in a tool call; an erasure record says
+//! an event is gone. Records are written once and never change.
 //! A full view of a memory is something each consumer builds for itself.
 
 use std::collections::BTreeMap;
@@ -14,7 +15,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::event::{Actor, ContentKind, EventKey, OccurredAt, Structure};
 use crate::hash::Sha256Digest;
-use crate::ids::{CallId, ChunkId, EventId};
+use crate::ids::{BeadId, CallId, ChunkId, EventId};
 use crate::outcome::{Abstention, TypeRef};
 use crate::timestamp::Timestamp;
 
@@ -62,6 +63,15 @@ impl Record {
         }
     }
 
+    pub fn tool_outcome(scope: impl Into<String>, outcome: ToolOutcomeRecord) -> Self {
+        Self {
+            contract: RECORD_CONTRACT.to_string(),
+            record_key: format!("tool_outcome:{}:{}", outcome.event_id, outcome.seq),
+            scope: scope.into(),
+            body: RecordBody::ToolOutcome(Box::new(outcome)),
+        }
+    }
+
     pub fn erasure(scope: impl Into<String>, erasure: ErasureRecord) -> Self {
         Self {
             contract: RECORD_CONTRACT.to_string(),
@@ -76,6 +86,7 @@ impl Record {
             RecordBody::Event(_) => RecordKind::Event,
             RecordBody::Chunk(_) => RecordKind::Chunk,
             RecordBody::ChunkRead(_) => RecordKind::ChunkRead,
+            RecordBody::ToolOutcome(_) => RecordKind::ToolOutcome,
             RecordBody::Erasure(_) => RecordKind::Erasure,
         }
     }
@@ -87,6 +98,7 @@ pub enum RecordBody {
     Event(Box<EventRecord>),
     Chunk(Box<ChunkRecord>),
     ChunkRead(Box<ChunkReadRecord>),
+    ToolOutcome(Box<ToolOutcomeRecord>),
     Erasure(Box<ErasureRecord>),
 }
 
@@ -98,6 +110,7 @@ pub enum RecordKind {
     Event,
     Chunk,
     ChunkRead,
+    ToolOutcome,
     Erasure,
 }
 
@@ -146,10 +159,27 @@ pub struct EventDetails {
     pub structure: Structure,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub attributes: BTreeMap<String, String>,
+    /// For a tool call: the tool, and where its arguments end in the text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_call: Option<ToolCallDetails>,
     /// Unknown SourceEvent fields, unchanged.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub extra: BTreeMap<String, serde_json::Value>,
     pub parser_contract_version: String,
+}
+
+/// What a tool-call event declared, apart from its text.
+///
+/// The text of a tool call is its arguments as canonical JSON, a line
+/// feed, then its output. The first `input_bytes` bytes are the arguments,
+/// and the output starts one byte after them.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ToolCallDetails {
+    pub tool: String,
+    pub input_bytes: u64,
+    /// Whether the tool reported that the call failed, if it said.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub is_error: Option<bool>,
 }
 
 /// Where an event's ordering time came from.
@@ -369,6 +399,85 @@ impl EntityKind {
     pub fn from_name(name: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|k| k.as_str() == name)
     }
+}
+
+/// Most characters of a tool outcome's `action`.
+pub const MAX_ACTION_CHARS: usize = 120;
+/// Most characters of a tool outcome's `outcome`.
+pub const MAX_OUTCOME_CHARS: usize = 200;
+
+/// What a model read in one tool call: what the call did, what came of it
+/// and how it ended.
+///
+/// The model was shown the call's text after code shortened it by the
+/// rules `compressor` names. `action` and `outcome` are the model's own
+/// words, the one place the engine keeps text a model wrote. Readers that
+/// must not see a tool's own text are given this record in its place.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ToolOutcomeRecord {
+    /// The tool-call event.
+    pub event_id: EventId,
+    /// The tool call's bead. It has the event's ID.
+    pub bead_id: BeadId,
+    pub workspace: String,
+    /// The workspace's change counter when the outcome was stored.
+    pub seq: u64,
+    pub status: ToolStatus,
+    /// What the call did. At most [`MAX_ACTION_CHARS`] characters.
+    pub action: String,
+    /// What came of it. At most [`MAX_OUTCOME_CHARS`] characters.
+    pub outcome: String,
+    pub compressor: CompressorRef,
+    /// Bytes of the shortened text the model was shown.
+    pub compressed_bytes: u64,
+    pub reader: ReaderRef,
+    /// The call that produced the outcome. Its receipt names where the
+    /// tool call's text was sent.
+    pub call_id: CallId,
+    pub read_at: Timestamp,
+}
+
+/// How a tool call ended, as a model read it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolStatus {
+    /// The call did what it was asked to.
+    Succeeded,
+    /// The call did not do what it was asked to.
+    Failed,
+    /// The call did part of what it was asked to.
+    Partial,
+    /// The text does not say how the call ended. Not a failure.
+    Unknown,
+}
+
+impl ToolStatus {
+    pub const ALL: [ToolStatus; 4] = [
+        ToolStatus::Succeeded,
+        ToolStatus::Failed,
+        ToolStatus::Partial,
+        ToolStatus::Unknown,
+    ];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ToolStatus::Succeeded => "succeeded",
+            ToolStatus::Failed => "failed",
+            ToolStatus::Partial => "partial",
+            ToolStatus::Unknown => "unknown",
+        }
+    }
+
+    pub fn from_name(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|s| s.as_str() == name)
+    }
+}
+
+/// The rules that shortened a tool call's text before a model read it.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+pub struct CompressorRef {
+    pub id: String,
+    pub rev: u32,
 }
 
 /// An event that was erased. A consumer that keeps anything built from the

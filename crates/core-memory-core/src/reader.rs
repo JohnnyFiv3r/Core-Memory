@@ -19,7 +19,8 @@ use std::collections::BTreeSet;
 use core_memory_contract::{CallId, ChunkId, ReadDecision, ReaderRef, Sha256Digest, Timestamp};
 
 use crate::engine::Engine;
-use crate::error::{ConfigError, EngineError, StoreError};
+use crate::error::StoreError;
+use crate::error::{ConfigError, EngineError};
 use crate::ident::is_identifier;
 use crate::model::{
     BindingConfig, ModelRequest, ModelResponse, ModelTransport, TransportError, Usage,
@@ -30,7 +31,7 @@ use crate::read::{
 };
 use crate::store::{
     CallFinish, CallFinished, CallResult, LeasedChunk, Permit, PermitRequest, PermittedChunk,
-    Purpose, ReadBatch, ReadWrite, Store, WorkNext, WorkUpdate,
+    Purpose, ReadBatch, ReadWrite, Sending, Store, WorkItem, WorkNext, WorkUpdate, tokens_in,
 };
 
 /// How long work waits when its scope cannot be read for now: it is not
@@ -40,7 +41,7 @@ const DEFER_MS: u64 = 300_000;
 /// That is a problem with the binding, which an operator has to fix.
 const BINDING_FAULT_BACKOFF_MS: u64 = 600_000;
 /// Margin a lease has over the two calls it may cover.
-const LEASE_MARGIN_MS: u64 = 10_000;
+pub(crate) const LEASE_MARGIN_MS: u64 = 10_000;
 /// Times the end of a call is offered to a store that is busy.
 const FINISH_TRIES: u32 = 3;
 
@@ -50,7 +51,10 @@ const FINISH_TRIES: u32 = 3;
 /// said is not thrown away for that, and a call whose end is never
 /// recorded is made again when its lease runs out. The store records the
 /// end of a call once, so asking again is safe.
-fn finish_call(store: &mut dyn Store, finish: &CallFinish<'_>) -> Result<CallFinished, StoreError> {
+pub(crate) fn finish_call(
+    store: &mut dyn Store,
+    finish: &CallFinish<'_>,
+) -> Result<CallFinished, StoreError> {
     let mut tries = 1;
     loop {
         match store.finish_call(finish) {
@@ -65,7 +69,7 @@ fn finish_call(store: &mut dyn Store, finish: &CallFinish<'_>) -> Result<CallFin
 /// work is put off as it would have been, and set aside once its attempts
 /// are spent. Otherwise a reply that is never valid and a repair that is
 /// never permitted would have the same call made again without end.
-fn counted(next: WorkNext, attempts: u32, max_attempts: u32) -> WorkNext {
+pub(crate) fn counted(next: WorkNext, attempts: u32, max_attempts: u32) -> WorkNext {
     match next {
         WorkNext::Defer { .. } if attempts >= max_attempts => WorkNext::Failed,
         WorkNext::Defer { not_before } => WorkNext::Retry {
@@ -73,6 +77,59 @@ fn counted(next: WorkNext, attempts: u32, max_attempts: u32) -> WorkNext {
             alone: false,
         },
         settled => settled,
+    }
+}
+
+/// What a call that produced no reply means for its record and its work.
+pub(crate) struct Failure {
+    pub result: CallResult,
+    pub problem: &'static str,
+    /// Whether each item should be tried on its own from now on.
+    pub alone: bool,
+    pub wait_ms: u64,
+}
+
+/// Sorts a transport error. `backoff_ms` is the reader's own wait between
+/// attempts.
+pub(crate) fn failure(error: &TransportError, backoff_ms: u64) -> Failure {
+    let (result, problem, alone, wait_ms) = match error {
+        TransportError::Transient { retry_after_ms, .. } => (
+            CallResult::NotSent,
+            "provider_unavailable",
+            false,
+            retry_after_ms.unwrap_or(0).max(backoff_ms),
+        ),
+        TransportError::InDoubt { .. } => (CallResult::InDoubt, "call_in_doubt", false, backoff_ms),
+        // The model declined this content, or it did not fit. Alone, each
+        // item either reads or fails by itself.
+        TransportError::Refused { .. } => (CallResult::Refused, "model_refused", true, backoff_ms),
+        TransportError::Permanent { .. } => (
+            CallResult::Failed,
+            "binding_rejected",
+            false,
+            BINDING_FAULT_BACKOFF_MS.max(backoff_ms),
+        ),
+    };
+    Failure {
+        result,
+        problem,
+        alone,
+        wait_ms,
+    }
+}
+
+/// What becomes of work whose permit was not granted, and why. `None` if
+/// there is nothing to settle: the text is gone, and its work went with it.
+pub(crate) fn refusal(refused: &Permit, now: Timestamp) -> Option<(WorkNext, &'static str)> {
+    let later = |not_before| WorkNext::Defer { not_before };
+    match refused {
+        Permit::ScopeNotActive(_) => Some((later(now.plus_millis(DEFER_MS)), "scope_not_active")),
+        Permit::NoConsent => Some((later(now.plus_millis(DEFER_MS)), "no_consent")),
+        // A day's budget comes back at the next UTC midnight.
+        Permit::OverBudget => Some((later(now.next_utc_midnight()), "over_budget")),
+        // Trying again would find the same text. An operator has to look.
+        Permit::Unsendable => Some((WorkNext::Failed, "text_unreadable")),
+        Permit::NothingToSend | Permit::Granted { .. } => None,
     }
 }
 
@@ -154,6 +211,8 @@ pub struct ReadReport {
     /// Reads not stored, because their chunk was erased or their scope
     /// stopped being active while the model was reading.
     pub dropped: u32,
+    /// Tool calls in the round. A round reads chunks or one tool call.
+    pub tool_calls: u32,
     /// Model calls made.
     pub calls: u32,
     pub input_tokens: u64,
@@ -165,10 +224,15 @@ pub struct ReadReport {
 impl ReadReport {
     /// Adds what one call used. A provider's own count of tokens is a
     /// number from outside, so the sum stops at the largest it can hold.
-    fn count(&mut self, usage: &Usage) {
+    pub(crate) fn count(&mut self, usage: &Usage) {
         self.input_tokens = self.input_tokens.saturating_add(usage.input_tokens);
         self.output_tokens = self.output_tokens.saturating_add(usage.output_tokens);
     }
+}
+
+/// The bytes of text in `chunks`.
+fn text_bytes(chunks: &[PermittedChunk]) -> u64 {
+    chunks.iter().map(|chunk| chunk.text.len() as u64).sum()
 }
 
 /// The call in progress and what it was permitted to send.
@@ -235,6 +299,7 @@ impl Engine {
         };
         let ids: Vec<ChunkId> = batch.chunks.iter().map(|c| c.chunk_id).collect();
         let instructions = render(&types, &[], reader.binding.max_output_tokens);
+        let instructions = instructions.system.len() + instructions.user.len();
 
         // ---- first call ----
         let permit = store.permit(&PermitRequest {
@@ -245,7 +310,14 @@ impl Engine {
             reader: &reader.reader_ref,
             attempt: 1,
             repairs: None,
-            reserved_tokens: fixed_tokens(instructions.system.len() + instructions.user.len()),
+            // A chunk is sent as it is stored.
+            sending: &|chunks| {
+                let bytes = text_bytes(chunks);
+                Some(Sending {
+                    bytes,
+                    reserved_tokens: fixed_tokens(instructions) + tokens_in(bytes),
+                })
+            },
             budget: reader.binding.budget,
             at: now,
         })?;
@@ -295,6 +367,9 @@ impl Engine {
 
         // ---- the one repair ----
         let repair_request = repair(&request, &response.text, &errors);
+        // The repair carries the chunks, the rejected reply and what was
+        // wrong with it.
+        let repair_len = repair_request.system.len() + repair_request.user.len();
         let sent_ids: Vec<ChunkId> = chunks.iter().map(|c| c.chunk_id).collect();
         let permit = store.permit(&PermitRequest {
             scope: &batch.scope,
@@ -304,7 +379,13 @@ impl Engine {
             reader: &reader.reader_ref,
             attempt: 2,
             repairs: Some(first.call_id),
-            reserved_tokens: fixed_tokens(repair_request.system.len() + repair_request.user.len()),
+            // The repair shows the same chunks again.
+            sending: &|chunks| {
+                Some(Sending {
+                    bytes: text_bytes(chunks),
+                    reserved_tokens: fixed_tokens(repair_len),
+                })
+            },
             budget: reader.binding.budget,
             at: self.clock.now().truncated_to_micros(),
         })?;
@@ -398,38 +479,26 @@ impl Engine {
         refused: &Permit,
         called: bool,
     ) -> Result<&'static str, EngineError> {
-        let problem = match refused {
-            Permit::ScopeNotActive(_) => "scope_not_active",
-            Permit::NoConsent => "no_consent",
-            Permit::OverBudget => "over_budget",
-            // Erasing them removed their work too.
-            Permit::NothingToSend => return Ok("erased"),
-            Permit::Granted { .. } => return Ok("granted"),
-        };
         let now = self.clock.now().truncated_to_micros();
-        let not_before = match refused {
-            // A day's budget comes back at the next UTC midnight.
-            Permit::OverBudget => now.next_utc_midnight(),
-            _ => now.plus_millis(DEFER_MS),
+        let Some((next, problem)) = refusal(refused, now) else {
+            // Erasing the chunks removed their work too.
+            return Ok("erased");
         };
         let max_attempts = self.reader.as_ref().map_or(1, |r| r.settings.max_attempts);
         let work: Vec<WorkUpdate> = batch
             .chunks
             .iter()
-            .map(|c| {
-                let next = WorkNext::Defer { not_before };
-                WorkUpdate {
-                    chunk_id: c.chunk_id,
-                    next: if called {
-                        counted(next, c.attempts, max_attempts)
-                    } else {
-                        next
-                    },
-                    problem,
-                }
+            .map(|c| WorkUpdate {
+                item: WorkItem::Chunk(c.chunk_id),
+                next: if called {
+                    counted(next, c.attempts, max_attempts)
+                } else {
+                    next
+                },
+                problem,
             })
             .collect();
-        store.update_work(Purpose::ChunkRead, &work)?;
+        store.update_work(&work)?;
         Ok(problem)
     }
 
@@ -468,7 +537,7 @@ impl Engine {
                     .find(|c| c.chunk_id == chunk.chunk_id)
                     .map_or(max_attempts, |c: &LeasedChunk| c.attempts);
                 WorkUpdate {
-                    chunk_id: chunk.chunk_id,
+                    item: WorkItem::Chunk(chunk.chunk_id),
                     next: if attempts >= max_attempts {
                         WorkNext::Failed
                     } else {
@@ -490,33 +559,18 @@ impl Engine {
         error: &TransportError,
         report: &mut ReadReport,
     ) -> Result<(), EngineError> {
-        let backoff = self.backoff_ms();
-        let (result, problem, alone, wait_ms) = match error {
-            TransportError::Transient { retry_after_ms, .. } => (
-                CallResult::NotSent,
-                "provider_unavailable",
-                false,
-                retry_after_ms.unwrap_or(0).max(backoff),
-            ),
-            TransportError::InDoubt { .. } => {
-                (CallResult::InDoubt, "call_in_doubt", false, backoff)
-            }
-            // The model declined this content, or it did not fit. Alone,
-            // each chunk either reads or fails by itself.
-            TransportError::Refused { .. } => (CallResult::Refused, "model_refused", true, backoff),
-            TransportError::Permanent { .. } => (
-                CallResult::Failed,
-                "binding_rejected",
-                false,
-                BINDING_FAULT_BACKOFF_MS.max(backoff),
-            ),
-        };
+        let Failure {
+            result,
+            problem,
+            alone,
+            wait_ms,
+        } = failure(error, self.backoff_ms());
         let work = if result == CallResult::Refused && sent.chunks.len() == 1 {
             // The model declined this one chunk, or it does not fit. The
             // same request would get the same answer, so it is not made
             // again until an operator has looked.
             vec![WorkUpdate {
-                chunk_id: sent.chunks[0].chunk_id,
+                item: WorkItem::Chunk(sent.chunks[0].chunk_id),
                 next: WorkNext::Failed,
                 problem,
             }]
@@ -605,7 +659,8 @@ impl Engine {
                 result: finished.result,
                 usage: finished.usage,
                 reads,
-                vocabulary: vocab.catalog(),
+                tool_outcome: None,
+                vocabulary: Some(vocab.catalog()),
                 reader: &reader.reader_ref,
                 work,
                 at,

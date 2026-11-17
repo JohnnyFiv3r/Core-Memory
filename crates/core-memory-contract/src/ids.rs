@@ -105,7 +105,8 @@ derived_id!(
 );
 derived_id!(
     /// Identity of a bead: an unchanging pointer other records link to. A
-    /// message chunk's bead has the chunk's own ID.
+    /// message chunk's bead has the chunk's own ID, and a tool call's bead
+    /// has its event's.
     BeadId
 );
 derived_id!(
@@ -148,6 +149,13 @@ impl ChunkId {
 impl From<ChunkId> for BeadId {
     fn from(chunk_id: ChunkId) -> Self {
         Self(chunk_id.0)
+    }
+}
+
+/// A tool call is one bead, with its event's ID.
+impl From<EventId> for BeadId {
+    fn from(event_id: EventId) -> Self {
+        Self(event_id.0)
     }
 }
 

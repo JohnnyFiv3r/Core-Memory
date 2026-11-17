@@ -166,6 +166,31 @@ pub fn note(external_id: &str, text: &str) -> SourceEvent {
     .unwrap()
 }
 
+/// One call of a tool by an agent, under the built-in tool-call profile.
+pub fn tool_call(
+    external_id: &str,
+    tool: &str,
+    input: serde_json::Value,
+    output: &str,
+    is_error: Option<bool>,
+) -> SourceEvent {
+    let mut call = json!({"tool": tool, "input": input, "output": output});
+    if let Some(is_error) = is_error {
+        call["is_error"] = json!(is_error);
+    }
+    serde_json::from_value(json!({
+        "scope": "acme",
+        "source_ns": "agent/session-1",
+        "external_id": external_id,
+        "profile_id": "core.tool_call",
+        "actor": {"id": "agent-1", "kind": "agent", "role": "assistant"},
+        "media_type": "application/json",
+        "content": {"tool_call": call},
+        "parser_contract_version": "agent-log/1"
+    }))
+    .unwrap()
+}
+
 pub fn checkpoint(key: &str, expected: u64, next: u64) -> Checkpoint {
     Checkpoint {
         key: key.into(),
@@ -181,7 +206,7 @@ pub fn events(changes: Vec<Change>) -> Vec<ExportedEvent> {
         .into_iter()
         .filter_map(|change| match change {
             Change::Event(event) => Some(*event),
-            Change::Read { .. } | Change::Erasure { .. } => None,
+            Change::Read { .. } | Change::ToolOutcome { .. } | Change::Erasure { .. } => None,
         })
         .collect()
 }

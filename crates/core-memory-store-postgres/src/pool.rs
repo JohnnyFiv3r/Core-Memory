@@ -12,8 +12,8 @@ use core_memory_contract::{Checkpoint, EventId, Sha256Digest, Timestamp};
 use core_memory_core::StoreError;
 use core_memory_core::store::{
     AdmissionCommit, AdmissionWrite, CallFinish, CallFinished, Change, CheckpointAdvance,
-    CheckpointState, Permit, PermitRequest, PinKind, PinResult, Purpose, ReadBatch, ScopeInfo,
-    Store, StoredEvent, WorkCounts, WorkUpdate,
+    CheckpointState, LeasedToolCall, Permit, PermitRequest, PinKind, PinResult, Purpose, ReadBatch,
+    ScopeInfo, Store, StoredEvent, WorkCounts, WorkUpdate,
 };
 
 use crate::connect::{ConnectConfig, Connector};
@@ -184,6 +184,16 @@ impl Store for PoolStore<'_> {
             .claim_reads(limit, max_attempts, now, lease_until)
     }
 
+    fn claim_tool_read(
+        &mut self,
+        max_attempts: u32,
+        now: Timestamp,
+        lease_until: Timestamp,
+    ) -> Result<Option<LeasedToolCall>, StoreError> {
+        self.checkout()?
+            .claim_tool_read(max_attempts, now, lease_until)
+    }
+
     fn permit(&mut self, request: &PermitRequest<'_>) -> Result<Permit, StoreError> {
         self.checkout()?.permit(request)
     }
@@ -192,8 +202,8 @@ impl Store for PoolStore<'_> {
         self.checkout()?.finish_call(finish)
     }
 
-    fn update_work(&mut self, purpose: Purpose, work: &[WorkUpdate]) -> Result<(), StoreError> {
-        self.checkout()?.update_work(purpose, work)
+    fn update_work(&mut self, work: &[WorkUpdate]) -> Result<(), StoreError> {
+        self.checkout()?.update_work(work)
     }
 
     fn work_counts(&mut self, purpose: Purpose) -> Result<WorkCounts, StoreError> {

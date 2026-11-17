@@ -14,8 +14,9 @@ For each SourceEvent the engine:
    transaction;
 4. asks a model for each chunk's type and where its entities, actions and
    outcomes are, if a reader is configured and the chunk's scope allows it;
-5. *planned:* compresses tool calls and asks a model for each one's action
-   and outcome;
+5. shortens each tool call by fixed rules and asks a model what the call
+   did and what came of it, if a tool reader is configured and the call's
+   scope allows it;
 6. *planned:* asks a judge model how new beads relate to recent ones.
 
 The engine has no retrieval API. Consumers read its tables or its export.
@@ -61,7 +62,7 @@ Three rules keep ownership clear:
 | Scope | One connection to one source, such as one agent harness. Capture, model consent, pausing and revocation are per scope. A scope belongs to one workspace for good. |
 | Event | One SourceEvent: one message, record change, document or tool call. Identified by `(scope, source_ns, external_id, revision)`. |
 | Chunk | A byte range of an event's content. Chunks partition the content exactly. |
-| Bead | An unchanging pointer that other things link to. Every chunk of a message is a bead. *Planned:* tool calls, labels and groups are beads too. |
+| Bead | An unchanging pointer that other things link to. Every chunk of a message is a bead, and a tool call is one bead whatever its length. *Planned:* labels and groups are beads too. |
 | Checkpoint | A reader's durable position in its source, advanced in the same transaction as an admission. |
 | Binding | A pinned model configuration: provider, endpoint, model snapshot and settings. |
 | Destination | The host, and port if any, of a binding's endpoint. Model consent is given per scope and per destination. |
@@ -87,21 +88,28 @@ All tables are in the `core_memory` schema.
 | `outbound_results` | How each call ended, and the tokens it used. | Kept. |
 | `chunk_reads` | What a model read in a chunk: a type of the vocabulary or why none, the reader that read it, `seq`. | Deleted. |
 | `chunk_read_spans` | Where a read found an entity, an action or an outcome: byte ranges of the chunk's text. | Deleted. |
-| `work` | Chunks still to be read: IDs, attempts, when to try next and a problem code. No text. | Deleted. |
+| `tool_outcomes` | What a model wrote about one tool call: a short action, a short outcome and a status, with the reader and the compressor that produced them, `seq`. | Deleted. |
+| `work` | Chunks and tool calls still to be read: IDs, attempts, when to try next and a problem code. No text. | Deleted. |
 
-*Planned* tables: `tool_outcomes`, `edges`, `verdicts`, `name_links`.
+*Planned* tables: `edges`, `verdicts`, `name_links`.
 
 Text is kept in one place on purpose. Erasing a message deletes its
 `chunk_text` rows and every row derived from that text, in one transaction.
 Tables that survive an erase hold IDs, ranges and engine-side times only.
 
+One table holds text that a source did not write. `tool_outcomes` holds two
+short lines a model wrote about a tool call (see [Tool calls](#tool-calls)).
+They say what the call's text says, so they are erased with it, and like
+source text they are kept out of the planner's statistics.
+
 Rows are immutable. Triggers refuse updates and deletes on `events`,
 `chunks`, `chunk_text`, `beads`, `pins`, `erasures`, `outbound_calls`,
-`outbound_results`, `chunk_reads` and `chunk_read_spans`, and refuse
-`TRUNCATE` on every table above. The one exception is an erase, and the triggers
-allow exactly what an erase does: an event or a bead goes from live to
-erased and keeps its engine-side columns, and text, reads and spans are
-deleted only for an event that was just erased. A scope keeps its name and
+`outbound_results`, `chunk_reads`, `chunk_read_spans` and `tool_outcomes`,
+and refuse `TRUNCATE` on every table above. The one exception is an erase,
+and the triggers allow exactly what an erase does: an event or a bead goes
+from live to erased and keeps its engine-side columns, and text, reads,
+spans and tool outcomes are deleted only for an event that was just
+erased. A scope keeps its name and
 workspace. The triggers stop mistakes, including the table owner's. They
 are not a defence against the owner, who can drop them.
 
@@ -246,8 +254,8 @@ In one transaction it deletes the event's text and facets, what a model
 read in it and the work still queued for it, clears the event's key fields,
 hashes and metadata, marks its beads erased, and writes the journal. IDs,
 ranges and links stay as the tombstone. Offering the event again is
-refused, and so is any later row about it: the table that holds what a
-model read takes rows only for an event that is live.
+refused, and so is any later row about it: the tables that hold what a
+model read take rows only for an event that is live.
 
 `core_memory.erase_events(event_ids, reason, actor)` erases a list of
 messages in one call and returns one row for each distinct ID: `erased`,
@@ -411,8 +419,9 @@ migrated.
 ## Model calls
 
 A model reads each chunk once a reader is configured: a `[reader]` section
-that names a `[[binding]]`. Without one the engine calls no model, and
-everything else works the same.
+that names a `[[binding]]`. A model reads each tool call once a tool reader
+is: a `[tool_reader]` section. Without either the engine calls no model,
+and everything else works the same.
 
 ### What a read is
 
@@ -444,6 +453,64 @@ Timeouts, budgets and credentials are not part of it. Reads are added,
 never changed: the read with the highest `seq` for a chunk is the current
 one.
 
+### Tool calls
+
+A tool call is an event whose content is `{"tool_call": {"tool", "input",
+"output", "is_error"}}`, admitted under a profile for tool calls such as
+the built-in `core.tool_call`. Its text is kept whole like any other: the
+arguments in canonical JSON, a line feed, and the output byte for byte. The
+event records the tool's name and where the arguments end.
+
+Among beads a tool call is one, with the event's own ID, however many
+chunks its text was cut into. Its chunks are not read one by one. The call
+is read whole, once, in a model call of its own.
+
+Code shortens the text first, and the model is shown everything that is
+left, with no limit on its length. The compressor (`tool.lines`, revision
+1) applies three fixed rules, to the arguments and to the output:
+
+1. three or more consecutive lines that are the same, or the same but for
+   their numbers, become the first of them and a count. A number that is
+   zero is only like another zero, and a line that reports trouble only
+   like another that does, so `0 failed` never stands for `12 failed`;
+2. of what remains, the first 40 and the last 40 lines are kept, each with
+   its count, and between them only lines that report trouble (`error`,
+   `fail`, `panic`, `exception`, `traceback`, `warning`, `fatal`, or an
+   exit status other than zero anywhere in the line);
+3. a line longer than 1,000 bytes keeps its first 600 and its last 200.
+
+Nothing is rewritten. Every line shown is a line of the call, a shortened
+line of the call, or a marker in square brackets that says how much was
+left out. A marker is written only where it takes less room than what it
+stands for, so what is sent is never longer than what is stored. The text
+is read once, front to back, and what is held is what will be shown.
+Changing a rule means a new compressor revision.
+
+The model answers with three things, and these are what is stored:
+
+- **action**: what the call did, in at most 120 characters;
+- **outcome**: what came of it, in at most 200 characters;
+- **status**: `succeeded`, `failed`, `partial` or `unknown`. `unknown` is a
+  completed judgment, not a failure to answer.
+
+Each is one line of plain text: it shows at least one character, and holds
+none that would end the line or turn the direction of the text around it.
+A reply of another shape is rejected and repaired once, as a read of chunks
+is. This is the one place the engine
+stores text a model wrote: a later reader is given this record in place of
+the tool's own text, which stays in the store and is not sent again.
+
+A tool outcome records its reader as a read does, and the compressor's ID
+and revision with it. The reader's `binding_rev` covers the compressor too,
+so a tool reader and a chunk reader on one binding are different readers.
+Outcomes are added, never changed: the one with the highest `seq` for a
+call is the current one.
+
+The call's receipt names every chunk of the event, and its byte count is
+of the text as it was sent, after shortening. The budget counts the same.
+If the stored text does not hold what its event says it holds, no call is
+permitted, no receipt is written, and the work is set aside.
+
 ### The four steps of a call
 
 1. **Permit.** One transaction, starting with `begin_write`, checks that
@@ -455,10 +522,12 @@ one.
    retry or fallback.
 3. **Validate** the reply against the closed shape above.
 4. **Finish.** One transaction records how the call ended in
-   `outbound_results`, stores the reads and their spans, and settles the
-   queue. A read is stored only for a chunk the receipt names whose text
-   still exists and whose scope is still active. The table itself takes a
-   read only for an event that is live, whoever writes it.
+   `outbound_results`, stores the reads and their spans, or the tool
+   outcome, and settles the queue. A read is stored only for a chunk the
+   receipt names whose text still exists and whose scope is still active,
+   and a tool outcome only for the event the receipt's chunks belong to,
+   on the same terms. The tables themselves take a read or an outcome only
+   for an event that is live, whoever writes it.
 
    The end of a call is recorded once. A store that is busy when a reply
    arrives, because another transaction holds the workspace or the
@@ -487,13 +556,15 @@ use, whether or not it does.
 ### The queue
 
 Admission adds one `work` row for each chunk it stores while a reader is
-configured. `core-memory read queue <scope>` adds the chunks that were
-stored before one was, and with `--reread`, those whose reads were all
-made by another binding revision or vocabulary than the configured ones.
+configured, and one for each tool call while a tool reader is.
+`core-memory read queue <scope>` adds what was stored before that, and
+with `--reread`, what was only read by another binding revision than the
+configured one or, for chunks, with another vocabulary.
 
-A reader claims a batch with `FOR UPDATE SKIP LOCKED`, so readers never
-wait for each other, and holds it under a lease. A reader that dies leaves
-its batch to be claimed again when the lease runs out.
+A reader claims a batch of chunks, or one tool call, with `FOR UPDATE SKIP
+LOCKED`, so readers never wait for each other, and holds it under a lease.
+A reader that dies leaves its work to be claimed again when the lease runs
+out. Where both kinds of work are due, they take turns.
 
 | What happened | What becomes of the work | `problem` |
 |---|---|---|
@@ -503,43 +574,47 @@ its batch to be claimed again when the lease runs out.
 | The day's budget is spent | Put off until the next UTC day. | `over_budget` |
 | The provider did not process the request | Tried again after `retry_backoff_ms`, or the provider's own delay. | `provider_unavailable` |
 | The request may have been processed | Tried again after `retry_backoff_ms`. | `call_in_doubt` |
-| The model declined, or the request or reply did not fit | Tried again alone, one chunk to a call. A chunk that was sent alone is set aside at once: the same request would get the same answer. | `model_refused` |
+| The model declined, or the request or reply did not fit | Tried again alone, one chunk to a call. A chunk that was sent alone, and a tool call, is set aside at once: the same request would get the same answer. | `model_refused` |
 | The reply was invalid twice | Tried again alone. | `reply_invalid` |
 | A chunk of the batch was erased before the repair | Nothing more is sent. The rest is tried again after `retry_backoff_ms`. | `batch_changed` |
 | The provider turned the request itself down | Tried again after ten minutes. An operator has to fix the binding. | `binding_rejected` |
+| A tool call's stored text does not hold what its event says | Set aside at once. Nothing is sent. | `text_unreadable` |
 | The work was handed out `max_attempts` times and never settled | Set aside, when it would have been handed out again. | `attempts_spent` |
 
 Work that was put off before any call was made does not count as an
 attempt. Once a call was made for it, the attempt counts whatever comes
 next: a repair that is not permitted leaves the work put off and one attempt
-poorer. After `max_attempts` calls a chunk's work is set aside as `failed`,
+poorer. After `max_attempts` calls an item's work is set aside as `failed`,
 until `core-memory read retry` puts it back.
 
 The count is also kept where work is handed out. A reader that dies with
 its work, or cannot record how its call ended, leaves a lease that runs
 out. That work is handed out again, and the call made again, but only
 until its attempts are spent. Then it is set aside as `attempts_spent`. No
-call is made more than `max_attempts` times for one chunk, whatever fails.
-`core-memory read status` shows the counts.
+call is made more than `max_attempts` times for one item, whatever fails.
+`core-memory read status` shows the counts, one line for chunks and one for
+tool calls.
 
-`core-memory serve` runs a reader beside the server when one is
-configured, on a thread and a store connection of its own. `core-memory
-read run` reads what is due and stops.
+`core-memory serve` runs the configured readers beside the server, on a
+thread and a store connection of their own. `core-memory read run` reads
+what is due and stops.
 
 ### What is never written down
 
 The queue, the receipts, the results and the logs hold IDs, counts and
-problem codes. They hold no chunk text and nothing a model or a provider
-said: a provider's error message can quote the request.
+problem codes. They hold no source text and nothing a model or a provider
+said: a provider's error message can quote the request. What a model wrote
+about a tool call is in `tool_outcomes` and nowhere else.
 
 ## Records and export
 
 `core_memory.record.v2` is the public JSON form of the engine's primitives:
-`event`, `chunk`, `chunk_read` and `erasure` records today; tool outcomes,
-beads, edges and verdicts as they are built. `core-memory export` writes
-them as JSON Lines, one workspace after another, each in `seq` order: an
-event with its chunks, then what a model read in them as it was read, and
-an erasure where an event was erased. An erased event's own records, and
+`event`, `chunk`, `chunk_read`, `tool_outcome` and `erasure` records
+today; beads, edges and verdicts as they are built. `core-memory export`
+writes them as JSON Lines, one workspace after another, each in `seq`
+order: an event with its chunks, then what a model read in them or wrote
+about the tool call as it was read, and an erasure where an event was
+erased. An erased event's own records, and
 what was read in it, are not exported. Each record carries its `seq`, and
 `export --workspace W --after N` resumes after it. The tables are the
 truth; records are how they are published outside SQL.

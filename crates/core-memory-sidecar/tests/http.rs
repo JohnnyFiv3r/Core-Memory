@@ -303,6 +303,89 @@ fn admission_outcomes_map_to_statuses() {
 }
 
 #[test]
+fn a_tool_call_is_admitted_like_any_other_event() {
+    let s = Server::new();
+    let call = json!({
+        "scope": "acme",
+        "source_ns": "agent/s1",
+        "external_id": "toolu_01",
+        "profile_id": "core.tool_call",
+        "media_type": "application/json",
+        "content": {"tool_call": {
+            "tool": "Bash",
+            "input": {"command": "ls"},
+            "output": "Cargo.toml\nsrc\n"
+        }},
+        "parser_contract_version": "agent-log/1"
+    });
+    assert_eq!(
+        s.post(WRITER, call.clone()).outcome(),
+        (StatusCode::OK, "accepted")
+    );
+    assert_eq!(
+        s.post(WRITER, call.clone()).outcome(),
+        (StatusCode::OK, "replay")
+    );
+    // One bead for the call, and its text kept whole: the arguments in
+    // canonical form, a line feed, and the output byte for byte.
+    assert_eq!(
+        s.count("SELECT count(*) FROM core_memory.beads WHERE kind = 'tool'"),
+        1
+    );
+    assert_eq!(
+        s.count(
+            "SELECT count(*) FROM core_memory.chunk_text
+              WHERE text = E'{\"command\":\"ls\"}\\nCargo.toml\\nsrc\\n'"
+        ),
+        1
+    );
+
+    // The same call with another output is not the same event.
+    let mut changed = call.clone();
+    changed["content"]["tool_call"]["output"] = json!("Cargo.toml\n");
+    assert_eq!(
+        s.post(WRITER, changed).outcome(),
+        (StatusCode::CONFLICT, "identity_conflict")
+    );
+    // Arguments that could be read two ways are refused.
+    let doubled = call
+        .to_string()
+        .replace(
+            r#"{"command":"ls"}"#,
+            r#"{"command":"ls","command":"rm -rf ."}"#,
+        )
+        .replace("toolu_01", "toolu_02");
+    let request = Request::builder()
+        .method("POST")
+        .uri("/v1/events")
+        .header(header::AUTHORIZATION, format!("Bearer {WRITER}"))
+        .body(Body::from(doubled))
+        .unwrap();
+    let refused = s.send(request);
+    assert_eq!(refused.outcome(), (StatusCode::BAD_REQUEST, "malformed"));
+    assert!(
+        refused.body.to_string().contains("duplicate key"),
+        "{}",
+        refused.body
+    );
+    // A tool call is not a message, and a profile for messages refuses it.
+    let mut misfiled = call;
+    misfiled["external_id"] = json!("toolu_03");
+    misfiled["profile_id"] = json!("core.chat_transcript");
+    let refused = s.post(WRITER, misfiled);
+    assert_eq!(refused.outcome(), (StatusCode::BAD_REQUEST, "malformed"));
+    assert!(
+        refused.body["problems"][0]["problem"]
+            .as_str()
+            .unwrap()
+            .contains("takes Text content"),
+        "{}",
+        refused.body
+    );
+    assert_eq!(s.count("SELECT count(*) FROM core_memory.events"), 1);
+}
+
+#[test]
 fn a_scopes_state_and_erasures_take_effect_at_once() {
     let s = Server::new();
     let first = s.post(WRITER, event("1", "before the pause"));

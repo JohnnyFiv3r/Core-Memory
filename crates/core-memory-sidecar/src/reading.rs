@@ -1,9 +1,11 @@
-//! Having a model read queued chunks: what `core-memory read run` does
+//! Having a model read what is queued: what `core-memory read run` does
 //! once, and what runs beside `core-memory serve` for as long as it serves.
 //!
-//! The engine does the work, one batch at a time. This module gives it a
-//! store connection of its own and a transport, and decides when to ask
-//! again. What it logs about a batch is counts and codes, never text.
+//! Two kinds of work are read: chunks, in batches, and tool calls, one to
+//! a model call. The engine does the work, one round at a time. This
+//! module gives it a store connection of its own and a transport for each
+//! kind, and decides when to ask again. What it logs about a round is
+//! counts and codes, never text.
 
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
@@ -22,19 +24,26 @@ const IDLE_WAIT: Duration = Duration::from_millis(1_000);
 /// How long it waits after the store could not be reached.
 const STORE_WAIT: Duration = Duration::from_millis(5_000);
 
-/// A configured reader with its own store connection.
+/// The configured readers with a store connection of their own.
 #[derive(Debug)]
 pub struct Reader {
     engine: Arc<Engine>,
     store: PostgresStore,
-    transport: Box<dyn ModelTransport>,
+    /// The transport of the chunk reader's binding, if one is configured.
+    chunks: Option<Box<dyn ModelTransport>>,
+    /// The transport of the tool reader's binding, if one is configured.
+    tool_calls: Option<Box<dyn ModelTransport>>,
+    /// Which kind of work the next round looks for first, so that a long
+    /// queue of one kind does not hold the other back.
+    tool_calls_first: bool,
 }
 
 /// What a run of the reader did, in total.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Totals {
-    pub batches: u64,
+    pub rounds: u64,
     pub chunks: u64,
+    pub tool_calls: u64,
     pub stored: u64,
     pub calls: u64,
     pub input_tokens: u64,
@@ -43,8 +52,9 @@ pub struct Totals {
 
 impl Totals {
     fn add(&mut self, report: &ReadReport) {
-        self.batches += 1;
+        self.rounds += 1;
         self.chunks += u64::from(report.chunks);
+        self.tool_calls += u64::from(report.tool_calls);
         self.stored += u64::from(report.stored);
         self.calls += u64::from(report.calls);
         self.input_tokens += report.input_tokens;
@@ -52,11 +62,12 @@ impl Totals {
     }
 }
 
-/// One batch as a log line.
+/// One round as a log line.
 pub fn describe(report: &ReadReport) -> serde_json::Value {
     json!({"read": {
         "scope": report.scope,
         "chunks": report.chunks,
+        "tool_calls": report.tool_calls,
         "stored": report.stored,
         "dropped": report.dropped,
         "calls": report.calls,
@@ -67,39 +78,95 @@ pub fn describe(report: &ReadReport) -> serde_json::Value {
 }
 
 impl Reader {
-    /// The reader `loaded` configures, or `None` if it configures none.
-    /// Nothing is sent to the model here.
+    /// The readers `loaded` configures, or `None` if it configures none.
+    /// Nothing is sent to a model here.
     pub fn open(loaded: &Loaded, engine: Arc<Engine>) -> Result<Option<Self>, Stop> {
-        let Some(reader) = engine.reader() else {
+        let chunks = engine
+            .reader()
+            .map(|reader| open_transport(&reader.binding))
+            .transpose()?;
+        let tool_calls = engine
+            .tool_reader()
+            .map(|reader| open_transport(&reader.binding))
+            .transpose()?;
+        if chunks.is_none() && tool_calls.is_none() {
             return Ok(None);
-        };
-        let transport = open_transport(&reader.binding)?;
+        }
         let store = open_store(loaded)?;
         Ok(Some(Self {
             engine,
             store,
-            transport,
+            chunks,
+            tool_calls,
+            tool_calls_first: false,
         }))
     }
 
-    /// The binding that reads and where it sends text.
+    /// The bindings that read and where they send text.
     pub fn describe(&self) -> serde_json::Value {
-        match self.engine.reader() {
-            Some(reader) => json!({"reader": {
-                "binding": reader.binding.id,
-                "model": reader.binding.model,
-                "destination": reader.destination,
-            }}),
-            None => json!({"reader": null}),
+        let mut said = serde_json::Map::new();
+        if let Some(reader) = self.engine.reader() {
+            said.insert(
+                "reader".into(),
+                json!({
+                    "binding": reader.binding.id,
+                    "model": reader.binding.model,
+                    "destination": reader.destination,
+                }),
+            );
+        }
+        if let Some(reader) = self.engine.tool_reader() {
+            said.insert(
+                "tool_reader".into(),
+                json!({
+                    "binding": reader.binding.id,
+                    "model": reader.binding.model,
+                    "destination": reader.destination,
+                }),
+            );
+        }
+        serde_json::Value::Object(said)
+    }
+
+    /// One round of chunks, if a chunk reader is configured.
+    fn chunk_round(&mut self) -> Result<ReadRound, EngineError> {
+        match &self.chunks {
+            Some(transport) => self.engine.read_once(&mut self.store, transport.as_ref()),
+            None => Ok(ReadRound::Idle),
         }
     }
 
-    fn round(&mut self) -> Result<ReadRound, EngineError> {
-        self.engine
-            .read_once(&mut self.store, self.transport.as_ref())
+    /// One tool call, if a tool reader is configured.
+    fn tool_round(&mut self) -> Result<ReadRound, EngineError> {
+        match &self.tool_calls {
+            Some(transport) => self
+                .engine
+                .read_tool_once(&mut self.store, transport.as_ref()),
+            None => Ok(ReadRound::Idle),
+        }
     }
 
-    /// Reads every batch that is due now. Work that was put off, because
+    /// One round of whichever kind of work is due, taking turns between
+    /// the two when both are. Idle only when neither is.
+    fn round(&mut self) -> Result<ReadRound, EngineError> {
+        let tool_calls_first = self.tool_calls_first;
+        self.tool_calls_first = !tool_calls_first;
+        let first = if tool_calls_first {
+            self.tool_round()?
+        } else {
+            self.chunk_round()?
+        };
+        if first != ReadRound::Idle {
+            return Ok(first);
+        }
+        if tool_calls_first {
+            self.chunk_round()
+        } else {
+            self.tool_round()
+        }
+    }
+
+    /// Reads everything that is due now. Work that was put off, because
     /// its scope gave no consent or a call failed, is due later and is not
     /// waited for.
     pub fn drain(&mut self, mut each: impl FnMut(&ReadReport)) -> Result<Totals, Stop> {
