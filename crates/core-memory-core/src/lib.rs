@@ -1,16 +1,14 @@
 //! The Core Memory engine pipeline.
 //!
 //! [`Engine::admit`] takes one SourceEvent, checks its identity, chunks it,
-//! computes facets, classifies each chunk and commits the ledger entry and
-//! its records to the outbox in one transaction. [`sink::deliver_all`]
-//! moves records from the outbox to a sink.
+//! computes facets and commits the event, its chunks and its beads to the
+//! store in one transaction. What that transaction commits is the record:
+//! there is no outbox and no delivery step.
 //!
-//! This crate imports no store, source, sink or model-provider crate. Those
-//! plug in through [`store::OperationalStore`] and [`sink::Sink`].
+//! This crate imports no database or model-provider crate. Those plug in
+//! through [`store::Store`] and [`model::ModelTransport`].
 
 pub mod classifier;
-pub mod classify;
-mod classify_pass;
 pub mod clock;
 pub mod content;
 pub mod engine;
@@ -19,20 +17,14 @@ pub mod facets;
 mod ident;
 pub mod model;
 pub mod profile;
-pub mod sink;
 pub mod store;
 pub mod vocab;
 
-pub use classifier::ClassifierConfig;
-pub use classify_pass::ClassifyReport;
 pub use clock::{Clock, ManualClock, SystemClock};
-pub use engine::{Engine, EngineConfig, Limits, Readiness, ScopeGrants, StartupError};
+pub use engine::{Engine, EngineConfig, Limits, ScopeGrants, StartupError};
 pub use error::{ConfigError, EngineError, StoreError};
 pub use ident::is_identifier;
 pub use model::{BindingConfig, ModelTransport};
 pub use profile::{ProfileRegistry, SourceProfile};
-pub use sink::{
-    DeliveryReport, Sink, SinkCaps, SinkError, WriteOutcome, deliver_all, deliver_once,
-};
-pub use store::{MemoryStore, OperationalStore};
+pub use store::Store;
 pub use vocab::{LoadedVocabulary, TypeDef, Vocabulary};

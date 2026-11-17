@@ -19,11 +19,8 @@ ALLOWED = {
     "core-memory-core": ["core-memory-contract", "core-memory-chunker"],
     "core-memory-store-*": ["core-memory-contract", "core-memory-core"],
     "core-memory-source-*": ["core-memory-contract", "core-memory-core"],
-    "core-memory-sink-*": ["core-memory-contract", "core-memory-core"],
     "core-memory-model-http": ["core-memory-contract", "core-memory-core"],
     "core-memory-model-*": ["core-memory-contract", "core-memory-core", "core-memory-model-http"],
-    # Test-only: adapters take it as a dev-dependency.
-    "core-memory-conformance": ["core-memory-contract", "core-memory-core"],
     "core-memory-sidecar": ["*"],
     "core-memory": ["*"],
 }
@@ -33,6 +30,7 @@ ALLOWED = {
 FORBIDDEN_BELOW_ADAPTERS = [
     "rusqlite", "sqlx", "postgres", "tokio-postgres", "diesel",
     "reqwest", "ureq", "hyper", "axum", "tonic", "tokio", "async-std",
+    "rustls", "tokio-postgres-rustls",
 ]
 LOWER_LAYERS = ["core-memory-contract", "core-memory-chunker", "core-memory-core"]
 

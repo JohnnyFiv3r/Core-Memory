@@ -42,19 +42,17 @@ pub struct LoadedVocabulary {
 impl LoadedVocabulary {
     pub fn load(vocabulary: Vocabulary) -> Result<Self, ConfigError> {
         if !is_identifier(&vocabulary.id) {
-            return Err(ConfigError::new(format!(
-                "vocabulary id `{}` is not a valid identifier",
-                vocabulary.id
-            )));
+            return Err(ConfigError::new(
+                "the vocabulary's id is not a valid identifier",
+            ));
         }
         let mut by_key = BTreeMap::new();
         let mut definitions = BTreeMap::new();
         for t in &vocabulary.types {
             if !is_identifier(&t.key) {
-                return Err(ConfigError::new(format!(
-                    "type key `{}` is not a valid identifier",
-                    t.key
-                )));
+                return Err(ConfigError::new(
+                    "a type's key in the vocabulary is not a valid identifier",
+                ));
             }
             if t.rev == 0 {
                 return Err(ConfigError::new(format!(

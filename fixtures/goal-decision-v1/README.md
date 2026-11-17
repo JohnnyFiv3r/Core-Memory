@@ -28,22 +28,9 @@ decisions.
 
 ## Running it
 
-`crates/core-memory-sidecar/tests/goal_decision.rs` checks that every quote
-matches its byte range and drives all 25 cases through the classifier with
-the gold answers. Both run in CI.
-
-To score a real model, put a `[classifier]` table and its `[[binding]]` in a
-file and run the ignored test. The binding's `scopes` are replaced with the
-fixture scope. At the default batch size of 8 it makes four model calls,
-plus any repairs.
-
-```bash
-CORE_MEMORY_EVAL_BINDING=binding.toml \
-    cargo test -p core-memory-sidecar --test goal_decision -- --ignored --nocapture
-```
-
-The run prints every miss with its rationale. It fails if any case is left
-undecided or gets a forbidden type.
+Nothing in the workspace runs these cases at the moment. Typing by a model is
+being rebuilt on the PostgreSQL store, and the test that scores these cases
+returns with it. The cases, labels and evidence ranges are unchanged.
 
 ## Where it came from
 

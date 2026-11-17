@@ -1,0 +1,36 @@
+[package]
+name = "core-memory-store-postgres"
+description = "The Core Memory engine's PostgreSQL store: schema, migrations and the Store implementation"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[dependencies]
+core-memory-contract.workspace = true
+core-memory-core.workspace = true
+postgres.workspace = true
+rustls.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+time.workspace = true
+tokio-postgres-rustls.workspace = true
+uuid.workspace = true
+webpki-roots.workspace = true
+
+[features]
+# Helpers that give each test its own database, cloned from a migrated
+# template. Needs CORE_MEMORY_TEST_DATABASE_URL.
+testing = []
+# Runs the tests that need a PostgreSQL server.
+postgres-tests = ["testing"]
+
+[dev-dependencies]
+toml.workspace = true
+
+[lints]
+workspace = true

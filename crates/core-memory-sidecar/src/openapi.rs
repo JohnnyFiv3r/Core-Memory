@@ -8,7 +8,9 @@ use serde_json::{Value, json};
 
 use core_memory_contract::{AdmissionOutcome, SourceEvent};
 
-use crate::server::{BatchRequest, BatchResponse, ErrorResponse, ReadyResponse};
+use crate::server::{
+    BatchRequest, BatchResponse, CheckpointResponse, ErrorResponse, ReadyResponse,
+};
 
 pub fn document() -> Value {
     let mut generator = SchemaSettings::draft2020_12()
@@ -18,6 +20,7 @@ pub fn document() -> Value {
     let outcome = generator.subschema_for::<AdmissionOutcome>();
     let batch_request = generator.subschema_for::<BatchRequest>();
     let batch_response = generator.subschema_for::<BatchResponse>();
+    let checkpoint = generator.subschema_for::<CheckpointResponse>();
     let ready = generator.subschema_for::<ReadyResponse>();
     let error = generator.subschema_for::<ErrorResponse>();
     let schemas = generator.take_definitions(true);
@@ -27,13 +30,20 @@ pub fn document() -> Value {
         |description: &str| json!({"description": description, "content": json_body(&outcome)});
     let error_response =
         |description: &str| json!({"description": description, "content": json_body(&error)});
+    // A status that carries an outcome in one case and an error in another.
+    let outcome_or_error = |description: &str| {
+        json!({
+            "description": description,
+            "content": {"application/json": {"schema": {"oneOf": [&outcome, &error]}}},
+        })
+    };
 
     json!({
         "openapi": "3.1.0",
         "info": {
             "title": "Core Memory engine",
             "version": env!("CARGO_PKG_VERSION"),
-            "description": "Admit SourceEvents and receive typed admission outcomes. Records are delivered to the configured sinks, not returned here.",
+            "description": "Admit SourceEvents and receive typed admission outcomes. An accepted event is stored in PostgreSQL before the answer is sent. The engine has no retrieval API.",
         },
         "paths": {
             "/v1/events": {
@@ -44,15 +54,16 @@ pub fn document() -> Value {
                     "requestBody": {"required": true, "content": json_body(&source_event)},
                     "responses": {
                         "200": outcome_response("Accepted, or a replay of an event already admitted"),
-                        "400": outcome_response("Refused as malformed"),
-                        "401": error_response("Missing or unknown bearer token"),
-                        "403": outcome_response("Refused: the token holds no grant for the event's scope"),
-                        "409": outcome_response("Identity conflict: the key was admitted with different content"),
-                        "410": outcome_response("Refused: the event key was erased"),
-                        "413": outcome_response("Refused as oversize"),
+                        "400": outcome_or_error("Refused as malformed. Or, as an error, the request body could not be read"),
+                        "401": error_response("Missing or unknown bearer token. Answered before any of the body is read"),
+                        "403": outcome_response("Refused: the token holds no grant for the scope, or the scope is not enrolled, paused or revoked"),
+                        "408": error_response("The request body did not arrive in time"),
+                        "409": outcome_response("Identity conflict: the key was admitted with different content. Or checkpoint conflict: the event's checkpoint does not follow the stored one"),
+                        "410": outcome_response("Refused: the event was erased"),
+                        "413": outcome_or_error("Refused as oversize: the content or the metadata is over its limit. Or, as an error, the request body is over the server's limit"),
                         "422": outcome_response("Refused: the profile does not exist or cannot admit the event"),
                         "503": {
-                            "description": "Busy: retry after the given delay. Not a terminal failure.",
+                            "description": "Busy: the store cannot take the event right now, because it is unreachable, overloaded or being upgraded. Retry after the given delay. Not a terminal failure.",
                             "headers": {"Retry-After": {"schema": {"type": "integer"}, "description": "Seconds"}},
                             "content": json_body(&outcome),
                         },
@@ -66,10 +77,39 @@ pub fn document() -> Value {
                     "security": [{"bearer": []}],
                     "requestBody": {"required": true, "content": json_body(&batch_request)},
                     "responses": {
-                        "200": {"description": "One outcome per event, in request order", "content": json_body(&batch_response)},
+                        "200": {"description": "One outcome per event, in request order. Read every outcome: some events may be busy or refused while others were accepted.", "content": json_body(&batch_response)},
                         "400": error_response("The body is not {\"events\": [...]}"),
+                        "401": error_response("Missing or unknown bearer token. Answered before any of the body is read"),
+                        "408": error_response("The request body did not arrive in time"),
+                        "413": error_response("Too many events in one batch, or the request body is over the server's limit"),
+                        "503": {
+                            "description": "Every event is busy: the store took none of them. Retry the batch after the given delay.",
+                            "headers": {"Retry-After": {"schema": {"type": "integer"}, "description": "Seconds"}},
+                            "content": json_body(&batch_response),
+                        },
+                    },
+                },
+            },
+            "/v1/checkpoints": {
+                "get": {
+                    "operationId": "readCheckpoint",
+                    "summary": "A reader's stored position, to resume from after a restart",
+                    "security": [{"bearer": []}],
+                    "parameters": [
+                        {"name": "scope", "in": "query", "required": true, "schema": {"type": "string"}},
+                        {"name": "key", "in": "query", "required": true, "schema": {"type": "string"}},
+                    ],
+                    "responses": {
+                        "200": {"description": "The stored sequence and hash", "content": json_body(&checkpoint)},
+                        "400": error_response("`scope` or `key` is missing or is not a name"),
                         "401": error_response("Missing or unknown bearer token"),
-                        "413": error_response("Too many events in one batch"),
+                        "403": error_response("The token holds no grant for the scope"),
+                        "404": error_response("No checkpoint is stored under the key"),
+                        "503": {
+                            "description": "The store cannot answer right now. Retry after the given delay",
+                            "headers": {"Retry-After": {"schema": {"type": "integer"}, "description": "Seconds"}},
+                            "content": json_body(&error),
+                        },
                     },
                 },
             },
@@ -79,7 +119,7 @@ pub fn document() -> Value {
                     "summary": "Whether new events would be admitted now",
                     "responses": {
                         "200": {"description": "Ready", "content": json_body(&ready)},
-                        "503": {"description": "Not ready: the slowest required sink is too far behind", "content": json_body(&ready)},
+                        "503": {"description": "Not ready: the store is unreachable, takes no writes, refuses the engine's connection, or is at another schema version", "content": json_body(&ready)},
                     },
                 },
             },
@@ -149,5 +189,6 @@ mod tests {
         }
         assert!(schemas.contains_key("SourceEvent"));
         assert!(schemas.contains_key("AdmissionOutcome"));
+        assert!(schemas.contains_key("Checkpoint"));
     }
 }

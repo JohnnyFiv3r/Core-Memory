@@ -1,5 +1,8 @@
 //! Source profiles (ING-07): declarative configuration describing how to
-//! admit, identify, chunk, facet and classify one kind of source.
+//! admit, identify, chunk and facet one kind of source.
+//!
+//! A profile never assigns a type. It may narrow which types a model can
+//! choose for its source, and nothing more.
 
 use std::collections::BTreeMap;
 
@@ -8,8 +11,7 @@ use core_memory_chunker::{
 };
 use core_memory_contract::hash::canonical_json_digest;
 use core_memory_contract::{
-    ChunkerRef, ContentKind, ProfileRef, RecordObject, Sha256Digest, SourceEvent, SourceType,
-    TypeRef,
+    ChunkerRef, ContentKind, ProfileRef, Sha256Digest, SourceEvent, SourceType,
 };
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -38,8 +40,8 @@ pub struct SourceProfile {
     /// start when a stored profile revision has different contents.
     pub rev: u32,
     pub source_type: SourceType,
-    /// System name for sinks. Defaults to the first `/`-separated segment of
-    /// each event's `source_ns`.
+    /// The source's system name, stored with each event. Defaults to the
+    /// first `/`-separated segment of the event's `source_ns`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_system: Option<String>,
     pub content: ContentKind,
@@ -57,8 +59,6 @@ pub struct SourceProfile {
     pub types: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub identifiers: Vec<IdentifierPattern>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub rules: Vec<Rule>,
 }
 
 fn default_max_event_bytes() -> u64 {
@@ -89,35 +89,6 @@ pub struct IdentifierPattern {
     pub pattern: String,
 }
 
-/// A classification rule for sources whose schema declares what kind of
-/// event each record is (CLS-02 tier 1). All conditions must hold.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Rule {
-    pub id: String,
-    /// Type key to assign.
-    pub assign: String,
-    /// Field to accepted values. Fields: `record.system`,
-    /// `record.object_type`, `record.action`, `attributes.<key>`.
-    pub when: BTreeMap<String, Matcher>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum Matcher {
-    One(String),
-    Any(Vec<String>),
-}
-
-impl Matcher {
-    fn values(&self) -> Vec<String> {
-        match self {
-            Matcher::One(v) => vec![v.clone()],
-            Matcher::Any(vs) => vs.clone(),
-        }
-    }
-}
-
 /// A validated profile, ready to use.
 #[derive(Debug, Clone)]
 pub struct CompiledProfile {
@@ -126,62 +97,12 @@ pub struct CompiledProfile {
     pub chunker: CompiledChunker,
     pub chunker_ref: ChunkerRef,
     pub identifiers: Vec<(String, Regex)>,
-    pub rules: Vec<CompiledRule>,
 }
 
 #[derive(Debug, Clone, Copy)]
 pub enum CompiledChunker {
     Text(TextChunkerConfig),
     JsonWhole { max: u32, unit: LengthUnit },
-}
-
-#[derive(Debug, Clone)]
-pub struct CompiledRule {
-    pub id: String,
-    pub type_ref: TypeRef,
-    conditions: Vec<(RuleField, Vec<String>)>,
-}
-
-#[derive(Debug, Clone)]
-enum RuleField {
-    RecordSystem,
-    RecordObjectType,
-    RecordAction,
-    Attribute(String),
-}
-
-impl RuleField {
-    fn parse(name: &str) -> Option<Self> {
-        match name {
-            "record.system" => Some(RuleField::RecordSystem),
-            "record.object_type" => Some(RuleField::RecordObjectType),
-            "record.action" => Some(RuleField::RecordAction),
-            _ => name
-                .strip_prefix("attributes.")
-                .filter(|k| !k.is_empty())
-                .map(|k| RuleField::Attribute(k.to_string())),
-        }
-    }
-
-    fn value<'a>(&self, event: &'a SourceEvent) -> Option<&'a str> {
-        let record = || event.structure.record.as_ref();
-        match self {
-            RuleField::RecordSystem => record().map(|r: &RecordObject| r.system.as_str()),
-            RuleField::RecordObjectType => record().map(|r| r.object_type.as_str()),
-            RuleField::RecordAction => record().map(|r| r.action.as_str()),
-            RuleField::Attribute(k) => event.attributes.get(k).map(String::as_str),
-        }
-    }
-}
-
-impl CompiledRule {
-    pub fn matches(&self, event: &SourceEvent) -> bool {
-        self.conditions.iter().all(|(field, values)| {
-            field
-                .value(event)
-                .is_some_and(|v| values.iter().any(|x| x == v))
-        })
-    }
 }
 
 impl CompiledProfile {
@@ -208,10 +129,14 @@ impl CompiledProfile {
         def: SourceProfile,
         vocab: Option<&LoadedVocabulary>,
     ) -> Result<Self, ConfigError> {
-        let err = |msg: String| ConfigError::new(format!("profile `{}`: {msg}", def.id));
+        // An id is repeated in an error only once it is known to be one.
         if !is_identifier(&def.id) {
-            return Err(err("id is not a valid identifier".into()));
+            return Err(ConfigError::new(
+                "a profile's id is not a valid identifier: lowercase letters and digits, \
+                 in parts joined by `.`, `_` or `-`",
+            ));
         }
+        let err = |msg: String| ConfigError::new(format!("profile `{}`: {msg}", def.id));
         if def.rev == 0 {
             return Err(err("rev must be 1 or more".into()));
         }
@@ -251,8 +176,15 @@ impl CompiledProfile {
                 )
             }
             (content, id) => {
+                // The id is repeated only if it is one of the two. Anything
+                // else may be what was meant for another setting.
+                let which = if [TEXT_ALGORITHM, JSON_WHOLE].contains(&id) {
+                    format!("chunker `{id}` cannot chunk {content:?} content")
+                } else {
+                    "the chunker's id is not one this build has".to_string()
+                };
                 return Err(err(format!(
-                    "chunker `{id}` cannot chunk {content:?} content (use `{TEXT_ALGORITHM}` for text, `{JSON_WHOLE}` for json)"
+                    "{which} (use `{TEXT_ALGORITHM}` for text, `{JSON_WHOLE}` for json)"
                 )));
             }
         };
@@ -271,13 +203,17 @@ impl CompiledProfile {
         let mut identifiers = Vec::new();
         for p in &def.identifiers {
             if !is_identifier(&p.kind) {
-                return Err(err(format!(
-                    "identifier kind `{}` is not a valid identifier",
-                    p.kind
-                )));
+                return Err(err("an identifier's kind is not a valid identifier".into()));
             }
-            let re = Regex::new(&p.pattern)
-                .map_err(|e| err(format!("identifier `{}` pattern: {e}", p.kind)))?;
+            // The regex crate's own message quotes the pattern, which is
+            // not repeated: only which pattern it is, and how it failed.
+            let re = Regex::new(&p.pattern).map_err(|e| {
+                let how = match e {
+                    regex::Error::CompiledTooBig(_) => "is too large once compiled",
+                    _ => "is not a valid regular expression",
+                };
+                err(format!("the pattern of identifier `{}` {how}", p.kind))
+            })?;
             identifiers.push((p.kind.clone(), re));
         }
 
@@ -287,67 +223,15 @@ impl CompiledProfile {
             };
             for key in types {
                 if vocab.get(key).is_none() {
-                    return Err(err(format!("type `{key}` is not in the vocabulary")));
+                    // A key is repeated only if it could be one.
+                    return Err(err(if is_identifier(key) {
+                        format!("type `{key}` is not in the vocabulary")
+                    } else {
+                        "an entry of `types` is not a type's key, so it is not in the vocabulary"
+                            .to_string()
+                    }));
                 }
             }
-        }
-
-        let mut rules = Vec::new();
-        for rule in &def.rules {
-            if !is_identifier(&rule.id) {
-                return Err(err(format!(
-                    "rule id `{}` is not a valid identifier",
-                    rule.id
-                )));
-            }
-            if rules.iter().any(|r: &CompiledRule| r.id == rule.id) {
-                return Err(err(format!("rule `{}` is defined twice", rule.id)));
-            }
-            let Some(vocab) = vocab else {
-                return Err(err("has rules but no vocabulary is configured".into()));
-            };
-            let type_ref = vocab
-                .get(&rule.assign)
-                .ok_or_else(|| {
-                    err(format!(
-                        "rule `{}` assigns unknown type `{}`",
-                        rule.id, rule.assign
-                    ))
-                })?
-                .clone();
-            if let Some(types) = &def.types
-                && !types.contains(&rule.assign)
-            {
-                return Err(err(format!(
-                    "rule `{}` assigns `{}`, which is outside the profile's types",
-                    rule.id, rule.assign
-                )));
-            }
-            if rule.when.is_empty() {
-                return Err(err(format!("rule `{}` has no conditions", rule.id)));
-            }
-            let mut conditions = Vec::new();
-            for (field, matcher) in &rule.when {
-                let parsed = RuleField::parse(field).ok_or_else(|| {
-                    err(format!(
-                        "rule `{}` uses unsupported field `{field}` (container labels such as source type are never evidence of type)",
-                        rule.id
-                    ))
-                })?;
-                let values = matcher.values();
-                if values.is_empty() {
-                    return Err(err(format!(
-                        "rule `{}` field `{field}` lists no values",
-                        rule.id
-                    )));
-                }
-                conditions.push((parsed, values));
-            }
-            rules.push(CompiledRule {
-                id: rule.id.clone(),
-                type_ref,
-                conditions,
-            });
         }
 
         let hash = canonical_json_digest(PROFILE_DOMAIN, &def)
@@ -363,7 +247,6 @@ impl CompiledProfile {
             chunker,
             chunker_ref,
             identifiers,
-            rules,
         })
     }
 }
@@ -387,7 +270,6 @@ pub fn builtin_profiles() -> Vec<SourceProfile> {
         },
         types: None,
         identifiers: Vec::new(),
-        rules: Vec::new(),
     };
     vec![
         text("core.plain_text", SourceType::Document, 2048),
@@ -409,7 +291,6 @@ pub fn builtin_profiles() -> Vec<SourceProfile> {
             },
             types: None,
             identifiers: Vec::new(),
-            rules: Vec::new(),
         },
     ]
 }
@@ -481,11 +362,6 @@ mod tests {
             content = "json"
             types = ["outcome"]
             chunker = { id = "json.whole", rev = 1, max = 65536 }
-
-            [[rules]]
-            id = "stage-change"
-            assign = "outcome"
-            when = { "record.object_type" = "Opportunity", "record.action" = ["closed_won", "closed_lost"] }
             "#,
         )
         .unwrap()
@@ -499,34 +375,89 @@ mod tests {
     }
 
     #[test]
-    fn rules_compile_against_the_vocabulary() {
-        let v = vocab();
-        let compiled = CompiledProfile::compile(crm_profile(), Some(&v)).unwrap();
-        assert_eq!(compiled.rules[0].type_ref.key, "outcome");
+    fn a_profile_cannot_assign_types() {
+        let with_rules = r#"
+            id = "acme.crm"
+            rev = 1
+            source_type = "relational"
+            content = "json"
+            chunker = { id = "json.whole", rev = 1, max = 65536 }
+
+            [[rules]]
+            id = "stage-change"
+            assign = "outcome"
+            when = { "record.action" = "closed_won" }
+        "#;
+        let err = toml::from_str::<SourceProfile>(with_rules).unwrap_err();
+        assert!(err.to_string().contains("unknown field `rules`"), "{err}");
     }
 
     #[test]
-    fn rules_outside_the_type_subset_are_refused() {
+    fn types_outside_the_vocabulary_are_refused() {
         let mut p = crm_profile();
-        p.rules[0].assign = "decision".into();
+        p.types = Some(vec!["made_up".into()]);
         let e = CompiledProfile::compile(p, Some(&vocab())).unwrap_err();
-        assert!(e.to_string().contains("outside the profile's types"), "{e}");
-    }
-
-    #[test]
-    fn container_labels_are_not_rule_fields() {
-        let mut p = crm_profile();
-        p.rules[0]
-            .when
-            .insert("source_type".into(), Matcher::One("transcript".into()));
-        assert!(CompiledProfile::compile(p, Some(&vocab())).is_err());
+        assert!(e.to_string().contains("is not in the vocabulary"), "{e}");
     }
 
     #[test]
     fn chunker_must_fit_the_content_kind() {
         let mut p = crm_profile();
         p.chunker.id = TEXT_ALGORITHM.into();
-        assert!(CompiledProfile::compile(p, Some(&vocab())).is_err());
+        let e = CompiledProfile::compile(p, Some(&vocab())).unwrap_err();
+        assert!(
+            e.to_string()
+                .contains("chunker `text.structural` cannot chunk Json content"),
+            "{e}"
+        );
+    }
+
+    #[test]
+    fn a_value_that_failed_its_check_is_not_repeated() {
+        // A connection string written where another setting belongs. It
+        // holds nothing the last line of defence looks for.
+        let stray = "host=db user=engine password = hunter2 dbname=memory";
+        let v = vocab();
+        let mut chunker = crm_profile();
+        chunker.chunker.id = stray.into();
+        let mut types = crm_profile();
+        types.types = Some(vec![stray.into()]);
+        let mut pattern = crm_profile();
+        pattern.identifiers = vec![IdentifierPattern {
+            kind: "ticket".into(),
+            pattern: format!("({stray}"),
+        }];
+        let mut too_big = crm_profile();
+        too_big.identifiers = vec![IdentifierPattern {
+            kind: "ticket".into(),
+            pattern: format!("(?:{stray}){{1000}}{{1000}}{{1000}}"),
+        }];
+        for (what, profile, says) in [
+            (
+                "chunker",
+                chunker,
+                "the chunker's id is not one this build has",
+            ),
+            ("types", types, "an entry of `types` is not a type's key"),
+            (
+                "pattern",
+                pattern,
+                "the pattern of identifier `ticket` is not a valid regular expression",
+            ),
+            (
+                "a large pattern",
+                too_big,
+                "the pattern of identifier `ticket` is too large once compiled",
+            ),
+        ] {
+            let e = CompiledProfile::compile(profile, Some(&v))
+                .unwrap_err()
+                .to_string();
+            assert!(e.contains(says), "{what}: {e}");
+            for part in ["hunter2", "engine", "dbname", "password"] {
+                assert!(!e.contains(part), "{what} repeats `{part}`: {e}");
+            }
+        }
     }
 
     #[test]
@@ -544,7 +475,6 @@ mod tests {
     fn duplicate_profile_ids_are_refused() {
         let mut p = crm_profile();
         p.id = "core.document".into();
-        p.rules.clear();
         p.types = None;
         assert!(ProfileRegistry::new(vec![p], None).is_err());
     }

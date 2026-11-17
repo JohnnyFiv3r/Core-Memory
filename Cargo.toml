@@ -16,38 +16,42 @@ publish = false
 core-memory-contract = { path = "crates/core-memory-contract", version = "=2.0.0-alpha.1" }
 core-memory-chunker = { path = "crates/core-memory-chunker", version = "=2.0.0-alpha.1" }
 core-memory-core = { path = "crates/core-memory-core", version = "=2.0.0-alpha.1" }
-core-memory-store-sqlite = { path = "crates/core-memory-store-sqlite", version = "=2.0.0-alpha.1" }
+core-memory-store-postgres = { path = "crates/core-memory-store-postgres", version = "=2.0.0-alpha.1" }
 core-memory-source-jsonl = { path = "crates/core-memory-source-jsonl", version = "=2.0.0-alpha.1" }
-core-memory-sink-jsonl = { path = "crates/core-memory-sink-jsonl", version = "=2.0.0-alpha.1" }
-core-memory-sink-webhook = { path = "crates/core-memory-sink-webhook", version = "=2.0.0-alpha.1" }
-core-memory-sink-memoriesql = { path = "crates/core-memory-sink-memoriesql", version = "=2.0.0-alpha.1" }
-core-memory-conformance = { path = "crates/core-memory-conformance", version = "=2.0.0-alpha.1" }
 core-memory-model-http = { path = "crates/core-memory-model-http", version = "=2.0.0-alpha.1" }
 core-memory-model-anthropic = { path = "crates/core-memory-model-anthropic", version = "=2.0.0-alpha.1" }
 core-memory-model-openai = { path = "crates/core-memory-model-openai", version = "=2.0.0-alpha.1" }
 
 axum = "0.8"
 clap = { version = "4.6", features = ["derive"] }
+futures-core = "0.3"
 getrandom = "0.4"
 hmac = "0.13"
 http-body-util = "0.1"
+hyper = { version = "1", features = ["http1", "server"] }
+hyper-util = { version = "0.1", features = ["http1", "server", "server-graceful", "tokio"] }
+postgres = { version = "0.19", features = ["with-uuid-1", "with-time-0_3", "with-serde_json-1"] }
 proptest = "1.12"
 regex = "1.13"
-rusqlite = { version = "0.41", features = ["bundled"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 schemars = { version = "1.2", features = ["uuid1"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value"] }
 serde_json_canonicalizer = "0.4"
 sha2 = "0.11"
+socket2 = "0.6"
 tempfile = "3"
 thiserror = "2"
 time = { version = "0.3", features = ["formatting", "parsing", "macros"] }
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal", "sync", "time"] }
+tokio-postgres-rustls = "0.13"
 toml = "0.9"
 tower = { version = "0.5", features = ["util"] }
+tower-service = "0.3"
 unicode-segmentation = "1.13"
 ureq = "3.5"
 uuid = { version = "1", features = ["serde", "v8"] }
+webpki-roots = "1"
 whatlang = "0.18"
 
 [workspace.lints.rust]
@@ -56,5 +60,9 @@ missing_debug_implementations = "warn"
 
 [workspace.lints.clippy]
 dbg_macro = "warn"
+# Both panic when what they write to has gone away. The command writes
+# through its `report` module.
+print_stderr = "warn"
+print_stdout = "warn"
 todo = "warn"
 unwrap_used = "warn"

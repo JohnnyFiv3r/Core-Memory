@@ -346,11 +346,8 @@ dependencies = [
  "core-memory-chunker",
  "core-memory-contract",
  "core-memory-core",
- "core-memory-sink-jsonl",
- "core-memory-sink-memoriesql",
- "core-memory-sink-webhook",
  "core-memory-source-jsonl",
- "core-memory-store-sqlite",
+ "core-memory-store-postgres",
 ]
 
 [[package]]
@@ -364,19 +361,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "core-memory-conformance"
-version = "2.0.0-alpha.1"
-dependencies = [
- "core-memory-contract",
- "core-memory-core",
- "serde_json",
- "toml",
-]
-
-[[package]]
 name = "core-memory-contract"
 version = "2.0.0-alpha.1"
 dependencies = [
+ "hmac",
  "schemars",
  "serde",
  "serde_json",
@@ -438,64 +426,22 @@ dependencies = [
  "clap",
  "core-memory-contract",
  "core-memory-core",
- "core-memory-model-anthropic",
- "core-memory-model-http",
- "core-memory-model-openai",
- "core-memory-sink-jsonl",
- "core-memory-sink-memoriesql",
- "core-memory-sink-webhook",
  "core-memory-source-jsonl",
- "core-memory-store-sqlite",
+ "core-memory-store-postgres",
+ "futures-core",
  "getrandom 0.4.3",
  "http-body-util",
+ "hyper",
+ "hyper-util",
  "schemars",
  "serde",
  "serde_json",
+ "socket2",
  "tempfile",
  "tokio",
  "toml",
  "tower",
-]
-
-[[package]]
-name = "core-memory-sink-jsonl"
-version = "2.0.0-alpha.1"
-dependencies = [
- "core-memory-conformance",
- "core-memory-core",
- "serde_json",
- "tempfile",
-]
-
-[[package]]
-name = "core-memory-sink-memoriesql"
-version = "2.0.0-alpha.1"
-dependencies = [
- "core-memory-conformance",
- "core-memory-contract",
- "core-memory-core",
- "postgres",
- "rustls",
- "serde",
- "serde_json",
- "tokio-postgres-rustls",
- "uuid",
- "webpki-roots",
-]
-
-[[package]]
-name = "core-memory-sink-webhook"
-version = "2.0.0-alpha.1"
-dependencies = [
- "core-memory-conformance",
- "core-memory-contract",
- "core-memory-core",
- "hmac",
- "serde",
- "serde_json",
- "sha2",
- "thiserror",
- "ureq",
+ "tower-service",
 ]
 
 [[package]]
@@ -508,18 +454,20 @@ dependencies = [
 ]
 
 [[package]]
-name = "core-memory-store-sqlite"
+name = "core-memory-store-postgres"
 version = "2.0.0-alpha.1"
 dependencies = [
  "core-memory-contract",
  "core-memory-core",
- "getrandom 0.4.3",
- "hmac",
- "rusqlite",
+ "postgres",
+ "rustls",
  "serde_json",
- "sha2",
- "tempfile",
+ "thiserror",
+ "time",
+ "tokio-postgres-rustls",
  "toml",
+ "uuid",
+ "webpki-roots",
 ]
 
 [[package]]
@@ -634,18 +582,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4443176a9f2c162692bd3d352d745ef9413eec5782a80d8fd6f8a1ac692a07f7"
 
 [[package]]
-name = "fallible-iterator"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2acce4a10f12dc2fb14a218589d4f1f62ef011b2d0cc4b3cb1bba8e94da14649"
-
-[[package]]
-name = "fallible-streaming-iterator"
-version = "0.1.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7360491ce676a36bf9bb3c56c1aa791658183a54d2744120f27285738d90465a"
-
-[[package]]
 name = "fastrand"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -685,12 +621,6 @@ name = "foldhash"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d9c4f5dac5e15c24eb999c26181a6ca40b39fe946cbe4c263c7209467bc83af2"
-
-[[package]]
-name = "foldhash"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
 
 [[package]]
 name = "form_urlencoded"
@@ -773,7 +703,7 @@ checksum = "9229cfe53dfd69f0609a49f65461bd93001ea1ef889cd5529dd176593f5338a1"
 dependencies = [
  "allocator-api2",
  "equivalent",
- "foldhash 0.1.5",
+ "foldhash",
 ]
 
 [[package]]
@@ -781,18 +711,6 @@ name = "hashbrown"
 version = "0.17.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
-dependencies = [
- "foldhash 0.2.0",
-]
-
-[[package]]
-name = "hashlink"
-version = "0.12.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a596f1b20ed2cc5ecac41a164aaebc7258057060f06c0cf7a2ba3991ee7990fb"
-dependencies = [
- "hashbrown 0.17.1",
-]
 
 [[package]]
 name = "heck"
@@ -943,17 +861,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "61ff90caf6077a803a240f62fdbe88645a890bbca49ef8174c3cb0404362171d"
 dependencies = [
  "libc",
-]
-
-[[package]]
-name = "libsqlite3-sys"
-version = "0.39.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "14a5f01b87b92705d07b433c06f96cbc764637d81a0bffb5734ce17cf0f9a2b3"
-dependencies = [
- "cc",
- "pkg-config",
- "vcpkg",
 ]
 
 [[package]]
@@ -1126,19 +1033,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
 
 [[package]]
-name = "pkg-config"
-version = "0.3.34"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
-
-[[package]]
 name = "postgres"
 version = "0.19.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "33ad20e0aa0b24f5a394eab4f78c781d248982b22b25cecc7e3aa46a681605bd"
 dependencies = [
  "bytes",
- "fallible-iterator 0.2.0",
+ "fallible-iterator",
  "futures-util",
  "log",
  "tokio",
@@ -1154,7 +1055,7 @@ dependencies = [
  "base64 0.22.1",
  "byteorder",
  "bytes",
- "fallible-iterator 0.2.0",
+ "fallible-iterator",
  "hmac",
  "md-5",
  "memchr",
@@ -1170,8 +1071,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "851ca9db4932932d69f3ea811b1abe63087a0f740a47692619dd40d4899b68be"
 dependencies = [
  "bytes",
- "fallible-iterator 0.2.0",
+ "fallible-iterator",
  "postgres-protocol",
+ "serde_core",
+ "serde_json",
+ "time",
+ "uuid",
 ]
 
 [[package]]
@@ -1335,30 +1240,6 @@ dependencies = [
  "libc",
  "untrusted",
  "windows-sys 0.52.0",
-]
-
-[[package]]
-name = "rsqlite-vfs"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "353b74f9810d5b085b6c42c9d86a5f0fdb795553235cdd48753b32e3809d18a7"
-dependencies = [
- "thiserror",
-]
-
-[[package]]
-name = "rusqlite"
-version = "0.41.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9c026b4444579e8d754556c6c75d040d69c4a44283cdb648ab8a8d5965c2cfa8"
-dependencies = [
- "bitflags",
- "fallible-iterator 0.3.0",
- "fallible-streaming-iterator",
- "hashlink",
- "libsqlite3-sys",
- "smallvec",
- "sqlite-wasm-rs",
 ]
 
 [[package]]
@@ -1640,16 +1521,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sqlite-wasm-rs"
-version = "0.6.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "36bd8e29bf08189a005b2df1df99823aa0861cabe9044e5f31ed54ca292ee618"
-dependencies = [
- "cc",
- "rsqlite-vfs",
-]
-
-[[package]]
 name = "stringprep"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1826,7 +1697,7 @@ dependencies = [
  "async-trait",
  "byteorder",
  "bytes",
- "fallible-iterator 0.2.0",
+ "fallible-iterator",
  "futures-channel",
  "futures-util",
  "log",
@@ -2092,12 +1963,6 @@ dependencies = [
  "serde_core",
  "wasm-bindgen",
 ]
-
-[[package]]
-name = "vcpkg"
-version = "0.2.15"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "accd4ea62f7bb7a82fe23066fb0957d48ef677f6eeb8215f372f52e48bb32426"
 
 [[package]]
 name = "wait-timeout"

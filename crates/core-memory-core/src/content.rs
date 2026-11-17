@@ -1,20 +1,16 @@
 //! Accepted content bytes and the event-level identity hash (ING-02).
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
 use std::fmt;
 
 use core_memory_contract::hash::canonical_json_digest;
+use core_memory_contract::json::{self, Integers};
 use core_memory_contract::{
     Actor, Content, ContentKind, OccurredAt, Sha256Digest, SourceEvent, Structure,
 };
 use serde::Serialize;
-use serde::de::{self, Deserializer, MapAccess, SeqAccess, Visitor};
 
 const EVENT_HASH_DOMAIN: &str = "core-memory/event-hash/v1";
-
-/// Largest integer magnitude that JSON canonicalization (RFC 8785, which
-/// treats numbers as IEEE doubles) represents exactly: 2^53.
-const MAX_EXACT_INTEGER: u64 = 1 << 53;
 
 /// The exact bytes the engine accepts for an event's content.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -41,8 +37,10 @@ pub fn accept_content(content: &Content) -> Result<AcceptedContent, ContentError
     let text = match content {
         Content::Text(text) => text.clone(),
         Content::Json(raw) => {
-            let mut de = serde_json::Deserializer::from_str(raw.get());
-            de.deserialize_any(StrictJson)
+            // The value sits inside the event and inside its `content`, and
+            // the limit on nesting counts from the event, whether the event
+            // was read as JSON or built in code.
+            json::check_inside(raw.get(), Integers::Exact, 2)
                 .map_err(|e| ContentError(format!("json content: {e}")))?;
             let value: serde_json::Value = serde_json::from_str(raw.get())
                 .map_err(|e| ContentError(format!("json content: {e}")))?;
@@ -92,86 +90,6 @@ pub fn event_hash(
     )
 }
 
-/// Walks a JSON document, refusing duplicate keys and inexact integers.
-struct StrictJson;
-
-impl<'de> Visitor<'de> for StrictJson {
-    type Value = ();
-
-    fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("any JSON value")
-    }
-
-    fn visit_bool<E>(self, _: bool) -> Result<(), E> {
-        Ok(())
-    }
-
-    fn visit_i64<E: de::Error>(self, v: i64) -> Result<(), E> {
-        if v.unsigned_abs() > MAX_EXACT_INTEGER {
-            return Err(E::custom(format!(
-                "integer {v} cannot be represented exactly; send it as a string"
-            )));
-        }
-        Ok(())
-    }
-
-    fn visit_u64<E: de::Error>(self, v: u64) -> Result<(), E> {
-        if v > MAX_EXACT_INTEGER {
-            return Err(E::custom(format!(
-                "integer {v} cannot be represented exactly; send it as a string"
-            )));
-        }
-        Ok(())
-    }
-
-    fn visit_f64<E: de::Error>(self, v: f64) -> Result<(), E> {
-        // Integers beyond u64/i64 arrive here as floats. Canonical form
-        // would print a rounded value, so refuse them like other inexact
-        // integers. Decimals beyond double precision are a documented
-        // RFC 8785 limit.
-        if v.fract() == 0.0 && v.abs() > MAX_EXACT_INTEGER as f64 {
-            return Err(E::custom(format!(
-                "number {v} cannot be represented exactly; send it as a string"
-            )));
-        }
-        Ok(())
-    }
-
-    fn visit_str<E>(self, _: &str) -> Result<(), E> {
-        Ok(())
-    }
-
-    fn visit_unit<E>(self) -> Result<(), E> {
-        Ok(())
-    }
-
-    fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<(), A::Error> {
-        while seq.next_element_seed(StrictSeed)?.is_some() {}
-        Ok(())
-    }
-
-    fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<(), A::Error> {
-        let mut seen = HashSet::new();
-        while let Some(key) = map.next_key::<String>()? {
-            if !seen.insert(key.clone()) {
-                return Err(de::Error::custom(format!("duplicate key `{key}`")));
-            }
-            map.next_value_seed(StrictSeed)?;
-        }
-        Ok(())
-    }
-}
-
-struct StrictSeed;
-
-impl<'de> de::DeserializeSeed<'de> for StrictSeed {
-    type Value = ();
-
-    fn deserialize<D: Deserializer<'de>>(self, deserializer: D) -> Result<(), D::Error> {
-        deserializer.deserialize_any(StrictJson)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -200,6 +118,16 @@ mod tests {
     fn duplicate_keys_are_refused_at_any_depth() {
         let e = accept_content(&json(r#"{"a":{"k":1,"k":2}}"#)).unwrap_err();
         assert!(e.0.contains("duplicate key `k`"), "{e}");
+    }
+
+    #[test]
+    fn nesting_is_counted_from_the_event() {
+        use core_memory_contract::json::MAX_DEPTH;
+        let nested = |levels: usize| format!("{}0{}", "[".repeat(levels), "]".repeat(levels));
+        // What an event read as JSON may hold as content, and no more.
+        assert!(accept_content(&json(&nested(MAX_DEPTH - 2))).is_ok());
+        let e = accept_content(&json(&nested(MAX_DEPTH - 1))).unwrap_err();
+        assert!(e.0.contains("nested more than 64"), "{e}");
     }
 
     #[test]
