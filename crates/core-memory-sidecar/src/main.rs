@@ -4,21 +4,24 @@ use std::collections::BTreeMap;
 use std::io::{self, BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::sync::Arc;
 use std::time::Duration;
 
 use clap::{Parser, Subcommand};
 use core_memory_contract::schema::Contract;
 use core_memory_contract::{
-    AdmissionOutcome, BusyCause, EventId, EventKey, FieldError, Record, RefusalReason, Sha256Digest,
+    AdmissionOutcome, BusyCause, EventId, EventKey, FieldError, Record, RecordKind, RefusalReason,
+    Sha256Digest,
 };
-use core_memory_core::store::{ScopeState, Store};
-use core_memory_core::{EngineError, ScopeGrants, StoreError};
+use core_memory_core::store::{Change, Purpose, ScopeState, Store};
+use core_memory_core::{Clock, EngineError, ScopeGrants, StoreError, SystemClock};
 use core_memory_sidecar::config::Loaded;
+use core_memory_sidecar::reading::{self, Reader};
 use core_memory_sidecar::report::{self, Stop};
-use core_memory_sidecar::runtime::{Runtime, build_engine, open_store};
+use core_memory_sidecar::runtime::{Runtime, build_engine, check_binding, open_store};
 use core_memory_sidecar::{openapi, server};
 use core_memory_source_jsonl::{JsonlSource, SourceItem};
-use core_memory_store_postgres::{Enrollment, EraseOutcome};
+use core_memory_store_postgres::{Enrollment, EraseOutcome, QueuedReads};
 use serde_json::json;
 
 /// Tries per event before an unavailable store is reported as busy.
@@ -62,11 +65,17 @@ enum Command {
         #[command(subcommand)]
         command: WorkspaceCommand,
     },
-    /// Enroll, list, pause, resume or revoke scopes. A scope is one
-    /// connection to one source.
+    /// Enroll, list, pause, resume or revoke scopes, and say which models a
+    /// scope's text may be sent to. A scope is one connection to one source.
     Scope {
         #[command(subcommand)]
         command: ScopeCommand,
+    },
+    /// Have a model read stored chunks: each chunk's type, and where its
+    /// entities, actions and outcomes are. Needs a [reader] in the config.
+    Read {
+        #[command(subcommand)]
+        command: ReadCommand,
     },
     /// Admit SourceEvents from JSON Lines. Prints one admission outcome per
     /// input line, in order. Stops at the first event the store cannot take
@@ -76,8 +85,9 @@ enum Command {
         #[arg(long, default_value = "-")]
         input: String,
     },
-    /// Write stored events and chunks as JSON Lines records, workspace by
-    /// workspace, each in the order its events were committed.
+    /// Write what is stored as JSON Lines records, workspace by workspace,
+    /// each in the order it was committed: events with their chunks, what
+    /// a model read in them, and erasures.
     Export {
         /// Only this workspace.
         #[arg(long, allow_hyphen_values = true)]
@@ -85,8 +95,8 @@ enum Command {
         /// Only this scope.
         #[arg(long, allow_hyphen_values = true)]
         scope: Option<String>,
-        /// Only events whose `seq` is greater than this. Each workspace
-        /// counts on its own, so this needs --workspace or --scope.
+        /// Only what was committed after this `seq`. Each workspace counts
+        /// on its own, so this needs --workspace or --scope.
         #[arg(long)]
         after: Option<u64>,
     },
@@ -141,6 +151,59 @@ enum ScopeCommand {
     Resume { scope: String },
     /// Withdraw a scope. Its events stay until they are erased.
     Revoke { scope: String },
+    /// Let a scope's text be sent to a model. Consent is to a destination:
+    /// the host, and port if any, of the model's endpoint.
+    Allow {
+        scope: String,
+        #[command(flatten)]
+        to: Destination,
+    },
+    /// Stop sending a scope's text to a model. A call already permitted is
+    /// not recalled; no later one is permitted.
+    Disallow {
+        scope: String,
+        #[command(flatten)]
+        to: Destination,
+    },
+}
+
+/// Where text would be sent, named one of two ways.
+#[derive(clap::Args)]
+#[group(required = true, multiple = false)]
+struct Destination {
+    /// A [[binding]] in the config. Its endpoint's host is the destination.
+    #[arg(long, allow_hyphen_values = true)]
+    binding: Option<String>,
+    /// The destination itself, such as `api.anthropic.com` or
+    /// `127.0.0.1:11434`.
+    #[arg(long, allow_hyphen_values = true)]
+    destination: Option<String>,
+}
+
+#[derive(Subcommand)]
+enum ReadCommand {
+    /// Read every chunk that is due now, then stop. Prints one line per
+    /// model call batch. Chunks whose scope has not allowed the reader's
+    /// destination are put off, not read.
+    Run,
+    /// Show how many chunks are queued, being read and set aside as failed.
+    Status,
+    /// Queue a scope's chunks that no model has read. Admission queues new
+    /// chunks itself; this is for what was stored before a reader was
+    /// configured.
+    Queue {
+        scope: String,
+        /// Also queue chunks whose reads were all made with another model,
+        /// prompt or vocabulary than the configured ones.
+        #[arg(long)]
+        reread: bool,
+    },
+    /// Put reads that were set aside as failed back in the queue.
+    Retry {
+        /// Only this scope's.
+        #[arg(long, allow_hyphen_values = true)]
+        scope: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -173,6 +236,7 @@ fn main() -> ExitCode {
             command: WorkspaceCommand::Add { workspace },
         } => workspace_add(config, &workspace),
         Command::Scope { command } => scope(config, command),
+        Command::Read { command } => read(config, command),
         Command::Ingest { input } => ingest(config, &input),
         Command::Export {
             workspace,
@@ -224,8 +288,27 @@ fn workspace_add(config_path: &Path, workspace: &str) -> Result<ExitCode, Stop> 
     Ok(ExitCode::SUCCESS)
 }
 
+/// The destination a command names: given outright, or as the host of a
+/// configured binding's endpoint.
+fn destination(loaded: &Loaded, to: Destination) -> Result<String, Stop> {
+    match (to.destination, to.binding) {
+        (Some(destination), _) => Ok(destination),
+        (None, Some(id)) => loaded
+            .config
+            .bindings
+            .iter()
+            .find(|b| b.id == id)
+            .ok_or_else(|| format!("no [[binding]] in the config has the id `{id}`"))?
+            .destination()
+            .map_err(|e| Stop::Failed(format!("configuration: {e}"))),
+        (None, None) => Err("give --binding or --destination".into()),
+    }
+}
+
 fn scope(config_path: &Path, command: ScopeCommand) -> Result<ExitCode, Stop> {
-    let mut store = governing_store(config_path)?;
+    let loaded = Loaded::read(config_path)?;
+    let mut store = open_store(&loaded)?;
+    store.check()?;
     let set =
         |store: &mut core_memory_store_postgres::PostgresStore, scope: &str, state: ScopeState| {
             let was = store.set_scope_state(scope, state)?;
@@ -249,12 +332,114 @@ fn scope(config_path: &Path, command: ScopeCommand) -> Result<ExitCode, Stop> {
                     "state": s.state.as_str(),
                     "live_events": s.live_events,
                     "erased_events": s.erased_events,
+                    "allowed": s.destinations,
                 }))?;
             }
         }
         ScopeCommand::Pause { scope } => set(&mut store, &scope, ScopeState::Paused)?,
         ScopeCommand::Resume { scope } => set(&mut store, &scope, ScopeState::Active)?,
         ScopeCommand::Revoke { scope } => set(&mut store, &scope, ScopeState::Revoked)?,
+        ScopeCommand::Allow { scope, to } => {
+            let destination = destination(&loaded, to)?;
+            let changed = store.grant_destination(&scope, &destination)?;
+            report::print(
+                json!({"scope": scope, "destination": destination, "allowed": true, "changed": changed}),
+            )?;
+        }
+        ScopeCommand::Disallow { scope, to } => {
+            let destination = destination(&loaded, to)?;
+            let changed = store.revoke_destination(&scope, &destination)?;
+            report::print(
+                json!({"scope": scope, "destination": destination, "allowed": false, "changed": changed}),
+            )?;
+        }
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+fn read(config_path: &Path, command: ReadCommand) -> Result<ExitCode, Stop> {
+    let loaded = Loaded::read(config_path)?;
+    let engine = Arc::new(build_engine(&loaded)?);
+    let now = SystemClock.now().truncated_to_micros();
+    match command {
+        ReadCommand::Run => {
+            let mut reader = Reader::open(&loaded, Arc::clone(&engine))?
+                .ok_or("add a [reader] section to the config to have a model read chunks")?;
+            report::log(reader.describe());
+            let stdout = io::stdout();
+            let mut out = stdout.lock();
+            let mut written = Ok(());
+            let totals = reader.drain(|batch| {
+                if written.is_ok() {
+                    written = writeln!(out, "{}", reading::describe(batch));
+                }
+            })?;
+            written
+                .and_then(|()| out.flush())
+                .map_err(report::not_written)?;
+            // What is left is due later: its scope has not allowed the
+            // destination, the day's budget is spent, or a call failed.
+            let left = open_store(&loaded)?.work_counts(Purpose::ChunkRead)?;
+            report::log(json!({
+                "read": {
+                    "batches": totals.batches,
+                    "chunks": totals.chunks,
+                    "stored": totals.stored,
+                    "calls": totals.calls,
+                    "input_tokens": totals.input_tokens,
+                    "output_tokens": totals.output_tokens,
+                },
+                "queued": {"ready": left.ready, "leased": left.leased, "failed": left.failed},
+            }));
+        }
+        ReadCommand::Status => {
+            let mut store = open_store(&loaded)?;
+            store.check()?;
+            let counts = store.work_counts(Purpose::ChunkRead)?;
+            let problems: BTreeMap<String, u64> = counts.problems.into_iter().collect();
+            report::print(json!({
+                "ready": counts.ready,
+                "leased": counts.leased,
+                "failed": counts.failed,
+                "problems": problems,
+            }))?;
+        }
+        ReadCommand::Queue { scope, reread } => {
+            let current = match (reread, engine.reader(), engine.vocabulary()) {
+                (false, _, _) => None,
+                (true, Some(reader), Some(vocabulary)) => {
+                    Some((&reader.reader_ref, vocabulary.catalog()))
+                }
+                (true, _, _) => {
+                    return Err(
+                        "--reread compares against the configured reader; add a [reader] section"
+                            .into(),
+                    );
+                }
+            };
+            let mut store = open_store(&loaded)?;
+            store.check()?;
+            match store.queue_reads(&scope, current, now)? {
+                QueuedReads::Queued(queued) => {
+                    report::print(json!({"scope": scope, "queued": queued}))?;
+                }
+                QueuedReads::ScopeNotActive(None) => {
+                    return Err(Stop::Failed(format!("scope `{scope}` is not enrolled")));
+                }
+                QueuedReads::ScopeNotActive(Some(state)) => {
+                    return Err(Stop::Failed(format!(
+                        "scope `{scope}` is {}; nothing is read for a scope that is not active",
+                        state.as_str()
+                    )));
+                }
+            }
+        }
+        ReadCommand::Retry { scope } => {
+            let mut store = open_store(&loaded)?;
+            store.check()?;
+            let retried = store.retry_failed_reads(scope.as_deref(), now)?;
+            report::print(json!({"scope": scope, "retried": retried}))?;
+        }
     }
     Ok(ExitCode::SUCCESS)
 }
@@ -372,25 +557,33 @@ fn export(
 
     let stdout = io::stdout();
     let mut out = stdout.lock();
-    let (mut events, mut chunks) = (0u64, 0u64);
+    let mut counts: BTreeMap<&'static str, u64> = BTreeMap::new();
     let mut last_seq = BTreeMap::new();
     for workspace in workspaces {
         let mut after = after.unwrap_or(0);
         loop {
-            let page = store.export_events(&workspace, after, EXPORT_PAGE, scope)?;
+            let page = store.export(&workspace, after, EXPORT_PAGE, scope)?;
             let Some(last) = page.last() else { break };
-            after = last.event.seq;
-            for exported in page {
-                let scope = exported.event.key.scope.clone();
-                events += 1;
-                chunks += exported.chunks.len() as u64;
-                let records = std::iter::once(Record::event(exported.event)).chain(
-                    exported
-                        .chunks
-                        .into_iter()
-                        .map(|c| Record::chunk(scope.clone(), c)),
-                );
+            after = last.seq();
+            for change in page {
+                let records: Vec<Record> = match change {
+                    Change::Event(exported) => {
+                        let exported = *exported;
+                        let scope = exported.event.key.scope.clone();
+                        std::iter::once(Record::event(exported.event))
+                            .chain(
+                                exported
+                                    .chunks
+                                    .into_iter()
+                                    .map(|c| Record::chunk(scope.clone(), c)),
+                            )
+                            .collect()
+                    }
+                    Change::Read { scope, read } => vec![Record::chunk_read(scope, *read)],
+                    Change::Erasure { scope, erasure } => vec![Record::erasure(scope, erasure)],
+                };
                 for record in records {
+                    *counts.entry(record_kind(&record)).or_default() += 1;
                     let line = serde_json::to_string(&record).map_err(|e| e.to_string())?;
                     writeln!(out, "{line}").map_err(report::not_written)?;
                 }
@@ -401,8 +594,17 @@ fn export(
     out.flush().map_err(report::not_written)?;
     // Passing a workspace's last seq back as --after resumes where this
     // export stopped.
-    report::log(json!({"exported": {"events": events, "chunks": chunks, "last_seq": last_seq}}));
+    report::log(json!({"exported": {"records": counts, "last_seq": last_seq}}));
     Ok(ExitCode::SUCCESS)
+}
+
+fn record_kind(record: &Record) -> &'static str {
+    match record.kind() {
+        RecordKind::Event => "events",
+        RecordKind::Chunk => "chunks",
+        RecordKind::ChunkRead => "chunk_reads",
+        RecordKind::Erasure => "erasures",
+    }
 }
 
 fn erase(
@@ -480,33 +682,70 @@ fn erase(
 
 fn serve(config_path: &Path) -> Result<ExitCode, Stop> {
     let loaded = Loaded::read(config_path)?;
-    let prepared = server::prepare(&loaded)?;
+    let server::Prepared {
+        router,
+        listen,
+        limits,
+        reader,
+    } = server::prepare(&loaded)?;
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
         .map_err(|e| format!("cannot start the async runtime: {e}"))?;
+
+    // The reader works on a thread and a store connection of its own.
+    // Dropping `stop` tells it to finish the batch it is on.
+    let (stop, stopped) = std::sync::mpsc::channel::<()>();
+    let (ended, reader_ended) = std::sync::mpsc::channel::<()>();
+    let reading = match reader {
+        None => None,
+        Some(reader) => {
+            report::log(reader.describe());
+            std::thread::Builder::new()
+                .name("reader".into())
+                .spawn(move || {
+                    reader.run(&stopped);
+                    drop(ended);
+                })
+                .map_err(|e| format!("cannot start the reader: {e}"))?;
+            Some(reader_ended)
+        }
+    };
+
     // The router owns the store's connections, and closing one blocks the
     // thread that does it, which a thread running async tasks must not do.
-    // `prepared` keeps a router of its own until the runtime is gone, so
-    // the last one is never dropped inside it.
-    let router = prepared.router.clone();
-    let served = runtime.block_on(async {
-        let listener = tokio::net::TcpListener::bind(&prepared.listen)
-            .await
-            .map_err(|e| format!("cannot listen on {}: {e}", prepared.listen))?;
-        let addr = listener.local_addr().map_err(|e| e.to_string())?;
-        report::log(json!({"listening": addr.to_string()}));
-        // Requests in flight get a bounded time to finish (ENG-03). An
-        // admission that is cut off was either committed or not, and its
-        // caller finds out which by sending it again.
-        server::serve(listener, router, prepared.limits, shutdown_signal())
-            .await
-            .map_err(|e| format!("server: {e}"))
+    // This function keeps a router of its own until the runtime is gone,
+    // so the last one is never dropped inside it.
+    let served = runtime.block_on({
+        let router = router.clone();
+        async {
+            let listener = tokio::net::TcpListener::bind(&listen)
+                .await
+                .map_err(|e| format!("cannot listen on {listen}: {e}"))?;
+            let addr = listener.local_addr().map_err(|e| e.to_string())?;
+            report::log(json!({"listening": addr.to_string()}));
+            // Requests in flight get a bounded time to finish (ENG-03). An
+            // admission that is cut off was either committed or not, and
+            // its caller finds out which by sending it again.
+            let shutdown = async move {
+                shutdown_signal().await;
+                drop(stop);
+            };
+            server::serve(listener, router, limits, shutdown)
+                .await
+                .map_err(|e| format!("server: {e}"))
+        }
     });
     // A store call still running would otherwise keep the process alive
     // for as long as its statement timeout.
     runtime.shutdown_timeout(Duration::from_secs(1));
-    drop(prepared);
+    drop(router);
+    // A model call in flight gets the same grace as a request. A batch
+    // that is cut off stays reserved until its lease runs out, and is then
+    // read again.
+    if let Some(reader_ended) = reading {
+        let _ = reader_ended.recv_timeout(limits.shutdown_grace);
+    }
     served.map_err(Stop::Failed)?;
     Ok(ExitCode::SUCCESS)
 }
@@ -535,6 +774,20 @@ async fn shutdown_signal() {
 fn check(config_path: &Path) -> Result<ExitCode, Stop> {
     let loaded = Loaded::read(config_path)?;
     let engine = build_engine(&loaded)?;
+    for binding in &loaded.config.bindings {
+        check_binding(binding)?;
+        report::print(json!({
+            "binding": binding.id,
+            "provider": binding.provider,
+            "model": binding.model,
+            "destination": binding.destination().map_err(|e| e.to_string())?,
+        }))?;
+    }
+    if let Some(reader) = engine.reader() {
+        report::print(
+            json!({"reader": {"binding": reader.binding.id, "destination": reader.destination}}),
+        )?;
+    }
     for p in engine.registry().iter() {
         report::print(json!({
             "profile": p.def.id,

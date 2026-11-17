@@ -580,7 +580,7 @@ fn the_engine_role_can_admit_and_nothing_more() {
     let AdmissionOutcome::Accepted { event_id, .. } = outcome else {
         panic!("{outcome:?}");
     };
-    assert_eq!(store.export_events("w1", 0, 10, None).unwrap().len(), 1);
+    assert_eq!(store.export("w1", 0, 10, None).unwrap().len(), 1);
 
     // It cannot govern, erase or alter what it stored.
     let err = store.erase_event(&event_id, "x", "engine").unwrap_err();
@@ -882,7 +882,7 @@ fn every_call_waits_for_a_migration_holding_nothing_else() {
     ));
     let position = behind_a_migration(db, "checkpoint", || store.checkpoint("acme", "session-a"));
     assert_eq!(position.unwrap().unwrap().sequence, 1);
-    let exported = behind_a_migration(db, "export", || store.export_events("w1", 0, 10, None));
+    let exported = behind_a_migration(db, "export", || store.export("w1", 0, 10, None));
     assert_eq!(exported.unwrap().len(), 3);
     let workspaces = behind_a_migration(db, "workspaces", || store.workspaces());
     assert_eq!(workspaces.unwrap(), ["w1"]);
@@ -976,7 +976,7 @@ fn an_export_that_starts_during_a_migration_reads_what_the_migration_left() {
         )
         .unwrap();
     let exported = std::thread::scope(|s| {
-        let export = s.spawn(move || store.export_events("w1", 0, 10, None));
+        let export = s.spawn(move || store.export("w1", 0, 10, None));
         std::thread::sleep(std::time::Duration::from_millis(300));
         assert!(!export.is_finished(), "an export waits for the migration");
         migration
@@ -1067,7 +1067,7 @@ fn a_governor_login_governs_through_the_store_and_reads_nothing() {
         0
     );
     // It cannot read what it governs, or admit.
-    assert!(governor.export_events("w1", 0, 10, None).is_err());
+    assert!(governor.export("w1", 0, 10, None).is_err());
     assert!(governor.scope("acme").is_err());
 }
 
@@ -1725,7 +1725,7 @@ fn reads_are_refused_too_once_the_schema_has_moved_on() {
     );
     for result in [
         w.store.checkpoint("acme", "session-a").map(|_| ()),
-        w.store.export_events("w1", 0, 10, None).map(|_| ()),
+        w.store.export("w1", 0, 10, None).map(|_| ()),
     ] {
         assert!(
             matches!(result, Err(StoreError::SchemaMismatch(_))),
@@ -1855,7 +1855,7 @@ fn a_stored_value_that_does_not_read_back_is_corruption_not_a_retry() {
              ALTER TABLE core_memory.events ENABLE TRIGGER events_only_erase;",
         )
         .unwrap();
-    let err = w.store.export_events("w1", 0, 10, None).unwrap_err();
+    let err = w.store.export("w1", 0, 10, None).unwrap_err();
     assert!(matches!(err, StoreError::Corrupt(_)), "{err:?}");
 }
 

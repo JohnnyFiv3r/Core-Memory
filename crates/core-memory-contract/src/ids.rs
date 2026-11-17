@@ -21,7 +21,6 @@ use crate::hash::FieldHasher;
 
 const EVENT_ID_DOMAIN: &str = "core-memory/event-id/v2";
 const CHUNK_ID_DOMAIN: &str = "core-memory/chunk-id/v2";
-const DECISION_ID_DOMAIN: &str = "core-memory/decision-id/v1";
 
 /// The secret that keys a workspace's derived IDs. It is created with the
 /// workspace, never changes and never leaves the store and the engine.
@@ -110,8 +109,9 @@ derived_id!(
     BeadId
 );
 derived_id!(
-    /// Identity of a type decision or relationship decision (MOD-03).
-    DecisionId
+    /// Identity of one model call. The store assigns it when it writes the
+    /// call's receipt, before anything is sent.
+    CallId
 );
 
 impl EventId {
@@ -148,20 +148,6 @@ impl ChunkId {
 impl From<ChunkId> for BeadId {
     fn from(chunk_id: ChunkId) -> Self {
         Self(chunk_id.0)
-    }
-}
-
-impl DecisionId {
-    /// Derives a decision ID from the decided subject and a description of
-    /// the decision. `parts` must be written in a fixed order by the caller.
-    /// The subject is already a keyed ID, so this needs no key of its own.
-    pub fn derive(subject: &ChunkId, parts: &[&str]) -> Self {
-        let mut h = FieldHasher::new(DECISION_ID_DOMAIN);
-        h.bytes(subject.0.as_bytes());
-        for part in parts {
-            h.str(part);
-        }
-        Self(uuid_from_digest(h.finish()))
     }
 }
 

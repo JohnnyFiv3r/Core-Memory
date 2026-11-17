@@ -2,9 +2,10 @@
 //! stores (REC-01..03).
 //!
 //! Each record is one primitive. An event record carries what the source
-//! declared; a chunk record carries one exact slice of its content. Records
-//! are written once and never change. A full view of a memory is something
-//! each consumer builds for itself.
+//! declared; a chunk record carries one exact slice of its content; a
+//! chunk-read record carries what a model read in a chunk; an erasure
+//! record says an event is gone. Records are written once and never change.
+//! A full view of a memory is something each consumer builds for itself.
 
 use std::collections::BTreeMap;
 
@@ -13,7 +14,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::event::{Actor, ContentKind, EventKey, OccurredAt, Structure};
 use crate::hash::Sha256Digest;
-use crate::ids::{ChunkId, EventId};
+use crate::ids::{CallId, ChunkId, EventId};
+use crate::outcome::{Abstention, TypeRef};
 use crate::timestamp::Timestamp;
 
 /// Contract identifier carried by every v2 record.
@@ -51,10 +53,30 @@ impl Record {
         }
     }
 
+    pub fn chunk_read(scope: impl Into<String>, read: ChunkReadRecord) -> Self {
+        Self {
+            contract: RECORD_CONTRACT.to_string(),
+            record_key: format!("chunk_read:{}:{}", read.chunk_id, read.seq),
+            scope: scope.into(),
+            body: RecordBody::ChunkRead(Box::new(read)),
+        }
+    }
+
+    pub fn erasure(scope: impl Into<String>, erasure: ErasureRecord) -> Self {
+        Self {
+            contract: RECORD_CONTRACT.to_string(),
+            record_key: format!("erasure:{}", erasure.event_id),
+            scope: scope.into(),
+            body: RecordBody::Erasure(Box::new(erasure)),
+        }
+    }
+
     pub fn kind(&self) -> RecordKind {
         match &self.body {
             RecordBody::Event(_) => RecordKind::Event,
             RecordBody::Chunk(_) => RecordKind::Chunk,
+            RecordBody::ChunkRead(_) => RecordKind::ChunkRead,
+            RecordBody::Erasure(_) => RecordKind::Erasure,
         }
     }
 }
@@ -64,6 +86,8 @@ impl Record {
 pub enum RecordBody {
     Event(Box<EventRecord>),
     Chunk(Box<ChunkRecord>),
+    ChunkRead(Box<ChunkReadRecord>),
+    Erasure(Box<ErasureRecord>),
 }
 
 #[derive(
@@ -73,6 +97,8 @@ pub enum RecordBody {
 pub enum RecordKind {
     Event,
     Chunk,
+    ChunkRead,
+    Erasure,
 }
 
 /// An admitted source event, as the source declared it.
@@ -187,6 +213,173 @@ pub struct ChunkRecord {
     pub content_hash: Sha256Digest,
     pub text: String,
     pub facets: ChunkFacets,
+}
+
+/// What a model read in one chunk: its type, or why the model gave none,
+/// and the entities, actions and outcomes it found there.
+///
+/// A chunk may be read more than once, by another model or prompt. Each
+/// read is its own record, and the one with the highest `seq` is current.
+/// No text of the model's is stored: a type is a key of the configured
+/// vocabulary, and a span is a byte range of the chunk's own text.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ChunkReadRecord {
+    pub chunk_id: ChunkId,
+    pub workspace: String,
+    /// The workspace's change counter when the read was stored.
+    pub seq: u64,
+    #[serde(flatten)]
+    pub decision: ReadDecision,
+    /// The vocabulary the type was chosen from.
+    pub vocabulary: CatalogRef,
+    pub reader: ReaderRef,
+    /// The call that produced the read. Its receipt names where the
+    /// chunk's text was sent.
+    pub call_id: CallId,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub spans: Vec<ReadSpan>,
+    /// Spans the model offered that were not found in the chunk, and so
+    /// were not stored.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub spans_rejected: u32,
+    pub read_at: Timestamp,
+}
+
+fn is_zero(n: &u32) -> bool {
+    *n == 0
+}
+
+/// The type a model gave a chunk, or its reason for giving none. Both are
+/// completed judgments.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum ReadDecision {
+    Typed {
+        #[serde(rename = "type")]
+        type_ref: TypeRef,
+    },
+    Abstained {
+        reason: Abstention,
+    },
+}
+
+/// The model and prompt that made a read.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ReaderRef {
+    pub binding_id: String,
+    /// Hash of everything that affects what the reader says: provider,
+    /// endpoint, model, sampling settings, prompt, reply schema, validator.
+    pub binding_rev: Sha256Digest,
+    pub model: String,
+    pub prompt_rev: u32,
+}
+
+/// Something a read found in a chunk: a byte range of the chunk's text,
+/// counted from the start of the chunk.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+pub struct ReadSpan {
+    #[serde(flatten)]
+    pub kind: SpanKind,
+    pub byte_start: u64,
+    pub byte_end: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum SpanKind {
+    /// A named person, organization, place, product, project, artifact or
+    /// event the chunk mentions.
+    Entity { entity_kind: EntityKind },
+    /// Something someone did, is doing or commits to doing.
+    Action,
+    /// A result that happened or a state that was reached.
+    Outcome,
+}
+
+impl SpanKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            SpanKind::Entity { .. } => "entity",
+            SpanKind::Action => "action",
+            SpanKind::Outcome => "outcome",
+        }
+    }
+
+    pub fn entity_kind(&self) -> Option<EntityKind> {
+        match self {
+            SpanKind::Entity { entity_kind } => Some(*entity_kind),
+            SpanKind::Action | SpanKind::Outcome => None,
+        }
+    }
+
+    /// The kind a stored `kind` and `entity_kind` name, if they agree.
+    pub fn from_names(kind: &str, entity_kind: Option<&str>) -> Option<Self> {
+        match (kind, entity_kind) {
+            ("entity", Some(name)) => {
+                EntityKind::from_name(name).map(|entity_kind| SpanKind::Entity { entity_kind })
+            }
+            ("action", None) => Some(SpanKind::Action),
+            ("outcome", None) => Some(SpanKind::Outcome),
+            _ => None,
+        }
+    }
+}
+
+/// A coarse, closed set of entity kinds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum EntityKind {
+    Person,
+    Organization,
+    Place,
+    Product,
+    Project,
+    /// A document, file, ticket, message, code object or other made thing.
+    Artifact,
+    /// A meeting, release, incident or other thing that happens.
+    Event,
+    Other,
+}
+
+impl EntityKind {
+    pub const ALL: [EntityKind; 8] = [
+        EntityKind::Person,
+        EntityKind::Organization,
+        EntityKind::Place,
+        EntityKind::Product,
+        EntityKind::Project,
+        EntityKind::Artifact,
+        EntityKind::Event,
+        EntityKind::Other,
+    ];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            EntityKind::Person => "person",
+            EntityKind::Organization => "organization",
+            EntityKind::Place => "place",
+            EntityKind::Product => "product",
+            EntityKind::Project => "project",
+            EntityKind::Artifact => "artifact",
+            EntityKind::Event => "event",
+            EntityKind::Other => "other",
+        }
+    }
+
+    pub fn from_name(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|k| k.as_str() == name)
+    }
+}
+
+/// An event that was erased. A consumer that keeps anything built from the
+/// event, its chunks or their reads removes it on seeing this.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ErasureRecord {
+    pub event_id: EventId,
+    pub workspace: String,
+    /// The workspace's change counter when the event was erased.
+    pub seq: u64,
+    pub erased_at: Timestamp,
 }
 
 /// Deterministic observations about a chunk (FAC-01, FAC-02). Never model

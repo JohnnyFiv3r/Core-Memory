@@ -7,7 +7,7 @@ use std::sync::Arc;
 use core_memory_contract::{
     AdmissionOutcome, Checkpoint, ChunkId, EventId, Sha256Digest, SourceEvent,
 };
-use core_memory_core::store::{ExportedEvent, Store};
+use core_memory_core::store::{Change, ExportedEvent, Store};
 use core_memory_core::{Engine, EngineConfig, ManualClock, ScopeGrants};
 use core_memory_store_postgres::PostgresStore;
 use core_memory_store_postgres::testing::TestDb;
@@ -102,7 +102,12 @@ impl World {
 
     /// Every live event of workspace `w1`, in admission order.
     pub fn export(&mut self) -> Vec<ExportedEvent> {
-        self.store.export_events("w1", 0, 10_000, None).unwrap()
+        events(self.changes())
+    }
+
+    /// Every change to workspace `w1`, in `seq` order.
+    pub fn changes(&mut self) -> Vec<Change> {
+        self.store.export("w1", 0, 10_000, None).unwrap()
     }
 
     /// One value from a query run as the database owner.
@@ -168,6 +173,17 @@ pub fn checkpoint(key: &str, expected: u64, next: u64) -> Checkpoint {
         next_sequence: next,
         hash: Sha256Digest::of(format!("{key}@{next}").as_bytes()),
     }
+}
+
+/// The events among `changes`.
+pub fn events(changes: Vec<Change>) -> Vec<ExportedEvent> {
+    changes
+        .into_iter()
+        .filter_map(|change| match change {
+            Change::Event(event) => Some(*event),
+            Change::Read { .. } | Change::Erasure { .. } => None,
+        })
+        .collect()
 }
 
 /// Runs `call` while a migration holds the schema, and returns what it

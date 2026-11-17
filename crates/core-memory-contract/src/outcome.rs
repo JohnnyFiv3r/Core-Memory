@@ -119,45 +119,39 @@ pub struct TypeRef {
     pub rev: u32,
 }
 
-/// The type outcome of one chunk.
-///
-/// Only `assigned` and `unassigned` are completed decisions. A `pending`
-/// outcome becomes a completed one exactly once (CLS-04).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(tag = "status", rename_all = "snake_case")]
-pub enum TypeOutcome {
-    Assigned { type_ref: TypeRef },
-    Unassigned { reason: UnassignedReason },
-    Pending { reason: PendingReason },
-}
-
-impl TypeOutcome {
-    pub fn is_final(&self) -> bool {
-        !matches!(self, TypeOutcome::Pending { .. })
-    }
-}
-
-/// Why a completed decision assigned no type. Values match memoriesQL's
-/// classification abstentions.
+/// Why a model gave a chunk no type. An abstention is a completed
+/// judgment, not a failure: it is stored, and it is never retried as if the
+/// model had not answered. Values match memoriesQL's classification
+/// abstentions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
-pub enum UnassignedReason {
+pub enum Abstention {
+    /// None of the types describes the chunk.
     NoFit,
+    /// The chunk is too short or unclear to tell.
     InsufficientEvidence,
+    /// Two or more types fit equally well.
     Ambiguous,
 }
 
-/// Why no completed decision exists yet. Pending outcomes are retryable.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum PendingReason {
-    Timeout,
-    ProviderError,
-    Capacity,
-    UnsupportedInput,
-    /// No classifier binding is configured. The chunk is classified when
-    /// one is added.
-    NoClassifier,
+impl Abstention {
+    pub const ALL: [Abstention; 3] = [
+        Abstention::NoFit,
+        Abstention::InsufficientEvidence,
+        Abstention::Ambiguous,
+    ];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Abstention::NoFit => "no_fit",
+            Abstention::InsufficientEvidence => "insufficient_evidence",
+            Abstention::Ambiguous => "ambiguous",
+        }
+    }
+
+    pub fn from_name(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|a| a.as_str() == name)
+    }
 }
 
 #[cfg(test)]
@@ -166,13 +160,6 @@ mod tests {
 
     #[test]
     fn outcomes_serialize_with_tags() {
-        let pending = TypeOutcome::Pending {
-            reason: PendingReason::NoClassifier,
-        };
-        assert_eq!(
-            serde_json::to_value(&pending).unwrap(),
-            serde_json::json!({"status": "pending", "reason": "no_classifier"})
-        );
         let busy = AdmissionOutcome::Busy {
             retry_after_ms: 500,
             cause: BusyCause::Capacity,
@@ -193,18 +180,14 @@ mod tests {
     }
 
     #[test]
-    fn only_pending_is_not_final() {
-        assert!(
-            TypeOutcome::Unassigned {
-                reason: UnassignedReason::NoFit
-            }
-            .is_final()
-        );
-        assert!(
-            !TypeOutcome::Pending {
-                reason: PendingReason::Timeout
-            }
-            .is_final()
-        );
+    fn abstentions_have_one_name_each() {
+        for abstention in Abstention::ALL {
+            assert_eq!(Abstention::from_name(abstention.as_str()), Some(abstention));
+            assert_eq!(
+                serde_json::to_value(abstention).unwrap(),
+                serde_json::json!(abstention.as_str())
+            );
+        }
+        assert_eq!(Abstention::from_name("unsure"), None);
     }
 }

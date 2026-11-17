@@ -15,7 +15,10 @@ use crate::clock::Clock;
 use crate::content::{accept_content, event_hash};
 use crate::error::{ConfigError, EngineError, StoreError};
 use crate::facets::chunk_facets;
+use crate::model::BindingConfig;
 use crate::profile::{CompiledChunker, ProfileRegistry, SourceProfile};
+use crate::read::ReaderConfig;
+use crate::reader::CompiledReader;
 use crate::store::{
     AdmissionCommit, AdmissionWrite, CheckpointAdvance, CheckpointState, ChunkWrite, PinKind,
     PinResult, ScopeState, Store, StoredEvent,
@@ -32,6 +35,13 @@ pub struct EngineConfig {
     pub profiles: Vec<SourceProfile>,
     #[serde(default)]
     pub limits: Limits,
+    /// Has a model read each chunk. Without it the engine makes no model
+    /// calls, and everything else works the same.
+    #[serde(default)]
+    pub reader: Option<ReaderConfig>,
+    /// The models the engine may call.
+    #[serde(default, rename = "binding")]
+    pub bindings: Vec<BindingConfig>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -83,6 +93,7 @@ pub struct Engine {
     pub(crate) registry: ProfileRegistry,
     pub(crate) vocab: Option<LoadedVocabulary>,
     limits: Limits,
+    pub(crate) reader: Option<CompiledReader>,
     pub(crate) clock: Arc<dyn Clock>,
 }
 
@@ -96,10 +107,30 @@ impl Engine {
                 "limits.max_chunks_per_event and limits.max_metadata_bytes must be 1 or more",
             ));
         }
+        let mut ids = BTreeSet::new();
+        for binding in &config.bindings {
+            binding.validate()?;
+            if !ids.insert(binding.id.as_str()) {
+                return Err(ConfigError::new(format!(
+                    "binding `{}` is configured twice",
+                    binding.id
+                )));
+            }
+        }
+        let reader = config
+            .reader
+            .map(|settings| CompiledReader::compile(settings, &config.bindings))
+            .transpose()?;
+        if reader.is_some() && vocab.is_none() {
+            return Err(ConfigError::new(
+                "a [reader] needs a [vocabulary]: the types it may give a chunk",
+            ));
+        }
         Ok(Self {
             registry,
             vocab,
             limits: config.limits,
+            reader,
             clock,
         })
     }
@@ -372,6 +403,7 @@ impl Engine {
                 captured_at,
                 checkpoint: event.checkpoint.as_ref(),
                 revises: target.revises,
+                queue_reads: self.reader.is_some(),
             })?;
             return match committed {
                 AdmissionCommit::Committed { checkpoint } => Ok(A::Accepted {

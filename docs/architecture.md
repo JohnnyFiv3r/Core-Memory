@@ -12,8 +12,8 @@ For each SourceEvent the engine:
 2. cuts it into deterministic chunks and computes deterministic facets;
 3. writes the event, its chunks and its beads to PostgreSQL in one
    transaction;
-4. *planned:* asks a model for each chunk's type and its entities, actions
-   and outcomes;
+4. asks a model for each chunk's type and where its entities, actions and
+   outcomes are, if a reader is configured and the chunk's scope allows it;
 5. *planned:* compresses tool calls and asks a model for each one's action
    and outcome;
 6. *planned:* asks a judge model how new beads relate to recent ones.
@@ -63,6 +63,8 @@ Three rules keep ownership clear:
 | Chunk | A byte range of an event's content. Chunks partition the content exactly. |
 | Bead | An unchanging pointer that other things link to. Every chunk of a message is a bead. *Planned:* tool calls, labels and groups are beads too. |
 | Checkpoint | A reader's durable position in its source, advanced in the same transaction as an admission. |
+| Binding | A pinned model configuration: provider, endpoint, model snapshot and settings. |
+| Destination | The host, and port if any, of a binding's endpoint. Model consent is given per scope and per destination. |
 
 ## Tables
 
@@ -80,23 +82,31 @@ All tables are in the `core_memory` schema.
 | `checkpoints` | A reader's sequence and hash per `(scope, key)`. | Not erased. |
 | `pins` | The hash of each profile and chunker revision ever used. | Not erased. |
 | `erasures` | The journal of erasures: IDs, reason, actor, time, `seq`. | Kept. Replayed after a backup restore. |
+| `scope_destinations` | Where a scope's text may be sent: destination and whether it is granted or revoked. | Not erased. |
+| `outbound_calls` | One receipt for each model call: destination, binding, the chunk IDs sent, byte and token counts, `seq`. No text. | Kept. |
+| `outbound_results` | How each call ended, and the tokens it used. | Kept. |
+| `chunk_reads` | What a model read in a chunk: a type of the vocabulary or why none, the reader that read it, `seq`. | Deleted. |
+| `chunk_read_spans` | Where a read found an entity, an action or an outcome: byte ranges of the chunk's text. | Deleted. |
+| `work` | Chunks still to be read: IDs, attempts, when to try next and a problem code. No text. | Deleted. |
 
-*Planned* tables: `work` (queue, no text), `outbound_calls` (one receipt
-per model call), `scope_destinations` (model consent), `type_decisions`,
-`extractions`, `tool_outcomes`, `edges`, `verdicts`, `name_links`.
+*Planned* tables: `tool_outcomes`, `edges`, `verdicts`, `name_links`.
 
 Text is kept in one place on purpose. Erasing a message deletes its
 `chunk_text` rows and every row derived from that text, in one transaction.
 Tables that survive an erase hold IDs, ranges and engine-side times only.
 
 Rows are immutable. Triggers refuse updates and deletes on `events`,
-`chunks`, `chunk_text`, `beads`, `pins` and `erasures`, and refuse
+`chunks`, `chunk_text`, `beads`, `pins`, `erasures`, `outbound_calls`,
+`outbound_results`, `chunk_reads` and `chunk_read_spans`, and refuse
 `TRUNCATE` on every table above. The one exception is an erase, and the triggers
 allow exactly what an erase does: an event or a bead goes from live to
-erased and keeps its engine-side columns, and text is deleted only for an
-event that was just erased. A scope keeps its name and workspace. The
-triggers stop mistakes, including the table owner's. They are not a defence
-against the owner, who can drop them.
+erased and keeps its engine-side columns, and text, reads and spans are
+deleted only for an event that was just erased. A scope keeps its name and
+workspace. The triggers stop mistakes, including the table owner's. They
+are not a defence against the owner, who can drop them.
+
+`work` is the one table the engine changes in place. It is a queue, not a
+record: a row says what is still owed and is deleted when it is done.
 
 ## Identity
 
@@ -192,8 +202,8 @@ Events and beads are ordered in time by `(time_at, seq)`.
 ## Change order
 
 Each workspace has a change counter. Every row the engine writes for the
-workspace in `events`, `beads` and `erasures` carries `seq`, the next number
-from that counter. Taking a number locks the counter until the transaction
+workspace in `events`, `beads`, `erasures`, `outbound_calls` and
+`chunk_reads` carries `seq`, the next number from that counter. Taking a number locks the counter until the transaction
 ends, so:
 
 - within a workspace, rows commit in `seq` order;
@@ -207,7 +217,7 @@ A transaction that takes numbers and then writes nothing (a duplicate
 admission, a checkpoint conflict) rolls back and returns them.
 
 Numbers come from one counter per workspace, so a `seq` identifies one row
-across the three tables. An erasure changes existing rows in place and adds
+across those tables. An erasure changes existing rows in place and adds
 one row to `erasures`; a reader that keeps derived data follows `erasures`
 to learn what to remove.
 
@@ -232,10 +242,12 @@ that restarts asks the engine for its checkpoint and resumes from there.
 ## Erasing
 
 `core_memory.erase_event(event_id, reason, actor)` erases one whole message.
-In one transaction it deletes the event's text and facets, clears the
-event's key fields, hashes and metadata, marks its beads erased, and writes
-the journal. IDs, ranges and links stay as the tombstone. Offering the event
-again is refused.
+In one transaction it deletes the event's text and facets, what a model
+read in it and the work still queued for it, clears the event's key fields,
+hashes and metadata, marks its beads erased, and writes the journal. IDs,
+ranges and links stay as the tombstone. Offering the event again is
+refused, and so is any later row about it: the table that holds what a
+model read takes rows only for an event that is live.
 
 `core_memory.erase_events(event_ids, reason, actor)` erases a list of
 messages in one call and returns one row for each distinct ID: `erased`,
@@ -283,8 +295,8 @@ and so does `ORDER BY time_at, seq` with a limit. A host that filters on
 
 | Role | May |
 |---|---|
-| `core_memory_engine` | Read and write the data tables. The engine's login role is a member. |
-| `core_memory_governor` | Execute the governance functions. Holds no table privileges. |
+| `core_memory_engine` | Read and write the data tables. It reads model consent and cannot give it. The engine's login role is a member. |
+| `core_memory_governor` | Execute the governance functions, which include giving and withdrawing model consent. Holds no table privileges. |
 
 Both are created by the first migration if they do not exist. Every table
 has row security enabled, with a policy for `core_memory_engine` only. A
@@ -396,30 +408,141 @@ Until 2.0.0 is released, the first migration still changes as the engine is
 built. A database created by a pre-release build must be recreated, not
 migrated.
 
-## Model calls (*planned*)
+## Model calls
 
-Every model call will go through one outbound step:
+A model reads each chunk once a reader is configured: a `[reader]` section
+that names a `[[binding]]`. Without one the engine calls no model, and
+everything else works the same.
 
-1. **Permit.** In one transaction, check that each scope is active and has
-   granted the binding's destination, read the text, and record a receipt
-   naming the destination and the IDs sent. A refusal sends nothing.
-2. **Call** the model through `ModelTransport`.
-3. **Validate** the reply against a closed schema. One repair retry.
-4. **Submit** the results. Results for anything erased meanwhile are
-   dropped.
+### What a read is
 
-Receipts hold no text. With no binding configured the engine makes no model
-calls and everything else still works.
+The model is shown a batch of chunks, all of one scope and one source
+profile, under handles (`C1`, `C2`, ...), with the types it may choose
+from. For each chunk it answers with:
+
+- **a type**: one key of the vocabulary, or an abstention (`no_fit`,
+  `insufficient_evidence`, `ambiguous`). An abstention is a completed
+  judgment. It is stored and is not retried;
+- **entities, actions and outcomes**, each as a quote of the chunk.
+
+A quote is looked up in the chunk and kept as the byte range where it was
+found. Nothing the model wrote is stored: a type is a key of the
+vocabulary, and a span is a range of text the source wrote. A quote that is
+not in the chunk is not a finding.
+
+A reply that breaks the shape is rejected whole and repaired once: the
+model gets its reply back with what was wrong. On that second attempt a
+quote that is still not found is dropped and counted (`spans_rejected`)
+rather than failing the batch. A source profile's `types` narrows which
+types its chunks may be given.
+
+Every read records its reader: the binding's ID and model, the prompt
+revision, and `binding_rev`, a hash of everything that affects what the
+model says (provider, endpoint, model, sampling settings, output limit, the
+prompt, the reply shape and the validator), plus the vocabulary's hash.
+Timeouts, budgets and credentials are not part of it. Reads are added,
+never changed: the read with the highest `seq` for a chunk is the current
+one.
+
+### The four steps of a call
+
+1. **Permit.** One transaction, starting with `begin_write`, checks that
+   the scope is active and has granted the binding's destination, checks
+   the budget, reads the text, and writes the call's receipt in
+   `outbound_calls`. A refusal sends nothing and writes no receipt. The
+   receipt is committed before any text leaves the engine.
+2. **Call** the model through `ModelTransport`: one request, with no hidden
+   retry or fallback.
+3. **Validate** the reply against the closed shape above.
+4. **Finish.** One transaction records how the call ended in
+   `outbound_results`, stores the reads and their spans, and settles the
+   queue. A read is stored only for a chunk the receipt names whose text
+   still exists and whose scope is still active. The table itself takes a
+   read only for an event that is live, whoever writes it.
+
+   The end of a call is recorded once. A store that is busy when a reply
+   arrives, because another transaction holds the workspace or the
+   connection dropped, is asked again before the reply is given up, and
+   asking again stores nothing twice. A provider's own count of the tokens
+   it used is a number from outside: one too large to store is recorded as
+   the largest that can be.
+
+A call with a receipt and no result was permitted and never accounted for:
+its text may have been sent. A revocation or a pause that commits before a
+permit is always seen by it, because both take the workspace's write lock.
+One that commits during a call lets the call finish and stores nothing
+from it.
+
+A **destination** is the host of a binding's endpoint, in lower case, with
+its port if it names one. It is derived from the endpoint and never written
+by hand, so a binding pointed somewhere else needs consent again.
+`core_memory.grant_destination(scope, destination)` and
+`revoke_destination` are governance functions; `core-memory scope allow`
+and `scope disallow` call them. The engine's role cannot.
+
+A binding may carry a budget of calls and tokens per workspace per UTC day.
+It is counted from the receipts, in tokens reserved: the most a call may
+use, whether or not it does.
+
+### The queue
+
+Admission adds one `work` row for each chunk it stores while a reader is
+configured. `core-memory read queue <scope>` adds the chunks that were
+stored before one was, and with `--reread`, those whose reads were all
+made by another binding revision or vocabulary than the configured ones.
+
+A reader claims a batch with `FOR UPDATE SKIP LOCKED`, so readers never
+wait for each other, and holds it under a lease. A reader that dies leaves
+its batch to be claimed again when the lease runs out.
+
+| What happened | What becomes of the work | `problem` |
+|---|---|---|
+| The reply was valid | Deleted. The reads are stored. | |
+| The scope has not granted the destination | Put off, and due again when it is granted. | `no_consent` |
+| The scope is paused or revoked | Put off, and due again when it is active. | `scope_not_active` |
+| The day's budget is spent | Put off until the next UTC day. | `over_budget` |
+| The provider did not process the request | Tried again after `retry_backoff_ms`, or the provider's own delay. | `provider_unavailable` |
+| The request may have been processed | Tried again after `retry_backoff_ms`. | `call_in_doubt` |
+| The model declined, or the request or reply did not fit | Tried again alone, one chunk to a call. A chunk that was sent alone is set aside at once: the same request would get the same answer. | `model_refused` |
+| The reply was invalid twice | Tried again alone. | `reply_invalid` |
+| A chunk of the batch was erased before the repair | Nothing more is sent. The rest is tried again after `retry_backoff_ms`. | `batch_changed` |
+| The provider turned the request itself down | Tried again after ten minutes. An operator has to fix the binding. | `binding_rejected` |
+| The work was handed out `max_attempts` times and never settled | Set aside, when it would have been handed out again. | `attempts_spent` |
+
+Work that was put off before any call was made does not count as an
+attempt. Once a call was made for it, the attempt counts whatever comes
+next: a repair that is not permitted leaves the work put off and one attempt
+poorer. After `max_attempts` calls a chunk's work is set aside as `failed`,
+until `core-memory read retry` puts it back.
+
+The count is also kept where work is handed out. A reader that dies with
+its work, or cannot record how its call ended, leaves a lease that runs
+out. That work is handed out again, and the call made again, but only
+until its attempts are spent. Then it is set aside as `attempts_spent`. No
+call is made more than `max_attempts` times for one chunk, whatever fails.
+`core-memory read status` shows the counts.
+
+`core-memory serve` runs a reader beside the server when one is
+configured, on a thread and a store connection of its own. `core-memory
+read run` reads what is due and stops.
+
+### What is never written down
+
+The queue, the receipts, the results and the logs hold IDs, counts and
+problem codes. They hold no chunk text and nothing a model or a provider
+said: a provider's error message can quote the request.
 
 ## Records and export
 
 `core_memory.record.v2` is the public JSON form of the engine's primitives:
-`event` and `chunk` records today; type decisions, extractions, tool
-outcomes, beads, edges and verdicts as they are built. `core-memory export`
-writes them as JSON Lines, one workspace after another, each in `seq` order.
-An event record carries its `seq`, and `export --workspace W --after N`
-resumes after it. The tables are the truth; records are how they are
-published outside SQL.
+`event`, `chunk`, `chunk_read` and `erasure` records today; tool outcomes,
+beads, edges and verdicts as they are built. `core-memory export` writes
+them as JSON Lines, one workspace after another, each in `seq` order: an
+event with its chunks, then what a model read in them as it was read, and
+an erasure where an event was erased. An erased event's own records, and
+what was read in it, are not exported. Each record carries its `seq`, and
+`export --workspace W --after N` resumes after it. The tables are the
+truth; records are how they are published outside SQL.
 
 ## Crates
 

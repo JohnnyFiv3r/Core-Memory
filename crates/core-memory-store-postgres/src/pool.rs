@@ -11,8 +11,9 @@ use std::time::{Duration, Instant};
 use core_memory_contract::{Checkpoint, EventId, Sha256Digest, Timestamp};
 use core_memory_core::StoreError;
 use core_memory_core::store::{
-    AdmissionCommit, AdmissionWrite, CheckpointAdvance, CheckpointState, ExportedEvent, PinKind,
-    PinResult, ScopeInfo, Store, StoredEvent,
+    AdmissionCommit, AdmissionWrite, CallFinish, CallFinished, Change, CheckpointAdvance,
+    CheckpointState, Permit, PermitRequest, PinKind, PinResult, Purpose, ReadBatch, ScopeInfo,
+    Store, StoredEvent, WorkCounts, WorkUpdate,
 };
 
 use crate::connect::{ConnectConfig, Connector};
@@ -162,15 +163,41 @@ impl Store for PoolStore<'_> {
         self.checkout()?.pin(kind, id, rev, hash)
     }
 
-    fn export_events(
+    fn export(
         &mut self,
         workspace: &str,
         after: u64,
         limit: u32,
         scope: Option<&str>,
-    ) -> Result<Vec<ExportedEvent>, StoreError> {
+    ) -> Result<Vec<Change>, StoreError> {
+        self.checkout()?.export(workspace, after, limit, scope)
+    }
+
+    fn claim_reads(
+        &mut self,
+        limit: u32,
+        max_attempts: u32,
+        now: Timestamp,
+        lease_until: Timestamp,
+    ) -> Result<Option<ReadBatch>, StoreError> {
         self.checkout()?
-            .export_events(workspace, after, limit, scope)
+            .claim_reads(limit, max_attempts, now, lease_until)
+    }
+
+    fn permit(&mut self, request: &PermitRequest<'_>) -> Result<Permit, StoreError> {
+        self.checkout()?.permit(request)
+    }
+
+    fn finish_call(&mut self, finish: &CallFinish<'_>) -> Result<CallFinished, StoreError> {
+        self.checkout()?.finish_call(finish)
+    }
+
+    fn update_work(&mut self, purpose: Purpose, work: &[WorkUpdate]) -> Result<(), StoreError> {
+        self.checkout()?.update_work(purpose, work)
+    }
+
+    fn work_counts(&mut self, purpose: Purpose) -> Result<WorkCounts, StoreError> {
+        self.checkout()?.work_counts(purpose)
     }
 }
 

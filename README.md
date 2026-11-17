@@ -10,14 +10,17 @@ in PostgreSQL. For each event it:
 
 1. admits the event with its exact bytes and a stable identity;
 2. cuts it into deterministic chunks and attaches deterministic facets;
-3. commits the event, its chunks and their text in one transaction.
+3. commits the event, its chunks and their text in one transaction;
+4. if you configure a model, has it read each chunk: its type, and where
+   its entities, actions and outcomes are.
 
 The full chunk text is the memory. The engine never writes summaries or other
-generated text in its place.
+generated text in its place. What a model reads is stored as a type from your
+vocabulary and as ranges of the chunk's own text.
 
-Typing and extraction by a model, tool-call handling and relationship judging
-are designed and not built yet. [docs/architecture.md](docs/architecture.md)
-describes the design, including the planned parts.
+Tool-call handling and relationship judging are designed and not built yet.
+[docs/architecture.md](docs/architecture.md) describes the design, including
+the planned parts.
 
 This branch is pre-release. Nothing from it is published to PyPI or crates.io.
 
@@ -42,7 +45,7 @@ cd examples/quickstart
 core-memory migrate                            # create the core_memory schema
 core-memory scope add acme --workspace demo    # allow events for scope "acme"
 core-memory ingest --input events.jsonl        # one outcome per input line
-core-memory export                             # stored events and chunks, as JSON Lines
+core-memory export                             # what is stored, as JSON Lines
 ```
 
 `ingest` prints one typed outcome per line: `accepted`, `replay`,
@@ -166,6 +169,55 @@ The position advances in the same transaction as the event, and only from
 `checkpoint_conflict` with the stored sequence, and the event is not stored.
 After a restart the reader asks `GET /v1/checkpoints` where to resume.
 
+## Reading with a model
+
+The engine calls no model until you configure one. Add a reader and the
+binding it uses:
+
+```toml
+[reader]
+binding = "small"
+
+[[binding]]
+id = "small"
+provider = "anthropic"                # or "openai", or "openai-compatible" for a local server
+endpoint = "https://api.anthropic.com"
+model = "<a pinned model snapshot>"
+max_output_tokens = 4096
+api_key_env = "ANTHROPIC_API_KEY"     # the variable that holds the key; never the key itself
+budget = { max_requests_per_day = 2000, max_tokens_per_day = 5000000 }
+```
+
+A scope's text is sent to a model only after that scope allows the model's
+destination, which is the host of the binding's endpoint:
+
+```bash
+core-memory check                                 # prints each binding and its destination
+core-memory scope allow acme --binding small      # consent, for this scope and this destination
+core-memory read run                              # read what is due now, then stop
+core-memory read status                           # queued, being read, failed
+core-memory scope disallow acme --binding small   # no later call is permitted
+```
+
+`core-memory serve` reads in the background while it serves. Chunks admitted
+while a reader is configured are queued by themselves. For what was stored
+before, run `core-memory read queue <scope>`.
+
+For each chunk the model picks one type from your vocabulary, or abstains and
+says why, and quotes the chunk's entities, actions and outcomes. A quote is
+kept only as the byte range where it was found in the chunk, so nothing the
+model wrote is stored and a quote that is not in the chunk is dropped. The
+result is exported as a `chunk_read` record.
+
+Every call is permitted first, in the transaction that reads the text: the
+scope must be active, it must have allowed the destination, and the day's
+budget must not be spent. The permit writes a receipt that names the
+destination and the chunks sent, and holds no text. Calls that fail are tried
+again; after `max_attempts` a chunk is set aside until `core-memory read
+retry`. No call is made more often than that for one chunk, whatever fails,
+and a chunk the model declines when it is sent alone is set aside at once.
+Logs and receipts never hold chunk text or what a model said.
+
 ## Erasing
 
 ```bash
@@ -177,10 +229,11 @@ core-memory erase --reason user_request key --scope acme --source-ns docs/drive 
 core-memory erase --reason account_closed scope acme
 ```
 
-Erasing removes a whole message: its text, its facets, its key, its hashes and
-its metadata, in one transaction. Its IDs stay as a tombstone, so links to it
-do not dangle and the same message is refused if it is offered again. Each
-erasure is written to a journal with the reason and who asked.
+Erasing removes a whole message: its text, its facets, its key, its hashes,
+its metadata and what a model read in it, in one transaction. Its IDs stay as
+a tombstone, so links to it do not dangle and the same message is refused if
+it is offered again. Each erasure is written to a journal with the reason and
+who asked, and exported as an `erasure` record.
 
 `erase scope` works in batches. Pause or revoke the scope first if nothing
 more should be admitted to it while it is erased.
@@ -208,10 +261,10 @@ system that uses it. That system:
 
 - **governs** by calling SQL functions inside its own transactions:
   `core_memory.create_workspace`, `enroll_scope`, `set_scope_state`,
-  `erase_event`, `erase_events`, `erase_key` and `erase_scope`. The
-  `core-memory` command calls the same functions. They need the default
-  `READ COMMITTED` isolation, and are best called before the transaction
-  reads the engine's tables itself.
+  `grant_destination`, `revoke_destination`, `erase_event`, `erase_events`,
+  `erase_key` and `erase_scope`. The `core-memory` command calls the same
+  functions. They need the default `READ COMMITTED` isolation, and are best
+  called before the transaction reads the engine's tables itself.
 - **reads** the engine's tables directly. Row security is on for every table
   and nothing is granted to `PUBLIC`, so a role sees rows only after it is
   given a grant and a policy.
@@ -221,7 +274,7 @@ Two roles are created by the first migration:
 
 | Role | May |
 |---|---|
-| `core_memory_engine` | Read and insert events, chunks and beads. It cannot change or delete them, change a scope's state, or erase. Give it to the engine's login role. |
+| `core_memory_engine` | Read and insert events, chunks, beads, receipts and reads. It cannot change or delete them, change a scope's state, give model consent, or erase. Give it to the engine's login role. |
 | `core_memory_governor` | Call the governance functions. It reads no table. |
 
 Both roles belong to the database cluster. If one cluster holds several Core
@@ -284,13 +337,17 @@ written by code that does not know the new schema.
 - **One PostgreSQL store** with immutable rows, row security, a least-privilege
   engine role and migrations.
 - **Erasure** of whole messages, with a journal.
+- **Reading by a model**: each chunk's type and the places of its entities,
+  actions and outcomes, behind per-scope consent, a receipt for every call
+  and a daily budget. Transports for Anthropic, OpenAI and OpenAI-compatible
+  servers.
 - **An authenticated HTTP service** with per-token scope grants, readiness and
   an OpenAPI document.
-- **Export** of events and chunks as `core_memory.record.v2` JSON Lines.
+- **Export** of events, chunks, reads and erasures as `core_memory.record.v2`
+  JSON Lines.
 
-Not built yet: typing and extraction by a model, tool calls, and relationship
-judging. The model transports for Anthropic and OpenAI-compatible servers are
-in the workspace and not wired in yet.
+Not built yet: tool calls and relationship judging. Reading has been tested
+against stand-in models only, not yet against a live one.
 
 ## Workspace
 
