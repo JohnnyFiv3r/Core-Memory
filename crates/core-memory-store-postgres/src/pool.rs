@@ -12,8 +12,9 @@ use core_memory_contract::{Checkpoint, EventId, Sha256Digest, Timestamp};
 use core_memory_core::StoreError;
 use core_memory_core::store::{
     AdmissionCommit, AdmissionWrite, CallFinish, CallFinished, Change, CheckpointAdvance,
-    CheckpointState, LeasedToolCall, Permit, PermitRequest, PinKind, PinResult, Purpose, ReadBatch,
-    ScopeInfo, Store, StoredEvent, WorkCounts, WorkUpdate,
+    CheckpointState, JudgeBatch, JudgeClaim, JudgePermit, JudgePermitRequest, JudgeSettle,
+    JudgmentFinish, JudgmentFinished, LeasedToolCall, Permit, PermitRequest, PinKind, PinResult,
+    Purpose, ReadBatch, ScopeInfo, Store, StoredEvent, WorkCounts, WorkUpdate,
 };
 
 use crate::connect::{ConnectConfig, Connector};
@@ -198,12 +199,34 @@ impl Store for PoolStore<'_> {
         self.checkout()?.permit(request)
     }
 
+    fn claim_judgment(&mut self, claim: &JudgeClaim) -> Result<Option<JudgeBatch>, StoreError> {
+        self.checkout()?.claim_judgment(claim)
+    }
+
+    fn permit_judgment(
+        &mut self,
+        request: &JudgePermitRequest<'_>,
+    ) -> Result<JudgePermit, StoreError> {
+        self.checkout()?.permit_judgment(request)
+    }
+
+    fn finish_judgment(
+        &mut self,
+        finish: &JudgmentFinish<'_>,
+    ) -> Result<JudgmentFinished, StoreError> {
+        self.checkout()?.finish_judgment(finish)
+    }
+
     fn finish_call(&mut self, finish: &CallFinish<'_>) -> Result<CallFinished, StoreError> {
         self.checkout()?.finish_call(finish)
     }
 
     fn update_work(&mut self, work: &[WorkUpdate]) -> Result<(), StoreError> {
         self.checkout()?.update_work(work)
+    }
+
+    fn settle_judgment(&mut self, settle: &JudgeSettle<'_>) -> Result<(), StoreError> {
+        self.checkout()?.settle_judgment(settle)
     }
 
     fn work_counts(&mut self, purpose: Purpose) -> Result<WorkCounts, StoreError> {

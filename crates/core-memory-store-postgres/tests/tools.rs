@@ -107,15 +107,7 @@ fn round(w: &mut World, transport: &dyn core_memory_core::ModelTransport) -> Rea
 
 /// What kinds of change the workspace has seen, in order.
 fn kinds(w: &mut World) -> Vec<&'static str> {
-    w.changes()
-        .iter()
-        .map(|change| match change {
-            Change::Event(_) => "event",
-            Change::Read { .. } => "read",
-            Change::ToolOutcome { .. } => "tool outcome",
-            Change::Erasure { .. } => "erasure",
-        })
-        .collect()
+    w.changes().iter().map(common::kind_of).collect()
 }
 
 #[test]
@@ -757,6 +749,7 @@ fn the_end_of_a_call_is_recorded_once() {
         reader: &reader.reader_ref,
         work: &[],
         at: now,
+        judge_after: None,
     };
     // A caller whose answer was lost on the way back asks again. Nothing
     // is stored twice, and it is told what was stored.
@@ -1123,6 +1116,7 @@ fn reading_a_tool_call_waits_for_a_migration_holding_nothing_else() {
         reader: &reader.reader_ref,
         work: &[],
         at: now,
+        judge_after: None,
     };
     let finished = behind_a_migration(db, "finish_call", || store.finish_call(&finish));
     assert_eq!(finished.unwrap().stored, 1);
@@ -1205,6 +1199,7 @@ fn an_outcome_is_stored_only_for_the_call_its_receipt_names() {
                 reader: &reader,
                 work: &[],
                 at: now,
+                judge_after: None,
             })
             .unwrap()
     };

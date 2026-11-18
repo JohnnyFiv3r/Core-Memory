@@ -493,6 +493,7 @@ fn reading_waits_for_a_migration_holding_nothing_else() {
         reader: &reader.reader_ref,
         work: &work,
         at: now,
+        judge_after: None,
     };
     behind_a_migration(db, "finish_call", || store.finish_call(&finish)).unwrap();
     behind_a_migration(db, "update_work", || store.update_work(&work)).unwrap();
@@ -608,16 +609,7 @@ fn erasing_a_message_removes_what_was_read_in_it() {
     );
     // A consumer that tails the workspace learns of the erasure, and no
     // longer sees the event or its read.
-    let kinds: Vec<&str> = w
-        .changes()
-        .iter()
-        .map(|change| match change {
-            Change::Event(_) => "event",
-            Change::Read { .. } => "read",
-            Change::ToolOutcome { .. } => "tool outcome",
-            Change::Erasure { .. } => "erasure",
-        })
-        .collect();
+    let kinds: Vec<&str> = w.changes().iter().map(common::kind_of).collect();
     assert_eq!(kinds, ["erasure"]);
 }
 
@@ -937,6 +929,7 @@ fn the_end_of_a_call_is_recorded_once_and_a_wild_token_count_is_no_obstacle() {
         reader: &reader,
         work: &[],
         at: now,
+        judge_after: None,
     };
     // A caller whose answer was lost on the way back asks again. Nothing
     // is stored twice, and it is told what was stored.

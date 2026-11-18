@@ -15,6 +15,8 @@ use crate::clock::Clock;
 use crate::content::{accept_content, event_hash};
 use crate::error::{ConfigError, EngineError, StoreError};
 use crate::facets::chunk_facets;
+use crate::judge::JudgeConfig;
+use crate::judging::CompiledJudge;
 use crate::model::BindingConfig;
 use crate::profile::{CompiledChunker, ProfileRegistry, SourceProfile};
 use crate::read::ReaderConfig;
@@ -45,6 +47,10 @@ pub struct EngineConfig {
     /// and not read.
     #[serde(default)]
     pub tool_reader: Option<ToolReaderConfig>,
+    /// Has a judge model say how new beads relate to the beads near them.
+    /// Without it nothing is judged and no relationship is written.
+    #[serde(default)]
+    pub judge: Option<JudgeConfig>,
     /// The models the engine may call.
     #[serde(default, rename = "binding")]
     pub bindings: Vec<BindingConfig>,
@@ -101,6 +107,7 @@ pub struct Engine {
     limits: Limits,
     pub(crate) reader: Option<CompiledReader>,
     pub(crate) tool_reader: Option<CompiledToolReader>,
+    pub(crate) judge: Option<CompiledJudge>,
     pub(crate) clock: Arc<dyn Clock>,
 }
 
@@ -137,12 +144,17 @@ impl Engine {
             .tool_reader
             .map(|settings| CompiledToolReader::compile(settings, &config.bindings))
             .transpose()?;
+        let judge = config
+            .judge
+            .map(|settings| CompiledJudge::compile(settings, &config.bindings))
+            .transpose()?;
         Ok(Self {
             registry,
             vocab,
             limits: config.limits,
             reader,
             tool_reader,
+            judge,
             clock,
         })
     }
@@ -389,6 +401,15 @@ impl Engine {
                 self.reader.as_ref().map(|_| Purpose::ChunkRead),
             ),
         };
+        // A message's beads are owed to the judge from now, after a pause
+        // that lets what arrives with them be judged with them. A tool
+        // call's bead is owed once a model has said what the call did,
+        // which is what the judge is shown of it.
+        let judge = self
+            .judge
+            .as_ref()
+            .filter(|_| beads == BeadsOf::Chunks)
+            .map(|judge| captured_at.plus_millis(judge.settings.debounce_ms));
         loop {
             let chunks: Vec<ChunkWrite> = pieces
                 .iter()
@@ -433,6 +454,7 @@ impl Engine {
                 revises: target.revises,
                 beads,
                 queue,
+                judge,
             })?;
             return match committed {
                 AdmissionCommit::Committed { checkpoint } => Ok(A::Accepted {

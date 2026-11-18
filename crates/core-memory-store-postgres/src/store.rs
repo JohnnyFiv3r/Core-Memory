@@ -11,9 +11,10 @@ use core_memory_contract::{
 use core_memory_core::StoreError;
 use core_memory_core::store::{
     AdmissionCommit, AdmissionWrite, BeadsOf, CallFinish, CallFinished, Change, CheckpointAdvance,
-    CheckpointState, ExportedEvent, LeasedChunk, LeasedToolCall, Permit, PermitRequest,
-    PermittedChunk, PinKind, PinResult, Purpose, ReadBatch, ScopeInfo, ScopeState, Sending, Store,
-    StoredEvent, WorkCounts, WorkItem, WorkNext, WorkUpdate,
+    CheckpointState, ExportedEvent, JudgeBatch, JudgeClaim, JudgePermit, JudgePermitRequest,
+    JudgeSettle, JudgmentFinish, JudgmentFinished, LeasedChunk, LeasedToolCall, Permit,
+    PermitRequest, PermittedChunk, PinKind, PinResult, Purpose, ReadBatch, ScopeInfo, ScopeState,
+    Sending, Store, StoredEvent, WorkCounts, WorkItem, WorkNext, WorkUpdate,
 };
 use postgres::types::{Json, ToSql};
 use postgres::{Client, GenericClient, IsolationLevel, Row, SimpleQueryMessage, Transaction};
@@ -95,25 +96,25 @@ impl std::fmt::Debug for PostgresStore {
     }
 }
 
-fn digest(bytes: &[u8], what: &str) -> Result<Sha256Digest, StoreError> {
+pub(crate) fn digest(bytes: &[u8], what: &str) -> Result<Sha256Digest, StoreError> {
     <[u8; 32]>::try_from(bytes)
         .map(Sha256Digest)
         .map_err(|_| corrupt(format!("{what} is not 32 bytes")))
 }
 
-fn to_i64(value: u64, what: &str) -> Result<i64, StoreError> {
+pub(crate) fn to_i64(value: u64, what: &str) -> Result<i64, StoreError> {
     i64::try_from(value).map_err(|_| corrupt(format!("{what} {value} does not fit the store")))
 }
 
-fn to_u64(value: i64, what: &str) -> Result<u64, StoreError> {
+pub(crate) fn to_u64(value: i64, what: &str) -> Result<u64, StoreError> {
     u64::try_from(value).map_err(|_| corrupt(format!("{what} {value} is negative")))
 }
 
-fn to_u32(value: i32, what: &str) -> Result<u32, StoreError> {
+pub(crate) fn to_u32(value: i32, what: &str) -> Result<u32, StoreError> {
     u32::try_from(value).map_err(|_| corrupt(format!("{what} {value} is negative")))
 }
 
-fn to_i32(value: u32, what: &str) -> Result<i32, StoreError> {
+pub(crate) fn to_i32(value: u32, what: &str) -> Result<i32, StoreError> {
     i32::try_from(value).map_err(|_| corrupt(format!("{what} {value} does not fit the store")))
 }
 
@@ -163,7 +164,7 @@ impl PostgresStore {
     }
 
     /// The connection, after checking the schema version once.
-    fn client(&mut self) -> Result<&mut Client, StoreError> {
+    pub(crate) fn client(&mut self) -> Result<&mut Client, StoreError> {
         if !self.checked {
             migrate::require_current(self.raw()?)?;
             self.checked = true;
@@ -174,7 +175,7 @@ impl PostgresStore {
     /// Passes a result through. A connection to a database that takes no
     /// writes is dropped, so the next call connects again and may reach a
     /// server that does.
-    fn settled<T>(&mut self, result: Result<T, StoreError>) -> Result<T, StoreError> {
+    pub(crate) fn settled<T>(&mut self, result: Result<T, StoreError>) -> Result<T, StoreError> {
         if matches!(&result, Err(StoreError::Unavailable(why)) if why.starts_with(READ_ONLY)) {
             self.client = None;
             self.checked = false;
@@ -568,12 +569,12 @@ fn fence(stored: Option<i32>) -> Result<(), StoreError> {
 
 /// What `core_memory.begin_write` found, with the transaction now the only
 /// writer of the scope's workspace.
-struct Writing {
-    workspace: String,
-    state: ScopeState,
+pub(crate) struct Writing {
+    pub(crate) workspace: String,
+    pub(crate) state: ScopeState,
     /// The first of the change-counter numbers taken, if any were asked for
     /// and the scope is active.
-    first_seq: Option<i64>,
+    pub(crate) first_seq: Option<i64>,
 }
 
 /// Starts a transaction's writes for `scope`. The store refuses an engine
@@ -582,7 +583,7 @@ struct Writing {
 /// under that lock. With `take`, an active scope's workspace also gives up
 /// that many numbers from its change counter. `None` means the scope is
 /// not enrolled.
-fn begin_write<C: GenericClient>(
+pub(crate) fn begin_write<C: GenericClient>(
     tx: &mut C,
     scope: &str,
     take: Option<i32>,
@@ -606,7 +607,7 @@ fn begin_write<C: GenericClient>(
 /// A transaction that writes. The workspace lock and the schema check both
 /// rely on each statement seeing what committed before it, whatever the
 /// database's default isolation level is.
-fn write_transaction(client: &mut Client) -> Result<Transaction<'_>, StoreError> {
+pub(crate) fn write_transaction(client: &mut Client) -> Result<Transaction<'_>, StoreError> {
     client
         .build_transaction()
         .isolation_level(IsolationLevel::ReadCommitted)
@@ -621,7 +622,7 @@ fn write_transaction(client: &mut Client) -> Result<Transaction<'_>, StoreError>
 /// therefore takes it after any migration it waited for here, and no
 /// migration starts while it runs. A snapshot taken before a migration
 /// would show a table the migration rewrote as empty.
-fn hold_schema(tx: &mut Transaction<'_>) -> Result<(), StoreError> {
+pub(crate) fn hold_schema(tx: &mut Transaction<'_>) -> Result<(), StoreError> {
     let reply = tx
         .simple_query(
             "LOCK TABLE core_memory.schema_migrations IN ACCESS SHARE MODE;
@@ -641,7 +642,7 @@ fn hold_schema(tx: &mut Transaction<'_>) -> Result<(), StoreError> {
 
 /// A read-only transaction on one snapshot of a store at this build's
 /// schema version.
-fn read_transaction(client: &mut Client) -> Result<Transaction<'_>, StoreError> {
+pub(crate) fn read_transaction(client: &mut Client) -> Result<Transaction<'_>, StoreError> {
     let mut tx = client
         .build_transaction()
         .isolation_level(IsolationLevel::RepeatableRead)
@@ -877,8 +878,34 @@ impl Store for PostgresStore {
     }
 
     fn update_work(&mut self, work: &[WorkUpdate]) -> Result<(), StoreError> {
-        let updated = self.write_work(work);
+        let updated = self.write_work(work, None);
         self.settled(updated)
+    }
+
+    fn settle_judgment(&mut self, settle: &JudgeSettle<'_>) -> Result<(), StoreError> {
+        let updated = self.write_work(settle.work, Some(settle.lease));
+        self.settled(updated)
+    }
+
+    fn claim_judgment(&mut self, claim: &JudgeClaim) -> Result<Option<JudgeBatch>, StoreError> {
+        let claimed = self.write_claim_judgment(claim);
+        self.settled(claimed)
+    }
+
+    fn permit_judgment(
+        &mut self,
+        request: &JudgePermitRequest<'_>,
+    ) -> Result<JudgePermit, StoreError> {
+        let permit = self.write_permit_judgment(request);
+        self.settled(permit)
+    }
+
+    fn finish_judgment(
+        &mut self,
+        finish: &JudgmentFinish<'_>,
+    ) -> Result<JudgmentFinished, StoreError> {
+        let finished = self.write_finish_judgment(finish);
+        self.settled(finished)
     }
 
     fn work_counts(&mut self, purpose: Purpose) -> Result<WorkCounts, StoreError> {
@@ -1075,6 +1102,32 @@ impl PostgresStore {
                 )
                 .map_err(backend)?;
             }
+            Some(Purpose::Judge | Purpose::SecondRead) => {
+                return Err(corrupt(
+                    "an admission queues reads, and names the judge apart",
+                ));
+            }
+        }
+        // Each chunk's bead is owed to the judge, not before the given
+        // time. A tool call's bead is owed once a model has written about
+        // the call, and is queued then.
+        if let (Some(not_before), BeadsOf::Chunks) = (w.judge, w.beads) {
+            tx.execute(
+                "INSERT INTO core_memory.work
+                     (kind, item_id, event_id, workspace_id, scope, state, not_before,
+                      enqueued_at)
+                 SELECT 'judge', c, $1, $2, $3, 'ready', $4, $5
+                   FROM UNNEST($6::uuid[]) AS u (c)",
+                &[
+                    &w.event_id.0,
+                    &w.workspace,
+                    &scope,
+                    &not_before.0,
+                    &w.captured_at.0,
+                    &ids,
+                ],
+            )
+            .map_err(backend)?;
         }
         match w.beads {
             // Every chunk of a message is a bead, in chunk order, numbered
@@ -1242,25 +1295,29 @@ impl PostgresStore {
         // is live, so no state check is needed for it.
         let page = tx
             .query(
-                "SELECT seq FROM (
-                     SELECT e.seq FROM core_memory.events AS e
-                      WHERE e.workspace_id = $1 AND e.seq > $2 AND e.state = 'live'
-                        AND ($3::text IS NULL OR e.scope = $3)
-                     UNION ALL
-                     SELECT r.seq FROM core_memory.chunk_reads AS r
-                      WHERE r.workspace_id = $1 AND r.seq > $2
-                        AND ($3::text IS NULL OR r.scope = $3)
-                     UNION ALL
-                     SELECT t.seq FROM core_memory.tool_outcomes AS t
-                      WHERE t.workspace_id = $1 AND t.seq > $2
-                        AND ($3::text IS NULL OR t.scope = $3)
-                     UNION ALL
-                     SELECT j.seq FROM core_memory.erasures AS j
-                      WHERE j.workspace_id = $1 AND j.seq > $2
-                        AND ($3::text IS NULL OR j.scope = $3)
-                 ) AS changes
-                 ORDER BY seq
-                 LIMIT $4",
+                &format!(
+                    "SELECT seq FROM (
+                         SELECT e.seq FROM core_memory.events AS e
+                          WHERE e.workspace_id = $1 AND e.seq > $2 AND e.state = 'live'
+                            AND ($3::text IS NULL OR e.scope = $3)
+                         UNION ALL
+                         SELECT r.seq FROM core_memory.chunk_reads AS r
+                          WHERE r.workspace_id = $1 AND r.seq > $2
+                            AND ($3::text IS NULL OR r.scope = $3)
+                         UNION ALL
+                         SELECT t.seq FROM core_memory.tool_outcomes AS t
+                          WHERE t.workspace_id = $1 AND t.seq > $2
+                            AND ($3::text IS NULL OR t.scope = $3)
+                         UNION ALL
+                         SELECT j.seq FROM core_memory.erasures AS j
+                          WHERE j.workspace_id = $1 AND j.seq > $2
+                            AND ($3::text IS NULL OR j.scope = $3)
+                         {judged}
+                     ) AS changes
+                     ORDER BY seq
+                     LIMIT $4",
+                    judged = crate::judge::exported_seqs()
+                ),
                 &[&workspace, &after, &scope, &i64::from(limit)],
             )
             .map_err(backend)?;
@@ -1534,6 +1591,7 @@ impl PostgresStore {
                 },
             );
         }
+        crate::judge::export_judgments(&mut tx, workspace, (after, last), scope, &mut changes)?;
         tx.commit().map_err(backend)?;
         Ok(changes.into_values().collect())
     }
@@ -1934,6 +1992,26 @@ impl PostgresStore {
                 .map_err(backend)?;
                 finished.stored += 1;
                 finished.dropped -= 1;
+                // What a judge is shown of a tool call now exists, so the
+                // call's bead is owed to the judge. Reading the call again
+                // does not have it judged again.
+                if let Some(not_before) = f.judge_after {
+                    tx.execute(
+                        "INSERT INTO core_memory.work
+                             (kind, item_id, event_id, workspace_id, scope, state, not_before,
+                              enqueued_at)
+                         SELECT 'judge', e.event_id, e.event_id, e.workspace_id, e.scope,
+                                'ready', $2, $3
+                           FROM core_memory.events AS e
+                          WHERE e.event_id = $1
+                            AND NOT EXISTS (
+                                SELECT 1 FROM core_memory.judge_reads AS r
+                                 WHERE r.new_beads @> ARRAY[e.event_id])
+                         ON CONFLICT (kind, item_id) DO NOTHING",
+                        &[&outcome.event_id.0, &not_before.0, &f.at.0],
+                    )
+                    .map_err(backend)?;
+                }
             }
         }
         if let (Some((workspace, first_seq)), Some(vocabulary)) = (numbered, vocabulary) {
@@ -2057,15 +2135,19 @@ impl PostgresStore {
             finished.stored += done.len() as u32;
             finished.dropped -= done.len() as u32;
         }
-        update_work(&mut tx, f.work)?;
+        update_work(&mut tx, f.work, None)?;
         tx.commit().map_err(backend)?;
         Ok(finished)
     }
 
-    fn write_work(&mut self, work: &[WorkUpdate]) -> Result<(), StoreError> {
+    fn write_work(
+        &mut self,
+        work: &[WorkUpdate],
+        lease: Option<Timestamp>,
+    ) -> Result<(), StoreError> {
         let mut tx = write_transaction(self.client()?)?;
         hold_schema(&mut tx)?;
-        update_work(&mut tx, work)?;
+        update_work(&mut tx, work, lease)?;
         tx.commit().map_err(backend)
     }
 
@@ -2105,7 +2187,7 @@ impl PostgresStore {
 ///
 /// Rows another transaction holds are passed over, not waited for, so two
 /// workers never wait on each other here.
-fn set_aside_spent<C: GenericClient>(
+pub(crate) fn set_aside_spent<C: GenericClient>(
     tx: &mut C,
     kind: Purpose,
     max_attempts: u32,
@@ -2134,30 +2216,57 @@ fn set_aside_spent<C: GenericClient>(
     Ok(())
 }
 
-/// Puts work back in the queue, or sets it aside as failed. Each item says
-/// which kind of work it is.
-fn update_work<C: GenericClient>(client: &mut C, work: &[WorkUpdate]) -> Result<(), StoreError> {
+/// Puts work back in the queue, sets it aside as failed, or removes it as
+/// done. Each item says which kind of work it is. With `lease`, only work
+/// still held under that lease is changed: a worker whose lease ran out,
+/// and whose work was handed to another, changes nothing.
+pub(crate) fn update_work<C: GenericClient>(
+    client: &mut C,
+    work: &[WorkUpdate],
+    lease: Option<Timestamp>,
+) -> Result<(), StoreError> {
     if work.is_empty() {
         return Ok(());
     }
-    let kinds: Vec<&str> = work.iter().map(|w| w.item.purpose().as_str()).collect();
-    let ids: Vec<Uuid> = work
+    let item_id = |update: &WorkUpdate| match update.item {
+        WorkItem::Chunk(chunk_id) => chunk_id.0,
+        WorkItem::ToolCall(event_id) => event_id.0,
+        WorkItem::NewBead(bead_id) | WorkItem::ProposedLabel(bead_id) => bead_id.0,
+    };
+    let held = lease.map(|lease| lease.0);
+    let (done, open): (Vec<&WorkUpdate>, Vec<&WorkUpdate>) = work
         .iter()
-        .map(|w| match w.item {
-            WorkItem::Chunk(chunk_id) => chunk_id.0,
-            WorkItem::ToolCall(event_id) => event_id.0,
-        })
-        .collect();
-    let problems: Vec<&str> = work.iter().map(|w| w.problem).collect();
-    let mut states = Vec::with_capacity(work.len());
-    let mut give_back = Vec::with_capacity(work.len());
-    let mut alone = Vec::with_capacity(work.len());
-    let mut not_before: Vec<Option<OffsetDateTime>> = Vec::with_capacity(work.len());
-    for update in work {
+        .partition(|update| update.next == WorkNext::Done);
+    if !done.is_empty() {
+        let kinds: Vec<&str> = done.iter().map(|w| w.item.purpose().as_str()).collect();
+        let ids: Vec<Uuid> = done.iter().map(|w| item_id(w)).collect();
+        client
+            .execute(
+                "DELETE FROM core_memory.work AS w
+                  USING UNNEST($1::text[], $2::uuid[]) AS u (kind, item_id)
+                  WHERE w.kind = u.kind AND w.item_id = u.item_id
+                    AND ($3::timestamptz IS NULL
+                         OR (w.state = 'leased' AND w.leased_until = $3))",
+                &[&kinds, &ids, &held],
+            )
+            .map_err(backend)?;
+    }
+    if open.is_empty() {
+        return Ok(());
+    }
+    let kinds: Vec<&str> = open.iter().map(|w| w.item.purpose().as_str()).collect();
+    let ids: Vec<Uuid> = open.iter().map(|w| item_id(w)).collect();
+    let problems: Vec<&str> = open.iter().map(|w| w.problem).collect();
+    let mut states = Vec::with_capacity(open.len());
+    let mut give_back = Vec::with_capacity(open.len());
+    let mut alone = Vec::with_capacity(open.len());
+    let mut not_before: Vec<Option<OffsetDateTime>> = Vec::with_capacity(open.len());
+    for update in &open {
         let (state, back, by_itself, when) = match update.next {
             WorkNext::Defer { not_before } => ("ready", true, false, Some(not_before.0)),
             WorkNext::Retry { not_before, alone } => ("ready", false, alone, Some(not_before.0)),
             WorkNext::Failed => ("failed", false, false, None),
+            WorkNext::Done => unreachable!("done work was removed above"),
         };
         states.push(state);
         give_back.push(back);
@@ -2177,7 +2286,9 @@ fn update_work<C: GenericClient>(client: &mut C, work: &[WorkUpdate]) -> Result<
                FROM UNNEST($1::text[], $2::uuid[], $3::text[], $4::bool[], $5::bool[],
                            $6::timestamptz[], $7::text[])
                     AS u (kind, item_id, state, give_back, alone, not_before, problem)
-              WHERE w.kind = u.kind AND w.item_id = u.item_id",
+              WHERE w.kind = u.kind AND w.item_id = u.item_id
+                AND ($8::timestamptz IS NULL
+                     OR (w.state = 'leased' AND w.leased_until = $8))",
             &[
                 &kinds,
                 &ids,
@@ -2186,6 +2297,7 @@ fn update_work<C: GenericClient>(client: &mut C, work: &[WorkUpdate]) -> Result<
                 &alone,
                 &not_before,
                 &problems,
+                &held,
             ],
         )
         .map_err(backend)?;

@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 use core_memory_store_postgres::testing::TestDb;
-use serde_json::Value;
+use serde_json::{Value, json};
 
 fn example_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/quickstart")
@@ -872,7 +872,8 @@ fn the_server_runs_and_stops_cleanly_with_no_one_reading_its_log() {
 /// A stand-in for a model server that speaks the chat completions API, on
 /// a local port. For every chunk it is shown it answers with the first
 /// listed type and marks the chunk's first word as an entity. Of a tool
-/// call it says what the tool was and how its output ends.
+/// call it says what the tool was and how its output ends. As a judge it
+/// goes by a few words in the memories it is shown: see [`judgment`].
 struct StandIn {
     addr: std::net::SocketAddr,
     requests: std::sync::Arc<std::sync::Mutex<Vec<Value>>>,
@@ -967,15 +968,109 @@ impl StandIn {
             self.binding()
         )
     }
+
+    /// The config lines for a reader of chunks and a judge that both call
+    /// this server. A new bead is judged as soon as its chunk was read.
+    fn config_with_judge(&self, judge: &str) -> String {
+        format!(
+            "\n[reader]\nbinding = \"local\"\n\n[judge]\nbinding = \"local\"\ndebounce_ms = 0\n{judge}\n{}",
+            self.binding()
+        )
+    }
+}
+
+/// What the stand-in says as a judge, of the memories `listing` shows. It
+/// goes by words in their text, whichever of two memories is the new one:
+///
+/// - the message that agrees follows from the one that decided;
+/// - a message that changes the plan takes the place of the decision,
+///   while the decision is current;
+/// - two memories about the big bang cutover are parts of one;
+/// - the billing migration and the billing cutover are one project under
+///   two names.
+fn judgment(listing: &Value) -> Value {
+    let text = |memory: &Value| memory["text"].as_str().unwrap_or_default().to_string();
+    let listed = listing["listed"].as_array().cloned().unwrap_or_default();
+    let new = listing["new"].as_array().cloned().unwrap_or_default();
+    let mut names = Vec::new();
+    let mut entries = Vec::new();
+    for (n, memory) in new.iter().enumerate() {
+        let mine = text(memory);
+        let mut related = Vec::new();
+        for other in listed.iter().chain(&new[..n]) {
+            let theirs = text(other);
+            let says = |new: &str, other: &str| mine.contains(new) && theirs.contains(other);
+            let current = memory["current"] != false && other["current"] != false;
+            // `>` runs from the other memory to the new one, `<` from the
+            // new one to the other.
+            let rel = if says("Agreed", "phased cutover") {
+                Some(("LEADSTO>", None))
+            } else if says("phased cutover", "Agreed") {
+                Some(("LEADSTO<", None))
+            } else if says("Change of plan:", "phased cutover") && current {
+                Some(("SUPERSEDES<", Some("supersede")))
+            } else if says("phased cutover", "Change of plan:") && current {
+                Some(("SUPERSEDES>", Some("supersede")))
+            } else if says("big bang cutover", "big bang cutover") {
+                Some(("CONTAINS", None))
+            } else {
+                None
+            };
+            match rel {
+                Some((rel, Some(label))) => {
+                    related.push(serde_json::json!({"to": other["id"], "rel": rel, "label": label}))
+                }
+                Some((rel, None)) => {
+                    related.push(serde_json::json!({"to": other["id"], "rel": rel}));
+                }
+                None => {}
+            }
+            for (mine, theirs) in [
+                ("Billing migration", "Billing cutover"),
+                ("Billing cutover", "Billing migration"),
+            ] {
+                if says(mine, theirs) {
+                    names.push(serde_json::json!({
+                        "a": memory["id"], "a_name": mine,
+                        "b": other["id"], "b_name": theirs,
+                    }));
+                }
+            }
+        }
+        entries.push(serde_json::json!({"id": memory["id"], "related": related, "unsure": []}));
+    }
+    serde_json::json!({"new": entries, "names": names})
 }
 
 /// A chat completion that reads what the request shows: every chunk of a
-/// batch, or one tool call.
+/// batch, one tool call, or the memories a judge is to compare.
 fn completion(request: &Value) -> Value {
-    let shown: Value = request["messages"][1]["content"]
+    let user = request["messages"][1]["content"]
         .as_str()
-        .and_then(|user| serde_json::from_str(user.lines().next().unwrap_or_default()).ok())
-        .unwrap_or(Value::Null);
+        .unwrap_or_default();
+    // A judge is shown one JSON document of several lines, and after it,
+    // when its last reply was turned down, what was wrong with that reply.
+    let listing: Value = serde_json::from_str(
+        user.split("\n\nYour previous reply")
+            .next()
+            .unwrap_or_default(),
+    )
+    .unwrap_or(Value::Null);
+    if listing["new"].is_array() {
+        return serde_json::json!({
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "content": judgment(&listing).to_string(),
+                    "refusal": null,
+                },
+                "finish_reason": "stop",
+            }],
+            "usage": {"prompt_tokens": 900, "completion_tokens": 70},
+        });
+    }
+    let shown: Value =
+        serde_json::from_str(user.lines().next().unwrap_or_default()).unwrap_or(Value::Null);
     if let Some(tool) = shown["tool"].as_str() {
         let last_line = shown["output"]
             .as_str()
@@ -1419,4 +1514,511 @@ fn tool_calls_are_read_whole_and_what_was_read_is_exported() {
             .collect::<Vec<_>>(),
         [("chunk_read", 0), ("tool_read", 0)]
     );
+}
+
+// ---- judging ----
+
+/// The judged lines among what `read run` printed.
+fn judged(rounds: &[Value]) -> Vec<&Value> {
+    rounds
+        .iter()
+        .filter_map(|line| line.get("judged"))
+        .collect()
+}
+
+/// The sum of one count over the judge's rounds.
+fn sum(rounds: &[&Value], count: &str) -> u64 {
+    rounds
+        .iter()
+        .map(|round| round[count].as_u64().unwrap())
+        .sum()
+}
+
+/// The queue's line for one kind of work.
+fn queue_of<'a>(lines: &'a [Value], work: &str) -> &'a Value {
+    lines
+        .iter()
+        .find(|line| line["work"] == work)
+        .unwrap_or_else(|| panic!("no line for {work}: {lines:?}"))
+}
+
+#[test]
+fn new_beads_are_judged_and_what_the_judge_said_is_exported() {
+    let model = StandIn::start();
+    let destination = model.addr.to_string();
+    let q = Quickstart::ready();
+    q.configure(&model.config_with_judge(""));
+
+    // The config names the judge, where it would send text, and whether a
+    // label that changes what is current is read twice.
+    let checked = q.ok(&["check"]);
+    let judge = checked
+        .iter()
+        .find_map(|line| line.get("judge"))
+        .unwrap_or_else(|| panic!("{checked:?}"));
+    assert_eq!(
+        (
+            &judge["binding"],
+            &judge["destination"],
+            &judge["second_read"]
+        ),
+        (
+            &Value::from("local"),
+            &Value::from(destination.as_str()),
+            &Value::from(true)
+        )
+    );
+
+    // Admission queues every bead for the judge. There are four kinds of
+    // work, and a line for each.
+    q.ok(&["ingest", "--input", "events.jsonl"]);
+    let status = q.ok(&["read", "status"]);
+    assert_eq!(
+        status.iter().map(|line| &line["work"]).collect::<Vec<_>>(),
+        ["chunk_read", "tool_read", "judge", "second_read"]
+    );
+    assert_eq!(queue_of(&status, "judge")["ready"], 4);
+
+    // Without the scope's consent its chunks are not read, and a bead
+    // waits for its chunk to be read: the judge is shown its type. So
+    // nothing is shown to the judge either.
+    let put_off = q.ok(&["read", "run"]);
+    assert!(
+        !put_off.is_empty() && judged(&put_off).is_empty(),
+        "{put_off:?}"
+    );
+    assert!(
+        put_off
+            .iter()
+            .all(|round| round["read"]["problem"] == "no_consent"),
+        "{put_off:?}"
+    );
+    assert!(model.requests().is_empty());
+    assert!(of_kind(&q.ok(&["export"]), "verdict").is_empty());
+
+    // With it, the chunks are read and then their beads are judged: every
+    // pair once, whichever of the two the judge was handed first.
+    q.ok(&["scope", "allow", "acme", "--binding", "local"]);
+    // Work that was put off is due again after a while. It is told to be
+    // due now.
+    q.db.connect()
+        .batch_execute("UPDATE core_memory.work SET not_before = now() - interval '1 second'")
+        .unwrap();
+    let rounds = q.ok(&["read", "run"]);
+    let read = judged(&rounds);
+    assert!(
+        read.iter().all(|round| round["problem"].is_null()),
+        "{rounds:?}"
+    );
+    assert_eq!(
+        (
+            sum(&read, "judged"),
+            sum(&read, "verdicts"),
+            sum(&read, "edges"),
+            sum(&read, "names")
+        ),
+        (4, 6, 1, 1),
+        "{rounds:?}"
+    );
+    assert!(read.iter().all(|round| round["workspace"] == "demo"));
+    let status = q.ok(&["read", "status"]);
+    assert_eq!(queue_of(&status, "judge")["ready"], 0);
+
+    // What the judge said is exported after what it is about: a verdict
+    // for every pair, the one relationship it saw, and the two places
+    // where one name stands. Nothing of it is text.
+    let records = q.ok(&["export"]);
+    let chunks = of_kind(&records, "chunk");
+    let verdicts = of_kind(&records, "verdict");
+    assert_eq!(verdicts.len(), 6);
+    let text_of = |bead: &Value| {
+        chunks
+            .iter()
+            .find(|chunk| chunk["chunk_id"] == *bead)
+            .map(|chunk| chunk["text"].as_str().unwrap().to_string())
+            .unwrap_or_else(|| panic!("no chunk {bead}"))
+    };
+    for verdict in &verdicts {
+        assert_eq!(verdict["judge"]["binding_id"], "local");
+        assert_eq!(verdict["judge_kind"], "window");
+        assert!(verdict.get("scope").is_none() && verdict.get("text").is_none());
+    }
+    let related: Vec<_> = verdicts
+        .iter()
+        .filter(|verdict| verdict["verdict"] != "none")
+        .collect();
+    assert_eq!(related.len(), 1, "{verdicts:?}");
+    assert_eq!(
+        (&related[0]["verdict"], &related[0]["direction"]),
+        (&Value::from("leadsto"), &Value::from("earlier_to_later"))
+    );
+    let edges = of_kind(&records, "edge");
+    assert_eq!(edges.len(), 1);
+    assert_eq!(edges[0]["edge_type"], "leadsto");
+    assert!(text_of(&edges[0]["from_bead"]).contains("phased cutover"));
+    assert!(text_of(&edges[0]["to_bead"]).starts_with("Agreed"));
+    let links = of_kind(&records, "name_link");
+    assert_eq!(links.len(), 1);
+    let mut linked: Vec<String> = [
+        ("a_bead", "a_start", "a_end"),
+        ("b_bead", "b_start", "b_end"),
+    ]
+    .iter()
+    .map(|(bead, start, end)| {
+        let text = text_of(&links[0][*bead]);
+        let (start, end) = (
+            links[0][*start].as_u64().unwrap() as usize,
+            links[0][*end].as_u64().unwrap() as usize,
+        );
+        text[start..end].to_string()
+    })
+    .collect();
+    linked.sort();
+    assert_eq!(linked, ["Billing cutover", "Billing migration"]);
+    for line in records.iter().filter(|r| {
+        matches!(
+            r["record_kind"].as_str(),
+            Some("verdict" | "edge" | "name_link")
+        )
+    }) {
+        let line = line.to_string();
+        assert!(
+            !line.contains("cutover") && !line.contains("Billing"),
+            "{line}"
+        );
+    }
+    // Nothing is due, so nothing is sent again.
+    let sent = model.requests().len();
+    assert!(q.ok(&["read", "run"]).is_empty());
+    assert_eq!(model.requests().len(), sent);
+
+    // A message that changes the plan, and one more about the new plan.
+    // The judge says the first takes the decision's place. That changes
+    // what is current, so it is held, read a second time on its own, and
+    // written when the second read agrees.
+    std::fs::write(
+        q.dir.path().join("more.jsonl"),
+        concat!(
+            r#"{"scope":"acme","source_ns":"slack/T01","external_id":"C042/1730000009.000900","profile_id":"core.chat_transcript","occurred_at":{"at":"2026-10-25T10:00:00Z","precision":"second"},"media_type":"text/plain","content":{"text":"Change of plan: big bang cutover on November 3 after all."},"parser_contract_version":"slack-export/1"}"#,
+            "\n",
+            r#"{"scope":"acme","source_ns":"slack/T01","external_id":"C042/1730000010.001000","profile_id":"core.chat_transcript","occurred_at":{"at":"2026-10-25T10:05:00Z","precision":"second"},"media_type":"text/plain","content":{"text":"The big bang cutover needs a write freeze from Friday."},"parser_contract_version":"slack-export/1"}"#,
+            "\n",
+        ),
+    )
+    .unwrap();
+    q.ok(&["ingest", "--input", "more.jsonl"]);
+    let rounds = q.ok(&["read", "run"]);
+    let read = judged(&rounds);
+    assert!(
+        read.iter().all(|round| round["problem"].is_null()),
+        "{rounds:?}"
+    );
+    let (first, second): (Vec<&Value>, Vec<&Value>) =
+        read.iter().partition(|round| round["second_read"] == false);
+    assert_eq!(
+        (
+            sum(&first, "judged"),
+            sum(&first, "verdicts"),
+            sum(&first, "held"),
+            sum(&first, "groups")
+        ),
+        (2, 9, 1, 1),
+        "{rounds:?}"
+    );
+    assert_eq!(sum(&first, "labels"), 0);
+    assert_eq!(
+        (
+            second.len(),
+            sum(&second, "verdicts"),
+            sum(&second, "labels")
+        ),
+        (1, 1, 1),
+        "{rounds:?}"
+    );
+    // The second read was shown the two statements and nothing else.
+    let requests = model.requests();
+    let last: Value = serde_json::from_str(
+        requests.last().unwrap()["messages"][1]["content"]
+            .as_str()
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        (
+            last["listed"].as_array().unwrap().len(),
+            last["new"].as_array().unwrap().len()
+        ),
+        (1, 1)
+    );
+
+    let records = q.ok(&["export"]);
+    assert_eq!(of_kind(&records, "verdict").len(), 16);
+    let made = of_kind(&records, "bead");
+    let label = made
+        .iter()
+        .find(|bead| bead["bead_kind"] == "label")
+        .unwrap_or_else(|| panic!("{made:?}"));
+    assert_eq!(label["label"], "supersede");
+    let chunks = of_kind(&records, "chunk");
+    let text_of = |bead: &Value| {
+        chunks
+            .iter()
+            .find(|chunk| chunk["chunk_id"] == *bead)
+            .map(|chunk| chunk["text"].as_str().unwrap().to_string())
+            .unwrap_or_else(|| panic!("no chunk {bead}"))
+    };
+    assert!(text_of(&label["source"]).starts_with("Change of plan"));
+    let edges = of_kind(&records, "edge");
+    let follows: Vec<_> = edges
+        .iter()
+        .filter(|edge| edge["edge_type"] == "supersedes")
+        .collect();
+    assert_eq!(follows.len(), 1);
+    assert_eq!(follows[0]["from_bead"], label["bead_id"]);
+    assert!(text_of(&follows[0]["to_bead"]).contains("phased cutover"));
+    let group = made
+        .iter()
+        .find(|bead| bead["bead_kind"] == "group")
+        .unwrap_or_else(|| panic!("{made:?}"));
+    let members: Vec<String> = edges
+        .iter()
+        .filter(|edge| edge["edge_type"] == "contains" && edge["from_bead"] == group["bead_id"])
+        .map(|edge| text_of(&edge["to_bead"]))
+        .collect();
+    assert_eq!(members.len(), 2);
+    assert!(members.iter().all(|text| text.contains("big bang cutover")));
+    // One scope's export holds the same, since nothing here names a bead
+    // of another scope, and it resumes from a change number.
+    let scoped = q.ok(&["export", "--scope", "acme"]);
+    assert_eq!(scoped, records);
+    let after = records
+        .iter()
+        .rev()
+        .find(|r| r["record_kind"] == "event")
+        .unwrap()["seq"]
+        .as_u64()
+        .unwrap();
+    let later = q.ok(&[
+        "export",
+        "--workspace",
+        "demo",
+        "--after",
+        &after.to_string(),
+    ]);
+    assert!(later.iter().all(|r| r["seq"].as_u64().unwrap() > after));
+    assert_eq!(of_kind(&later, "verdict").len(), 10);
+
+    // Erasing the decision removes every verdict and name link about it.
+    // The label that followed it stays, with the place it held.
+    let decision = chunks
+        .iter()
+        .find(|chunk| chunk["text"].as_str().unwrap().contains("phased cutover"))
+        .unwrap();
+    let event_id = decision["event_id"].as_str().unwrap().to_string();
+    q.ok(&["erase", "--reason", "user_request", "event", &event_id]);
+    let after = q.ok(&["export"]);
+    let left = of_kind(&after, "verdict");
+    assert_eq!(left.len(), 10, "{left:?}");
+    assert!(left.iter().all(|verdict| {
+        verdict["earlier_bead"] != decision["chunk_id"]
+            && verdict["later_bead"] != decision["chunk_id"]
+    }));
+    assert!(of_kind(&after, "name_link").is_empty());
+    assert!(
+        of_kind(&after, "bead")
+            .iter()
+            .any(|bead| bead["bead_kind"] == "label")
+    );
+    assert_eq!(of_kind(&after, "erasure").len(), 1);
+}
+
+#[test]
+fn what_was_stored_before_a_judge_is_queued_for_it_when_asked() {
+    let model = StandIn::start();
+    let q = Quickstart::ready();
+    q.ok(&["ingest", "--input", "events.jsonl"]);
+    // No judge: a queue of beads would wait for no one, so none is made.
+    let queued = q.ok(&["read", "queue", "acme"]);
+    assert_eq!(
+        queued.iter().map(|line| &line["work"]).collect::<Vec<_>>(),
+        ["chunk_read", "tool_read"]
+    );
+    let none = q.run(&["read", "queue", "acme", "--reread"]);
+    assert_eq!(none.status.code(), Some(1));
+    assert!(stderr(&none).contains("[judge]"), "{}", stderr(&none));
+
+    // A judge alone, with no reader of chunks: beads are judged without a
+    // type.
+    q.configure(&format!(
+        "\n[judge]\nbinding = \"local\"\ndebounce_ms = 0\nmax_attempts = 1\n{}",
+        model.binding()
+    ));
+    q.ok(&["scope", "allow", "acme", "--binding", "local"]);
+    assert_eq!(queue_of(&q.ok(&["read", "status"]), "judge")["ready"], 0);
+    assert!(q.ok(&["read", "run"]).is_empty());
+    let queued = q.ok(&["read", "queue", "acme"]);
+    assert_eq!(queue_of(&queued, "judge")["queued"], 4);
+    assert_eq!(
+        queue_of(&q.ok(&["read", "queue", "acme"]), "judge")["queued"],
+        0
+    );
+
+    // The provider turns the binding down. With one attempt allowed, the
+    // beads are set aside for an operator, and told to be tried again.
+    // The record of four days later comes up alone: the others are still
+    // owed a judgment, so it has none to be read with, and no call is
+    // made for it. They are read with it once they are tried again.
+    model.fail_with(401);
+    let failed = q.ok(&["read", "run"]);
+    let outcomes: Vec<(Value, Value, Value)> = judged(&failed)
+        .iter()
+        .map(|round| {
+            (
+                round["new_beads"].clone(),
+                round["calls"].clone(),
+                round["problem"].clone(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        outcomes,
+        [
+            (json!(3), json!(1), json!("binding_rejected")),
+            (json!(1), json!(0), json!("nothing_to_compare")),
+        ]
+    );
+    let status = q.ok(&["read", "status"]);
+    let judge = queue_of(&status, "judge");
+    assert_eq!(
+        (&judge["failed"], &judge["problems"]["binding_rejected"]),
+        (&Value::from(3), &Value::from(3))
+    );
+    model.fail_with(0);
+    // The chunks queued above wait for a reader that is not configured,
+    // and were not set aside.
+    assert_eq!(q.ok(&["read", "retry"])[0]["retried"], 3);
+    let rounds = q.ok(&["read", "run"]);
+    let read = judged(&rounds);
+    assert_eq!(
+        (
+            sum(&read, "judged"),
+            sum(&read, "window_beads"),
+            sum(&read, "verdicts"),
+            sum(&read, "names")
+        ),
+        (3, 1, 6, 1),
+        "{rounds:?}"
+    );
+    let shown: Value = serde_json::from_str(
+        model.requests().last().unwrap()["messages"][1]["content"]
+            .as_str()
+            .unwrap(),
+    )
+    .unwrap();
+    assert!(
+        shown["new"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|memory| memory.get("type").is_none()),
+        "{shown}"
+    );
+
+    // Judged by one judge, the beads are queued again only on request,
+    // and only for another judge. The record that came up alone was never
+    // read as new, and is queued: every pair it has was read beside the
+    // others since, so it is settled again without a call.
+    assert_eq!(
+        queue_of(&q.ok(&["read", "queue", "acme", "--reread"]), "judge")["queued"],
+        1
+    );
+    let rounds = q.ok(&["read", "run"]);
+    let outcomes: Vec<(Value, Value)> = judged(&rounds)
+        .iter()
+        .map(|round| (round["calls"].clone(), round["problem"].clone()))
+        .collect();
+    assert_eq!(outcomes, [(json!(0), json!("nothing_to_compare"))]);
+    let config = q.dir.path().join("core-memory.toml");
+    let text = std::fs::read_to_string(&config).unwrap();
+    std::fs::write(&config, text.replace("stand-in-1", "stand-in-2")).unwrap();
+    assert_eq!(
+        queue_of(&q.ok(&["read", "queue", "acme"]), "judge")["queued"],
+        1
+    );
+    assert_eq!(
+        queue_of(&q.ok(&["read", "queue", "acme", "--reread"]), "judge")["queued"],
+        3
+    );
+    let rounds = q.ok(&["read", "run"]);
+    let read = judged(&rounds);
+    // Its verdicts are its own. The relationship and the name link it saw
+    // again are the ones that were there.
+    assert_eq!(
+        (
+            sum(&read, "verdicts"),
+            sum(&read, "edges"),
+            sum(&read, "names")
+        ),
+        (6, 0, 0),
+        "{rounds:?}"
+    );
+    let records = q.ok(&["export"]);
+    assert_eq!(of_kind(&records, "verdict").len(), 12);
+    assert_eq!(of_kind(&records, "edge").len(), 1);
+    assert_eq!(of_kind(&records, "name_link").len(), 1);
+}
+
+#[cfg(unix)]
+#[test]
+fn the_service_judges_what_it_admits_and_still_stops_cleanly() {
+    use std::io::{Read, Write};
+
+    let model = StandIn::start();
+    let q = Quickstart::ready();
+    q.configure(&model.config_with_judge(""));
+    q.ok(&["scope", "allow", "acme", "--binding", "local"]);
+    let serving = Serving::start(&q, "shutdown_grace_ms = 2000");
+
+    for (id, text) in [
+        ("first", "We're going with the phased cutover."),
+        ("second", "Agreed. Priya takes the ledger export."),
+    ] {
+        let body = format!(
+            r#"{{"scope":"acme","source_ns":"slack/T01","external_id":"{id}","profile_id":"core.chat_transcript","media_type":"text/plain","content":{{"text":"{text}"}},"parser_contract_version":"1"}}"#
+        );
+        let mut stream = std::net::TcpStream::connect(serving.addr).unwrap();
+        write!(
+            stream,
+            "POST /v1/events HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer cm_test_token\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        )
+        .unwrap();
+        let mut answer = String::new();
+        stream.read_to_string(&mut answer).unwrap();
+        assert!(answer.starts_with("HTTP/1.1 200"), "{answer}");
+    }
+
+    // The judge beside the server gets to the two beads within a few
+    // seconds, once their chunks were read.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    let records = loop {
+        let records = q.ok(&["export"]);
+        if !of_kind(&records, "verdict").is_empty() || std::time::Instant::now() > deadline {
+            break records;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    };
+    let verdicts = of_kind(&records, "verdict");
+    assert_eq!(verdicts.len(), 1, "{records:?}");
+    assert_eq!(verdicts[0]["verdict"], "leadsto");
+    assert_eq!(of_kind(&records, "edge").len(), 1);
+
+    let (status, log) = serving.stop();
+    assert_eq!(status.code(), Some(0), "{log}");
+    assert!(!log.contains("panicked"), "{log}");
+    // The log counts what the judge did. It holds nothing of what was
+    // said.
+    assert!(log.contains("\"judged\":{"), "{log}");
+    assert!(log.contains("\"verdicts\":1"), "{log}");
+    assert!(!log.contains("Priya") && !log.contains("cutover"), "{log}");
 }

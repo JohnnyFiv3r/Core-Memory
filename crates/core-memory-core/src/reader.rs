@@ -36,7 +36,7 @@ use crate::store::{
 
 /// How long work waits when its scope cannot be read for now: it is not
 /// active, has not granted the destination, or the day's budget is spent.
-const DEFER_MS: u64 = 300_000;
+pub(crate) const DEFER_MS: u64 = 300_000;
 /// How long work waits after the provider turned a request itself down.
 /// That is a problem with the binding, which an operator has to fix.
 const BINDING_FAULT_BACKOFF_MS: u64 = 600_000;
@@ -55,11 +55,20 @@ pub(crate) fn finish_call(
     store: &mut dyn Store,
     finish: &CallFinish<'_>,
 ) -> Result<CallFinished, StoreError> {
+    asked_again(|| store.finish_call(finish))
+}
+
+/// Asks a store that is busy again, up to [`FINISH_TRIES`] times in all.
+/// Only for a call the store answers the same way however often it is
+/// made.
+pub(crate) fn asked_again<T>(
+    mut ask: impl FnMut() -> Result<T, StoreError>,
+) -> Result<T, StoreError> {
     let mut tries = 1;
     loop {
-        match store.finish_call(finish) {
+        match ask() {
             Err(StoreError::Unavailable(_)) if tries < FINISH_TRIES => tries += 1,
-            ended => return ended,
+            answered => return answered,
         }
     }
 }
@@ -664,6 +673,7 @@ impl Engine {
                 reader: &reader.reader_ref,
                 work,
                 at,
+                judge_after: None,
             },
         )?;
         Ok((done.stored, done.dropped))

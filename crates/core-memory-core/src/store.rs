@@ -10,10 +10,12 @@
 //! in-memory stand-in.
 
 use core_memory_contract::{
-    CallId, CatalogRef, Checkpoint, CheckpointReceipt, ChunkFacets, ChunkId, ChunkReadRecord,
-    ChunkRecord, ChunkerRef, CompressorRef, ErasureRecord, EventDetails, EventId, EventKey,
-    EventRecord, IdKey, ProfileRef, ReadDecision, ReadSpan, ReaderRef, Sha256Digest, TimeBasis,
-    Timestamp, ToolCallDetails, ToolOutcomeRecord, ToolStatus,
+    BeadId, BeadRecord, CallId, CatalogRef, Checkpoint, CheckpointReceipt, ChunkFacets, ChunkId,
+    ChunkReadRecord, ChunkRecord, ChunkerRef, CompressorRef, Direction, EdgeRecord, EdgeType,
+    ErasureRecord, EventDetails, EventId, EventKey, EventRecord, IdKey, JudgeKind, Label,
+    NameLinkRecord, PairColumns, ProfileRef, ReadDecision, ReadSpan, ReaderRef, Sha256Digest,
+    TimeBasis, Timestamp, ToolCallDetails, ToolOutcomeRecord, ToolStatus, Verdict, VerdictNote,
+    VerdictRecord,
 };
 
 use crate::error::StoreError;
@@ -90,6 +92,10 @@ pub struct AdmissionWrite<'a> {
     /// What a model is still to read in the event, if a reader for it is
     /// configured: each chunk, or the tool call as a whole.
     pub queue: Option<Purpose>,
+    /// When a judge may first read the event's beads, if a judge is
+    /// configured. A tool call's bead is queued for the judge later, by
+    /// the transaction that stores what a model wrote about the call.
+    pub judge: Option<Timestamp>,
 }
 
 /// How an event is represented among beads.
@@ -183,6 +189,15 @@ pub enum Change {
         scope: String,
         outcome: Box<ToolOutcomeRecord>,
     },
+    /// A judge made a bead: a label or a group.
+    Bead(Box<BeadRecord>),
+    /// A judge wrote a relationship.
+    Edge(Box<EdgeRecord>),
+    /// A judge gave a verdict on a pair. Verdicts about erased beads are
+    /// not exported.
+    Verdict(Box<VerdictRecord>),
+    /// A judge linked two names.
+    NameLink(Box<NameLinkRecord>),
     /// An event was erased.
     Erasure {
         scope: String,
@@ -196,6 +211,10 @@ impl Change {
             Change::Event(e) => e.event.seq,
             Change::Read { read, .. } => read.seq,
             Change::ToolOutcome { outcome, .. } => outcome.seq,
+            Change::Bead(bead) => bead.seq,
+            Change::Edge(edge) => edge.seq,
+            Change::Verdict(verdict) => verdict.seq,
+            Change::NameLink(link) => link.seq,
             Change::Erasure { erasure, .. } => erasure.seq,
         }
     }
@@ -241,6 +260,10 @@ pub enum Purpose {
     ChunkRead,
     /// Reading one tool call: what it did and what came of it.
     ToolRead,
+    /// Judging how new beads relate to the recent ones of their workspace.
+    Judge,
+    /// Reading one proposed label a second time, blind.
+    SecondRead,
 }
 
 impl Purpose {
@@ -248,6 +271,8 @@ impl Purpose {
         match self {
             Purpose::ChunkRead => "chunk_read",
             Purpose::ToolRead => "tool_read",
+            Purpose::Judge => "judge",
+            Purpose::SecondRead => "second_read",
         }
     }
 }
@@ -395,6 +420,10 @@ pub enum WorkItem {
     Chunk(ChunkId),
     /// A tool-call event to be read.
     ToolCall(EventId),
+    /// A new bead to be judged.
+    NewBead(BeadId),
+    /// The source of a proposed label, to be read a second time.
+    ProposedLabel(BeadId),
 }
 
 impl WorkItem {
@@ -403,6 +432,8 @@ impl WorkItem {
         match self {
             WorkItem::Chunk(_) => Purpose::ChunkRead,
             WorkItem::ToolCall(_) => Purpose::ToolRead,
+            WorkItem::NewBead(_) => Purpose::Judge,
+            WorkItem::ProposedLabel(_) => Purpose::SecondRead,
         }
     }
 }
@@ -426,6 +457,9 @@ pub enum WorkNext {
     Retry { not_before: Timestamp, alone: bool },
     /// Set aside for an operator.
     Failed,
+    /// Nothing more is owed for it, and no call was made: a judge's new
+    /// bead that had nothing to be compared with.
+    Done,
 }
 
 /// Records how a call ended and what it produced, in one transaction.
@@ -446,6 +480,9 @@ pub struct CallFinish<'a> {
     /// What to do with the work of chunks that were not read.
     pub work: &'a [WorkUpdate],
     pub at: Timestamp,
+    /// When a judge may first read the tool call's bead, if a judge is
+    /// configured and `tool_outcome` is stored.
+    pub judge_after: Option<Timestamp>,
 }
 
 /// What [`Store::finish_call`] did.
@@ -455,6 +492,367 @@ pub struct CallFinished {
     pub stored: u32,
     /// Reads and tool outcomes not stored: the event was erased, or the
     /// scope stopped being active, while the model was reading.
+    pub dropped: u32,
+}
+
+// ---- judging ----
+
+/// A bead as a judge may be shown it, with what code needs to compute the
+/// columns of a pair. It lives in memory for one read and is never stored.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ShownBead {
+    pub bead_id: BeadId,
+    pub scope: String,
+    pub seq: u64,
+    pub time_at: Timestamp,
+    pub time_basis: TimeBasis,
+    pub content: ShownContent,
+    /// The type a model gave the chunk, as a key of the vocabulary.
+    pub type_key: Option<String>,
+    /// Whether it is current: nothing has superseded it.
+    pub is_head: bool,
+    /// The label it carries, if a judge gave it one: what it says of the
+    /// bead or beads it follows.
+    pub label: Option<Label>,
+    /// The group bead it is a member of, if any.
+    pub group: Option<BeadId>,
+    /// For a chunk of a message that was cut into several: which chunk it
+    /// is, counted from 1, and how many there are.
+    pub part: Option<(u32, u32)>,
+    /// The key and the declared details of its event.
+    pub key: EventKey,
+    pub details: EventDetails,
+    /// The facets of its chunk. A tool call's bead has none.
+    pub facets: Option<ChunkFacets>,
+}
+
+/// What of a bead a judge is shown.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ShownContent {
+    /// One chunk of a message, a document or a record: its exact text.
+    Text(String),
+    /// A tool call, as a model recorded it. Never the tool's own text.
+    ToolCall {
+        tool: String,
+        action: String,
+        outcome: String,
+        status: ToolStatus,
+    },
+}
+
+impl ShownContent {
+    /// Bytes of text a judge is shown for the bead.
+    pub fn bytes(&self) -> u64 {
+        match self {
+            ShownContent::Text(text) => text.len() as u64,
+            ShownContent::ToolCall {
+                tool,
+                action,
+                outcome,
+                ..
+            } => (tool.len() + action.len() + outcome.len()) as u64,
+        }
+    }
+}
+
+/// Everything one judge call shows: the window, in the order of the beads'
+/// times, then the new beads in the same order.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Shown {
+    pub window: Vec<ShownBead>,
+    pub new: Vec<ShownBead>,
+}
+
+impl Shown {
+    /// The beads in the order a judge is shown them.
+    pub fn listed(&self) -> impl Iterator<Item = &ShownBead> {
+        self.window.iter().chain(&self.new)
+    }
+}
+
+/// A bead reserved for a judge.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LeasedBead {
+    pub bead_id: BeadId,
+    /// Times the bead has been handed to a judge, this one included.
+    pub attempts: u32,
+}
+
+/// Work of one workspace, reserved for one judge until the lease runs out.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct JudgeBatch {
+    pub workspace: String,
+    /// The workspace's ID key, for the IDs of the beads a judge makes.
+    pub id_key: IdKey,
+    pub work: JudgeWork,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum JudgeWork {
+    /// New beads to read against the window.
+    Window(Vec<LeasedBead>),
+    /// A label a first read proposed, to be read again without it.
+    SecondRead {
+        source: LeasedBead,
+        label: Label,
+        /// The beads the first read named as heads: one or two.
+        heads: Vec<BeadId>,
+    },
+}
+
+/// How a judge's claim chooses its work.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct JudgeClaim {
+    pub now: Timestamp,
+    pub lease_until: Timestamp,
+    /// Most new beads in one read.
+    pub max_new: u32,
+    /// Times a bead is handed out at most. One that was handed out that
+    /// often and never settled is set aside instead.
+    pub max_attempts: u32,
+    /// The new beads of one read lie within this long of each other, so
+    /// that each lies in the window of the others.
+    pub within_ms: u64,
+    /// How long a chunk's bead waits for a model to read the chunk before
+    /// it is judged without that. `None` when no reader is configured, and
+    /// there is nothing to wait for.
+    pub wait_for_reads_ms: Option<u64>,
+}
+
+/// Which beads a judge is shown beside the new ones.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WindowOf<'a> {
+    /// The beads of the workspace near the new ones, chosen by time alone:
+    /// those whose time lies within `within_ms` of the new beads, before
+    /// or after, nearest first, up to `max_beads` of them and `max_bytes`
+    /// of content. A bead that is itself waiting to be judged is left out:
+    /// it meets the new ones when its own turn comes, so no pair is read
+    /// twice. So is a bead this judge has already read with every new
+    /// bead. Up to `conflict_beads` beads of open conflicts come first,
+    /// whatever their time: the current statement and what it conflicts
+    /// with.
+    Near {
+        within_ms: u64,
+        max_beads: u32,
+        max_bytes: u64,
+        conflict_beads: u32,
+    },
+    /// Exactly these: the same beads again for a repair, or the beads a
+    /// held label follows for its second read. Every one of them is shown,
+    /// or nothing is: if one may not be shown, the answer is
+    /// [`JudgePermit::NothingToJudge`] and names it.
+    These(&'a [BeadId]),
+}
+
+/// Asks to show beads of one workspace to a judge.
+#[derive(Clone, Copy)]
+pub struct JudgePermitRequest<'a> {
+    pub workspace: &'a str,
+    /// [`Purpose::Judge`] or [`Purpose::SecondRead`].
+    pub purpose: Purpose,
+    pub new: &'a [BeadId],
+    pub window: WindowOf<'a>,
+    pub destination: &'a str,
+    pub reader: &'a ReaderRef,
+    pub attempt: u8,
+    pub repairs: Option<CallId>,
+    /// What a call that shows these beads will send and may cost. `None`
+    /// means nothing can be sent, and nothing is permitted.
+    pub sending: &'a (dyn Fn(&Shown) -> Option<Sending> + Sync),
+    pub budget: Option<BudgetConfig>,
+    pub at: Timestamp,
+}
+
+impl std::fmt::Debug for JudgePermitRequest<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("JudgePermitRequest")
+            .field("workspace", &self.workspace)
+            .field("purpose", &self.purpose)
+            .field("new", &self.new)
+            .field("destination", &self.destination)
+            .field("attempt", &self.attempt)
+            .finish_non_exhaustive()
+    }
+}
+
+/// Why a bead was not shown to a judge.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Withheld {
+    /// Its scope is paused or revoked.
+    ScopeNotActive,
+    /// Its scope has not granted the judge's destination.
+    NoConsent,
+    /// It was erased, or is a tool call no model has read yet.
+    NothingToShow,
+}
+
+/// The answer to a [`JudgePermitRequest`]. Only `Granted` wrote a receipt,
+/// and only `Granted` hands out text.
+#[derive(Debug, Clone, PartialEq)]
+pub enum JudgePermit {
+    /// The receipt is committed. `shown` is what to send: every bead of it
+    /// belongs to an active scope that has granted the destination.
+    /// `withheld` are the new beads that were asked for and not shown.
+    Granted {
+        call_id: CallId,
+        shown: Shown,
+        withheld: Vec<(BeadId, Withheld)>,
+    },
+    /// None of the new beads may be shown, or a bead named by
+    /// [`WindowOf::These`] may not. The list says which, and why.
+    NothingToJudge(Vec<(BeadId, Withheld)>),
+    /// One new bead may be shown and there is nothing beside it, so there
+    /// is no pair to read. No receipt is written and nothing is sent. The
+    /// list holds the new beads that were withheld, if any.
+    NothingToCompare(Vec<(BeadId, Withheld)>),
+    /// The binding's budget for the day is spent in this workspace.
+    OverBudget,
+    /// What would be shown cannot be made into a request.
+    Unsendable,
+}
+
+/// A verdict to store for one pair.
+#[derive(Debug, Clone, PartialEq)]
+pub struct VerdictWrite {
+    pub earlier: BeadId,
+    pub later: BeadId,
+    /// The new bead the pair was read for. The verdict is stored only if
+    /// that bead was still owed a judgment.
+    pub read_for: BeadId,
+    pub verdict: Verdict,
+    pub direction: Direction,
+    pub label: Option<Label>,
+    /// Set by the judge's side only for a second read that differs. What
+    /// became of every other label, the store decides and notes.
+    pub note: Option<VerdictNote>,
+    pub columns: PairColumns,
+    pub score: Option<f64>,
+    pub pick_chance: f64,
+}
+
+/// A relationship between two beads of source content to store.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EdgeWrite {
+    pub edge_type: EdgeType,
+    pub from: BeadId,
+    pub to: BeadId,
+    /// The new bead whose pair said so.
+    pub read_for: BeadId,
+}
+
+/// A label to store, or to hold for its second read.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LabelWrite {
+    /// The ID the source's label bead has, or will have.
+    pub bead_id: BeadId,
+    pub label: Label,
+    /// The bead of the later statement.
+    pub source: BeadId,
+    /// The beads it follows: one or two, each current when the judge was
+    /// shown it.
+    pub heads: Vec<BeadId>,
+    /// The new beads whose pairs said so. The label is stored only if
+    /// each of them was still owed a judgment.
+    pub read_for: Vec<BeadId>,
+    /// Whether the label waits for a second read that agrees with it.
+    pub hold: bool,
+}
+
+/// Beads a judge marked as one memory.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GroupWrite {
+    /// The group some of the members already belonged to when the judge
+    /// was shown them. The others join it.
+    pub existing: Option<BeadId>,
+    /// The ID a new group bead will have, if there is no group to join.
+    pub bead_id: BeadId,
+    /// Every member, those of an existing group included.
+    pub members: Vec<BeadId>,
+}
+
+/// Two names a judge linked, as byte ranges of their chunks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NameLinkWrite {
+    /// The new bead whose pair this is.
+    pub read_for: BeadId,
+    pub a_bead: BeadId,
+    pub a_start: u64,
+    pub a_end: u64,
+    pub b_bead: BeadId,
+    pub b_start: u64,
+    pub b_end: u64,
+}
+
+/// Everything a valid reply of a judge says, to be stored in one
+/// transaction.
+#[derive(Debug, Clone, PartialEq)]
+pub struct JudgmentWrite {
+    pub judge_kind: JudgeKind,
+    /// 1, or 2 for the second read of a proposed label.
+    pub read_no: u8,
+    pub rubric_rev: u32,
+    pub new_beads: Vec<BeadId>,
+    pub window_beads: Vec<BeadId>,
+    pub verdicts: Vec<VerdictWrite>,
+    pub edges: Vec<EdgeWrite>,
+    pub labels: Vec<LabelWrite>,
+    pub groups: Vec<GroupWrite>,
+    pub names: Vec<NameLinkWrite>,
+}
+
+/// Judge work to settle without finishing a call.
+#[derive(Debug, Clone, Copy)]
+pub struct JudgeSettle<'a> {
+    /// The lease the claim set on the work.
+    pub lease: Timestamp,
+    pub work: &'a [WorkUpdate],
+}
+
+/// Records how a judge's call ended and what it said, in one transaction.
+#[derive(Debug, Clone)]
+pub struct JudgmentFinish<'a> {
+    pub call_id: CallId,
+    pub workspace: &'a str,
+    /// The lease the claim set on the work this call was made for. Only
+    /// work still held under it is settled or stored for: a worker whose
+    /// lease ran out, and whose work was handed to another, changes
+    /// nothing.
+    pub lease: Timestamp,
+    pub result: CallResult,
+    pub usage: Option<Usage>,
+    /// What to store. `None` unless the reply was valid.
+    pub judgment: Option<&'a JudgmentWrite>,
+    /// For a second read with a valid reply: the source whose held label
+    /// this read settles. The label is written if `judgment` holds it, and
+    /// dropped otherwise.
+    pub settles: Option<BeadId>,
+    pub reader: &'a ReaderRef,
+    /// What to do with the work of beads that were not judged.
+    pub work: &'a [WorkUpdate],
+    pub at: Timestamp,
+}
+
+/// What [`Store::finish_judgment`] stored.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct JudgmentFinished {
+    /// New beads whose judgment was stored.
+    pub judged: u32,
+    pub verdicts: u32,
+    /// Relationships written, apart from those of labels and groups.
+    pub edges: u32,
+    /// Labels written.
+    pub labels: u32,
+    /// Labels held for a second read.
+    pub held: u32,
+    /// Labels not written: one of their beads was no longer current, or
+    /// the source already carried a label this one could not join.
+    pub labels_dropped: u32,
+    /// Group beads made or added to.
+    pub groups: u32,
+    pub names: u32,
+    /// Verdicts not stored: one of their beads was erased, its scope
+    /// stopped being active, or the new bead was no longer owed a
+    /// judgment.
     pub dropped: u32,
 }
 
@@ -592,6 +990,38 @@ pub trait Store {
 
     /// Settles work that no call was made for: a permit was refused.
     fn update_work(&mut self, work: &[WorkUpdate]) -> Result<(), StoreError>;
+
+    /// Settles a judge's work that no call was made for, or that a call
+    /// made before did not judge, when no call is finished with it. Only
+    /// work still held under `settle.lease` is changed.
+    fn settle_judgment(&mut self, settle: &JudgeSettle<'_>) -> Result<(), StoreError>;
+
+    // ---- judging ----
+
+    /// Reserves work for a judge in one workspace, until the lease runs
+    /// out: a held label that waits for its second read, or new beads
+    /// that are due. `None` if nothing is due, or a judge already reads in
+    /// every workspace that has work. One judge reads in a workspace at a
+    /// time.
+    fn claim_judgment(&mut self, claim: &JudgeClaim) -> Result<Option<JudgeBatch>, StoreError>;
+
+    /// Decides which beads may be shown to a judge, and if any new bead
+    /// may, writes the call's receipt and reads what is shown, in one
+    /// transaction. A bead is shown only while its scope is active and has
+    /// granted the destination.
+    fn permit_judgment(
+        &mut self,
+        request: &JudgePermitRequest<'_>,
+    ) -> Result<JudgePermit, StoreError>;
+
+    /// Records how a judge's call ended, stores what it said and settles
+    /// the work of its new beads, in one transaction. Nothing is stored
+    /// for a bead erased meanwhile, or one whose scope stopped being
+    /// active.
+    fn finish_judgment(
+        &mut self,
+        finish: &JudgmentFinish<'_>,
+    ) -> Result<JudgmentFinished, StoreError>;
 
     /// How much work of a kind is queued.
     fn work_counts(&mut self, purpose: Purpose) -> Result<WorkCounts, StoreError>;

@@ -217,6 +217,9 @@ fn score(cases: &[Case], w: &mut World) -> Score {
                 }
             }
             Change::ToolOutcome { .. } => panic!("no case is a tool call"),
+            Change::Bead(_) | Change::Edge(_) | Change::Verdict(_) | Change::NameLink(_) => {
+                panic!("nothing was judged")
+            }
             Change::Erasure { .. } => panic!("nothing was erased"),
         }
     }

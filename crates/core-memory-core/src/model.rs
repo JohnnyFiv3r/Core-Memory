@@ -180,6 +180,33 @@ pub struct Usage {
     pub output_tokens: u64,
 }
 
+/// Longest problem about a reply, in bytes, that is sent back to a model.
+/// A problem quotes what the reply said, which may be long.
+pub(crate) const MAX_PROBLEM_BYTES: usize = 300;
+
+/// `problem`, cut at a character boundary to [`MAX_PROBLEM_BYTES`].
+pub(crate) fn bounded(mut problem: String) -> String {
+    if problem.len() > MAX_PROBLEM_BYTES {
+        let mut end = MAX_PROBLEM_BYTES - '…'.len_utf8();
+        while !problem.is_char_boundary(end) {
+            end -= 1;
+        }
+        problem.truncate(end);
+        problem.push('…');
+    }
+    problem
+}
+
+/// Reads a model's reply as JSON. A reply that gives a key twice could be
+/// read two ways, and is refused as any such input is.
+pub(crate) fn reply_json(reply: &str) -> Result<serde_json::Value, String> {
+    let value =
+        serde_json::from_str(reply).map_err(|e| bounded(format!("reply is not JSON: {e}")))?;
+    core_memory_contract::json::check(reply, core_memory_contract::json::Integers::Any)
+        .map_err(|e| bounded(format!("reply cannot be read one way: {e}")))?;
+    Ok(value)
+}
+
 /// Why a call produced no response. The engine retries only what is safe
 /// to retry, and records calls whose outcome is unknown as in doubt.
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -428,6 +428,13 @@ impl Engine {
                 reader: &reader.reader_ref,
                 work: &work,
                 at,
+                // What the model wrote is what a judge is shown of the
+                // call, so the call's bead is owed to the judge from now.
+                judge_after: self
+                    .judge
+                    .as_ref()
+                    .filter(|_| ended.outcome.is_some())
+                    .map(|judge| at.plus_millis(judge.settings.debounce_ms)),
             },
         )?;
         Ok((done.stored, done.dropped))

@@ -2,9 +2,10 @@
 //! checked-in file.
 //!
 //! A difference here is a change to what consumers read: an ID, a hash, a
-//! chunk boundary, a facet, the prompt a model is given or the JSON shape.
-//! If the change is intended, bump the revision it belongs to (chunker,
-//! facet, prompt, record contract) and regenerate the file:
+//! chunk boundary, a facet, the prompt a model is given, what is computed
+//! about a pair of beads or the JSON shape. If the change is intended, bump
+//! the revision it belongs to (chunker, facet, prompt, rubric, pair
+//! columns, record contract) and regenerate the file:
 //!
 //! ```bash
 //! CORE_MEMORY_UPDATE_GOLDEN=1 cargo test -p core-memory-store-postgres \
@@ -17,15 +18,17 @@
 mod common;
 
 use common::{CONFIG, World, crm, note};
-use core_memory_contract::{Record, RecordBody, SourceEvent, Timestamp};
-use core_memory_core::ReadRound;
+use core_memory_contract::{CallId, Record, RecordBody, SourceEvent, Timestamp};
 use core_memory_core::model::{FnTransport, ModelRequest, ModelResponse, TransportError, Usage};
 use core_memory_core::store::Change;
+use core_memory_core::{JudgeRound, ReadRound};
 use serde_json::{Value, json};
 
 const GOLDEN: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/golden/export.jsonl");
 
-/// The golden world's readers. Their binding is part of what the file pins.
+/// The golden world's readers and its judge. Their binding is part of what
+/// the file pins. The judge compares beads that lie within a day of each
+/// other, which here is two sets of them.
 const READER: &str = r#"
 [reader]
 binding = "golden"
@@ -34,6 +37,11 @@ batch_size = 8
 [tool_reader]
 binding = "golden"
 
+[judge]
+binding = "golden"
+debounce_ms = 0
+window_ms = 86400000
+
 [[binding]]
 id = "golden"
 provider = "stand-in"
@@ -41,6 +49,11 @@ endpoint = "https://models.example.com/v1"
 model = "stand-in-2026-10-01"
 max_output_tokens = 1024
 "#;
+
+/// A call's ID is given by the database, so it is not pinned.
+fn no_call() -> CallId {
+    "00000000-0000-0000-0000-000000000000".parse().unwrap()
+}
 
 fn event(value: serde_json::Value) -> SourceEvent {
     serde_json::from_value(value).unwrap()
@@ -78,6 +91,103 @@ fn stand_in(request: &ModelRequest) -> Result<ModelResponse, TransportError> {
         usage: Usage {
             input_tokens: 900,
             output_tokens: 120,
+        },
+    })
+}
+
+/// A stand-in judge with fixed answers. It goes by what two memories say,
+/// whichever of them is the new one:
+///
+/// - the pieces of one message are parts of one memory;
+/// - the record that says the deal closed takes the place of the one that
+///   says it is being negotiated;
+/// - the decision led to the reply that takes the work, and that reply to
+///   the run of the tests;
+/// - the run of the tests describes the export the decision is about;
+/// - the plan's second phase and the decision call each other up;
+/// - whether the plan's owner line and the reply are related it cannot tell;
+/// - "the export" in the reply is the decision's "ledger export".
+fn judge(request: &ModelRequest) -> Result<ModelResponse, TransportError> {
+    let shown: Value = serde_json::from_str(
+        request
+            .user
+            .split("\n\nYour previous reply")
+            .next()
+            .unwrap(),
+    )
+    .unwrap();
+    let listed = shown["listed"].as_array().unwrap();
+    let new = shown["new"].as_array().unwrap();
+    // A tool call shows no text. What a model wrote of it stands in.
+    let said = |memory: &Value| {
+        memory["text"]
+            .as_str()
+            .or(memory["action"].as_str())
+            .unwrap()
+            .to_string()
+    };
+    let mut names = Vec::new();
+    let mut entries = Vec::new();
+    for (n, memory) in new.iter().enumerate() {
+        let mine = said(memory);
+        let (mut related, mut unsure) = (Vec::new(), Vec::new());
+        for other in listed.iter().chain(&new[..n]) {
+            let theirs = said(other);
+            // The new memory says `a` and the other says `b`.
+            let is = |a: &str, b: &str| mine.contains(a) && theirs.contains(b);
+            let current = memory["current"] != false && other["current"] != false;
+            // `<` runs from the new memory to the other, `>` the other way.
+            let rel = if memory["message"].is_string() && memory["message"] == other["message"] {
+                Some(("CONTAINS", None))
+            } else if is("closed_won", "negotiation") && current {
+                Some(("SUPERSEDES<", Some("supersede")))
+            } else if is("negotiation", "closed_won") && current {
+                Some(("SUPERSEDES>", Some("supersede")))
+            } else if is("Agreed", "phased cutover") || is("ledger_export", "Agreed") {
+                Some(("LEADSTO>", None))
+            } else if is("phased cutover", "Agreed") || is("Agreed", "ledger_export") {
+                Some(("LEADSTO<", None))
+            } else if is("ledger_export", "phased cutover") {
+                Some(("EXPRESS<", None))
+            } else if is("phased cutover", "ledger_export") {
+                Some(("EXPRESS>", None))
+            } else if is("Phase two", "phased cutover") || is("phased cutover", "Phase two") {
+                Some(("NEAR", None))
+            } else {
+                None
+            };
+            match rel {
+                Some((rel, Some(label))) => {
+                    related.push(json!({"to": other["id"], "rel": rel, "label": label}));
+                }
+                Some((rel, None)) => related.push(json!({"to": other["id"], "rel": rel})),
+                None => {}
+            }
+            if is("Owner:", "Agreed") || is("Agreed", "Owner:") {
+                unsure.push(other["id"].clone());
+            }
+            // The decision and the reply that takes its work, and no other
+            // pair that happens to hold the same words.
+            let decided = is("Agreed", "phased cutover") || is("phased cutover", "Agreed");
+            for (of_mine, of_theirs) in [
+                ("the export", "ledger export"),
+                ("ledger export", "the export"),
+            ] {
+                if decided && is(of_mine, of_theirs) {
+                    names.push(json!({
+                        "a": memory["id"], "a_name": of_mine,
+                        "b": other["id"], "b_name": of_theirs,
+                    }));
+                }
+            }
+        }
+        entries.push(json!({"id": memory["id"], "related": related, "unsure": unsure}));
+    }
+    Ok(ModelResponse {
+        text: json!({"new": entries, "names": names}).to_string(),
+        usage: Usage {
+            input_tokens: 1_500,
+            output_tokens: 200,
         },
     })
 }
@@ -217,6 +327,36 @@ fn exported_records_match_the_golden_file() {
     };
     assert_eq!((call.problem, call.stored), (None, 1));
 
+    // A judge reads how the beads relate: the messages and the plan of one
+    // day together, then the records and the note stored days later, then
+    // the tool call beside the first. The label it gives the two records
+    // changes what is current, so it is read a second time before it is
+    // written. Every pair it was shown is a verdict record, whatever it
+    // said, and what it made of them follows: a group, a label, their
+    // relationships and one pair of names.
+    w.clock.advance_millis(4_000);
+    let judging = FnTransport(judge);
+    let mut reads = Vec::new();
+    while let JudgeRound::Handled(read) = w.engine.judge_once(&mut w.store, &judging).unwrap() {
+        assert_eq!(read.problem, None, "{read:?}");
+        reads.push((
+            read.second_read,
+            read.new_beads,
+            read.window_beads,
+            read.verdicts,
+        ));
+        w.clock.advance_millis(1_000);
+    }
+    assert_eq!(
+        reads,
+        [
+            (false, 7, 0, 21),
+            (false, 3, 0, 3),
+            (true, 1, 1, 1),
+            (false, 1, 7, 7)
+        ]
+    );
+
     let mut lines = Vec::new();
     for change in w.changes() {
         let records = match change {
@@ -236,20 +376,24 @@ fn exported_records_match_the_golden_file() {
             Change::ToolOutcome { scope, outcome } => {
                 vec![Record::tool_outcome(scope, *outcome)]
             }
+            Change::Bead(bead) => vec![Record::bead(*bead)],
+            Change::Edge(edge) => vec![Record::edge(*edge)],
+            Change::Verdict(verdict) => vec![Record::verdict(*verdict)],
+            Change::NameLink(link) => vec![Record::name_link(*link)],
             Change::Erasure { scope, erasure } => vec![Record::erasure(scope, erasure)],
         };
         for mut record in records {
             // The two values the database gives are not pinned.
             match &mut record.body {
-                RecordBody::ChunkRead(read) => {
-                    read.call_id = "00000000-0000-0000-0000-000000000000".parse().unwrap();
-                }
-                RecordBody::ToolOutcome(outcome) => {
-                    outcome.call_id = "00000000-0000-0000-0000-000000000000".parse().unwrap();
-                }
+                RecordBody::ChunkRead(read) => read.call_id = no_call(),
+                RecordBody::ToolOutcome(outcome) => outcome.call_id = no_call(),
                 RecordBody::Erasure(erasure) => {
                     erasure.erased_at = Timestamp::parse("2026-01-01T00:00:00Z").unwrap();
                 }
+                RecordBody::Bead(bead) => bead.call_id = no_call(),
+                RecordBody::Edge(edge) => edge.call_id = no_call(),
+                RecordBody::Verdict(verdict) => verdict.call_id = no_call(),
+                RecordBody::NameLink(link) => link.call_id = no_call(),
                 RecordBody::Event(_) | RecordBody::Chunk(_) => {}
             }
             lines.push(serde_json::to_string(&record).unwrap());

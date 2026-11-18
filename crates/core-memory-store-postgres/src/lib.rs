@@ -10,6 +10,7 @@
 
 mod connect;
 mod error;
+mod judge;
 pub mod migrate;
 mod pool;
 mod store;

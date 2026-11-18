@@ -4,8 +4,10 @@
 //! Each record is one primitive. An event record carries what the source
 //! declared; a chunk record carries one exact slice of its content; a
 //! chunk-read record carries what a model read in a chunk; a tool-outcome
-//! record carries what a model read in a tool call; an erasure record says
-//! an event is gone. Records are written once and never change.
+//! record carries what a model read in a tool call; bead, edge, verdict and
+//! name-link records carry what a judge said about how beads relate; an
+//! erasure record says an event is gone. Records are written once and
+//! never change.
 //! A full view of a memory is something each consumer builds for itself.
 
 use std::collections::BTreeMap;
@@ -17,6 +19,7 @@ use crate::event::{Actor, ContentKind, EventKey, OccurredAt, Structure};
 use crate::hash::Sha256Digest;
 use crate::ids::{BeadId, CallId, ChunkId, EventId};
 use crate::outcome::{Abstention, TypeRef};
+use crate::relation::{BeadRecord, EdgeRecord, NameLinkRecord, VerdictRecord};
 use crate::timestamp::Timestamp;
 
 /// Contract identifier carried by every v2 record.
@@ -30,7 +33,10 @@ pub struct Record {
     /// Unique per record. A consumer that has taken a key can drop a second
     /// record with the same key.
     pub record_key: String,
-    pub scope: String,
+    /// The scope the record belongs to. Absent on what a judge wrote, which
+    /// belongs to the workspace: the beads it relates may be of two scopes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<String>,
     #[serde(flatten)]
     pub body: RecordBody,
 }
@@ -40,7 +46,7 @@ impl Record {
         Self {
             contract: RECORD_CONTRACT.to_string(),
             record_key: event_record_key(&event.event_id),
-            scope: event.key.scope.clone(),
+            scope: Some(event.key.scope.clone()),
             body: RecordBody::Event(Box::new(event)),
         }
     }
@@ -49,7 +55,7 @@ impl Record {
         Self {
             contract: RECORD_CONTRACT.to_string(),
             record_key: chunk_record_key(&chunk.chunk_id),
-            scope: scope.into(),
+            scope: Some(scope.into()),
             body: RecordBody::Chunk(Box::new(chunk)),
         }
     }
@@ -58,7 +64,7 @@ impl Record {
         Self {
             contract: RECORD_CONTRACT.to_string(),
             record_key: format!("chunk_read:{}:{}", read.chunk_id, read.seq),
-            scope: scope.into(),
+            scope: Some(scope.into()),
             body: RecordBody::ChunkRead(Box::new(read)),
         }
     }
@@ -67,7 +73,7 @@ impl Record {
         Self {
             contract: RECORD_CONTRACT.to_string(),
             record_key: format!("tool_outcome:{}:{}", outcome.event_id, outcome.seq),
-            scope: scope.into(),
+            scope: Some(scope.into()),
             body: RecordBody::ToolOutcome(Box::new(outcome)),
         }
     }
@@ -76,8 +82,50 @@ impl Record {
         Self {
             contract: RECORD_CONTRACT.to_string(),
             record_key: format!("erasure:{}", erasure.event_id),
-            scope: scope.into(),
+            scope: Some(scope.into()),
             body: RecordBody::Erasure(Box::new(erasure)),
+        }
+    }
+
+    /// A bead a judge made: a label or a group.
+    pub fn bead(bead: BeadRecord) -> Self {
+        Self {
+            contract: RECORD_CONTRACT.to_string(),
+            record_key: format!("bead:{}", bead.bead_id),
+            scope: None,
+            body: RecordBody::Bead(Box::new(bead)),
+        }
+    }
+
+    pub fn edge(edge: EdgeRecord) -> Self {
+        Self {
+            contract: RECORD_CONTRACT.to_string(),
+            record_key: format!(
+                "edge:{}:{}:{}",
+                edge.edge_type.as_str(),
+                edge.from_bead,
+                edge.to_bead
+            ),
+            scope: None,
+            body: RecordBody::Edge(Box::new(edge)),
+        }
+    }
+
+    pub fn verdict(verdict: VerdictRecord) -> Self {
+        Self {
+            contract: RECORD_CONTRACT.to_string(),
+            record_key: format!("verdict:{}:{}", verdict.workspace, verdict.seq),
+            scope: None,
+            body: RecordBody::Verdict(Box::new(verdict)),
+        }
+    }
+
+    pub fn name_link(link: NameLinkRecord) -> Self {
+        Self {
+            contract: RECORD_CONTRACT.to_string(),
+            record_key: format!("name_link:{}:{}", link.workspace, link.seq),
+            scope: None,
+            body: RecordBody::NameLink(Box::new(link)),
         }
     }
 
@@ -87,6 +135,10 @@ impl Record {
             RecordBody::Chunk(_) => RecordKind::Chunk,
             RecordBody::ChunkRead(_) => RecordKind::ChunkRead,
             RecordBody::ToolOutcome(_) => RecordKind::ToolOutcome,
+            RecordBody::Bead(_) => RecordKind::Bead,
+            RecordBody::Edge(_) => RecordKind::Edge,
+            RecordBody::Verdict(_) => RecordKind::Verdict,
+            RecordBody::NameLink(_) => RecordKind::NameLink,
             RecordBody::Erasure(_) => RecordKind::Erasure,
         }
     }
@@ -99,6 +151,10 @@ pub enum RecordBody {
     Chunk(Box<ChunkRecord>),
     ChunkRead(Box<ChunkReadRecord>),
     ToolOutcome(Box<ToolOutcomeRecord>),
+    Bead(Box<BeadRecord>),
+    Edge(Box<EdgeRecord>),
+    Verdict(Box<VerdictRecord>),
+    NameLink(Box<NameLinkRecord>),
     Erasure(Box<ErasureRecord>),
 }
 
@@ -111,6 +167,10 @@ pub enum RecordKind {
     Chunk,
     ChunkRead,
     ToolOutcome,
+    Bead,
+    Edge,
+    Verdict,
+    NameLink,
     Erasure,
 }
 

@@ -1,0 +1,519 @@
+table beads
+  bead_id uuid not null
+  workspace_id text not null
+  scope text null
+  kind text not null
+  state text not null
+  event_id uuid null
+  chunk_id uuid null
+  created_by text not null
+  call_id uuid null
+  time_at timestamp with time zone not null
+  time_basis text not null
+  created_at timestamp with time zone not null
+  seq bigint not null
+  may: engine select insert
+  row security: on; policies: engine (all to core_memory_engine)
+  trigger beads_no_delete BEFORE DELETE FOR EACH ROW EXECUTE FUNCTION core_memory.refuse_change()
+  trigger beads_no_truncate BEFORE TRUNCATE FOR EACH STATEMENT EXECUTE FUNCTION core_memory.refuse_change()
+  trigger beads_only_erase BEFORE UPDATE FOR EACH ROW EXECUTE FUNCTION core_memory.beads_only_erase()
+  index beads_event_idx (event_id)
+  primary key beads_pkey (bead_id)
+  index beads_window_idx (workspace_id, time_at, seq)
+  unique beads_workspace_id_seq_key (workspace_id, seq)
+
+table checkpoints
+  scope text not null
+  checkpoint_key text not null
+  sequence bigint not null
+  hash bytea not null
+  updated_at timestamp with time zone not null
+  may: engine select insert update
+  row security: on; policies: engine (all to core_memory_engine)
+  trigger checkpoints_no_truncate BEFORE TRUNCATE FOR EACH STATEMENT EXECUTE FUNCTION core_memory.refuse_change()
+  primary key checkpoints_pkey (scope, checkpoint_key)
+
+table chunk_read_spans
+  workspace_id text not null
+  read_seq bigint not null
+  ordinal integer not null
+  chunk_id uuid not null
+  kind text not null
+  entity_kind text null
+  byte_start bigint not null
+  byte_end bigint not null
+  may: engine select insert
+  row security: on; policies: engine (all to core_memory_engine)
+  trigger chunk_read_spans_fixed BEFORE UPDATE FOR EACH ROW EXECUTE FUNCTION core_memory.refuse_change()
+  trigger chunk_read_spans_no_truncate BEFORE TRUNCATE FOR EACH STATEMENT EXECUTE FUNCTION core_memory.refuse_change()
+  trigger chunk_read_spans_only_erase BEFORE DELETE FOR EACH ROW EXECUTE FUNCTION core_memory.deleted_only_with_its_event()
+  index chunk_read_spans_chunk_idx (chunk_id)
+  primary key chunk_read_spans_pkey (workspace_id, read_seq, ordinal)
+
+table chunk_reads
+  workspace_id text not null
+  seq bigint not null
+  chunk_id uuid not null
+  scope text not null
+  call_id uuid not null
+  status text not null
+  type_key text null
+  type_rev integer null
+  abstained text null
+  vocabulary_id text not null
+  vocabulary_hash bytea not null
+  binding_id text not null
+  binding_rev bytea not null
+  model text not null
+  prompt_rev integer not null
+  spans_rejected integer not null
+  read_at timestamp with time zone not null
+  may: engine select insert
+  row security: on; policies: engine (all to core_memory_engine)
+  trigger chunk_reads_fixed BEFORE UPDATE FOR EACH ROW EXECUTE FUNCTION core_memory.refuse_change()
+  trigger chunk_reads_live BEFORE INSERT FOR EACH ROW EXECUTE FUNCTION core_memory.stored_only_with_a_live_event()
+  trigger chunk_reads_no_truncate BEFORE TRUNCATE FOR EACH STATEMENT EXECUTE FUNCTION core_memory.refuse_change()
+  trigger chunk_reads_only_erase BEFORE DELETE FOR EACH ROW EXECUTE FUNCTION core_memory.deleted_only_with_its_event()
+  index chunk_reads_chunk_idx (chunk_id, seq)
+  primary key chunk_reads_pkey (workspace_id, seq)
+
+table chunk_text
+  chunk_id uuid not null
+  scope text not null
+  text text not null
+  content_hash bytea not null
+  facets jsonb not null
+  may: engine select insert
+  row security: on; policies: engine (all to core_memory_engine)
+  trigger chunk_text_fixed BEFORE UPDATE FOR EACH ROW EXECUTE FUNCTION core_memory.refuse_change()
+  trigger chunk_text_no_truncate BEFORE TRUNCATE FOR EACH STATEMENT EXECUTE FUNCTION core_memory.refuse_change()
+  trigger chunk_text_only_erase BEFORE DELETE FOR EACH ROW EXECUTE FUNCTION core_memory.deleted_only_with_its_event()
+  primary key chunk_text_pkey (chunk_id)
+  index chunk_text_scope_idx (scope)
+
+table chunks
+  chunk_id uuid not null
+  event_id uuid not null
+  ordinal integer not null
+  byte_start bigint not null
+  byte_end bigint not null
+  char_start bigint not null
+  char_end bigint not null
+  may: engine select insert
+  row security: on; policies: engine (all to core_memory_engine)
+  trigger chunks_fixed BEFORE DELETE OR UPDATE FOR EACH ROW EXECUTE FUNCTION core_memory.refuse_change()
+  trigger chunks_no_truncate BEFORE TRUNCATE FOR EACH STATEMENT EXECUTE FUNCTION core_memory.refuse_change()
+  unique chunks_event_id_ordinal_key (event_id, ordinal)
+  primary key chunks_pkey (chunk_id)
+
+table edges
+  workspace_id text not null
+  seq bigint not null
+  edge_type text not null
+  from_bead uuid not null
+  to_bead uuid not null
+  call_id uuid not null
+  created_at timestamp with time zone not null
+  may: engine select insert
+  row security: on; policies: engine (all to core_memory_engine)
+  trigger edges_fixed BEFORE DELETE OR UPDATE FOR EACH ROW EXECUTE FUNCTION core_memory.refuse_change()
+  trigger edges_live BEFORE INSERT FOR EACH ROW EXECUTE FUNCTION core_memory.stored_only_for_live_beads('from_bead', 'to_bead')
+  trigger edges_no_truncate BEFORE TRUNCATE FOR EACH STATEMENT EXECUTE FUNCTION core_memory.refuse_change()
+  trigger edges_shape BEFORE INSERT FOR EACH ROW EXECUTE FUNCTION core_memory.edges_keep_their_shape()
+  unique edges_edge_type_from_bead_to_bead_key (edge_type, from_bead, to_bead)
+  primary key edges_pkey (workspace_id, seq)
+  unique edges_superseded_once_idx (to_bead) partial
+  index edges_to_idx (to_bead, edge_type)
+
+table erasures
+  workspace_id text not null
+  seq bigint not null
+  event_id uuid not null
+  scope text not null
+  reason text not null
+  actor text not null
+  chunks_erased integer not null
+  erased_at timestamp with time zone not null
+  may: engine select
+  row security: on; policies: engine (all to core_memory_engine)
+  trigger erasures_fixed BEFORE DELETE OR UPDATE FOR EACH ROW EXECUTE FUNCTION core_memory.refuse_change()
+  trigger erasures_no_truncate BEFORE TRUNCATE FOR EACH STATEMENT EXECUTE FUNCTION core_memory.refuse_change()
+  unique erasures_event_id_key (event_id)
+  primary key erasures_pkey (workspace_id, seq)
+
+table events
+  event_id uuid not null
+  workspace_id text not null
+  scope text not null
+  state text not null
+  seq bigint not null
+  source_ns text null
+  external_id text null
+  revision text null
+  engine_assigned_revision boolean null
+  event_hash bytea null
+  content_hash bytea null
+  info jsonb null
+  profile_id text not null
+  profile_rev integer not null
+  chunker_id text not null
+  chunker_rev integer not null
+  chunker_config_hash bytea not null
+  chunk_count integer not null
+  time_at timestamp with time zone not null
+  time_basis text not null
+  captured_at timestamp with time zone not null
+  erased_at timestamp with time zone null
+  may: engine select insert
+  row security: on; policies: engine (all to core_memory_engine)
+  trigger events_no_delete BEFORE DELETE FOR EACH ROW EXECUTE FUNCTION core_memory.refuse_change()
+  trigger events_no_truncate BEFORE TRUNCATE FOR EACH STATEMENT EXECUTE FUNCTION core_memory.refuse_change()
+  trigger events_only_erase BEFORE UPDATE FOR EACH ROW EXECUTE FUNCTION core_memory.events_only_erase()
+  index events_key_idx (scope, source_ns, external_id) partial
+  primary key events_pkey (event_id)
+  index events_scope_order_idx (scope, seq)
+  unique events_workspace_id_seq_key (workspace_id, seq)
+
+table judge_reads
+  call_id uuid not null
+  workspace_id text not null
+  seq bigint not null
+  judge_kind text not null
+  read_no integer not null
+  new_beads uuid[] not null
+  window_beads uuid[] not null
+  rubric_rev integer not null
+  binding_id text not null
+  binding_rev bytea not null
+  model text not null
+  judged_at timestamp with time zone not null
+  may: engine select insert
+  row security: on; policies: engine (all to core_memory_engine)
+  trigger judge_reads_fixed BEFORE DELETE OR UPDATE FOR EACH ROW EXECUTE FUNCTION core_memory.refuse_change()
+  trigger judge_reads_no_truncate BEFORE TRUNCATE FOR EACH STATEMENT EXECUTE FUNCTION core_memory.refuse_change()
+  index judge_reads_new_idx (new_beads)
+  primary key judge_reads_pkey (call_id)
+  unique judge_reads_workspace_id_seq_key (workspace_id, seq)
+
+table labels
+  bead_id uuid not null
+  workspace_id text not null
+  label text not null
+  source_bead uuid not null
+  call_id uuid not null
+  may: engine select insert
+  row security: on; policies: engine (all to core_memory_engine)
+  trigger labels_fixed BEFORE DELETE OR UPDATE FOR EACH ROW EXECUTE FUNCTION core_memory.refuse_change()
+  trigger labels_live BEFORE INSERT FOR EACH ROW EXECUTE FUNCTION core_memory.stored_only_for_live_beads('bead_id', 'source_bead')
+  trigger labels_no_truncate BEFORE TRUNCATE FOR EACH STATEMENT EXECUTE FUNCTION core_memory.refuse_change()
+  index labels_conflict_idx (workspace_id) partial
+  primary key labels_pkey (bead_id)
+  unique labels_source_bead_key (source_bead)
+
+table name_links
+  workspace_id text not null
+  seq bigint not null
+  a_bead uuid not null
+  a_scope text not null
+  a_start bigint not null
+  a_end bigint not null
+  b_bead uuid not null
+  b_scope text not null
+  b_start bigint not null
+  b_end bigint not null
+  call_id uuid not null
+  linked_at timestamp with time zone not null
+  may: engine select insert
+  row security: on; policies: engine (all to core_memory_engine)
+  trigger name_links_fixed BEFORE UPDATE FOR EACH ROW EXECUTE FUNCTION core_memory.refuse_change()
+  trigger name_links_live BEFORE INSERT FOR EACH ROW EXECUTE FUNCTION core_memory.stored_only_for_live_beads('a_bead', 'b_bead')
+  trigger name_links_no_truncate BEFORE TRUNCATE FOR EACH STATEMENT EXECUTE FUNCTION core_memory.refuse_change()
+  trigger name_links_only_erase BEFORE DELETE FOR EACH ROW EXECUTE FUNCTION core_memory.deleted_only_when_a_bead_is_erased('a_bead', 'b_bead')
+  trigger name_links_ranges BEFORE INSERT FOR EACH ROW EXECUTE FUNCTION core_memory.name_links_within_their_chunks()
+  trigger name_links_scopes BEFORE INSERT FOR EACH ROW EXECUTE FUNCTION core_memory.name_links_carry_scopes()
+  unique name_links_a_bead_a_start_a_end_b_bead_b_start_b_end_key (a_bead, a_start, a_end, b_bead, b_start, b_end)
+  index name_links_b_idx (b_bead)
+  primary key name_links_pkey (workspace_id, seq)
+
+table outbound_calls
+  call_id uuid not null
+  workspace_id text not null
+  seq bigint not null
+  purpose text not null
+  scope text null
+  destination text not null
+  binding_id text not null
+  binding_rev bytea not null
+  model text not null
+  attempt integer not null
+  repairs uuid null
+  chunk_ids uuid[] not null
+  bead_ids uuid[] null
+  bytes_sent bigint not null
+  reserved_tokens bigint not null
+  permitted_at timestamp with time zone not null
+  may: engine select insert
+  row security: on; policies: engine (all to core_memory_engine)
+  trigger outbound_calls_fixed BEFORE DELETE OR UPDATE FOR EACH ROW EXECUTE FUNCTION core_memory.refuse_change()
+  trigger outbound_calls_no_truncate BEFORE TRUNCATE FOR EACH STATEMENT EXECUTE FUNCTION core_memory.refuse_change()
+  index outbound_calls_budget_idx (workspace_id, binding_id, permitted_at)
+  primary key outbound_calls_pkey (call_id)
+  unique outbound_calls_workspace_id_seq_key (workspace_id, seq)
+
+table outbound_results
+  call_id uuid not null
+  result text not null
+  input_tokens bigint null
+  output_tokens bigint null
+  finished_at timestamp with time zone not null
+  may: engine select insert
+  row security: on; policies: engine (all to core_memory_engine)
+  trigger outbound_results_fixed BEFORE DELETE OR UPDATE FOR EACH ROW EXECUTE FUNCTION core_memory.refuse_change()
+  trigger outbound_results_no_truncate BEFORE TRUNCATE FOR EACH STATEMENT EXECUTE FUNCTION core_memory.refuse_change()
+  primary key outbound_results_pkey (call_id)
+
+table pending_labels
+  source_bead uuid not null
+  workspace_id text not null
+  label text not null
+  head_beads uuid[] not null
+  ordinal bigint not null
+  call_id uuid not null
+  proposed_at timestamp with time zone not null
+  may: engine select insert delete
+  row security: on; policies: engine (all to core_memory_engine)
+  trigger pending_labels_fixed BEFORE UPDATE FOR EACH ROW EXECUTE FUNCTION core_memory.refuse_change()
+  trigger pending_labels_live BEFORE INSERT FOR EACH ROW EXECUTE FUNCTION core_memory.stored_only_for_live_beads('source_bead', 'head_beads')
+  trigger pending_labels_no_truncate BEFORE TRUNCATE FOR EACH STATEMENT EXECUTE FUNCTION core_memory.refuse_change()
+  primary key pending_labels_pkey (source_bead)
+  unique pending_labels_workspace_id_ordinal_key (workspace_id, ordinal)
+
+table pins
+  kind text not null
+  id text not null
+  rev integer not null
+  hash bytea not null
+  pinned_at timestamp with time zone not null
+  may: engine select insert
+  row security: on; policies: engine (all to core_memory_engine)
+  trigger pins_fixed BEFORE DELETE OR UPDATE FOR EACH ROW EXECUTE FUNCTION core_memory.refuse_change()
+  trigger pins_no_truncate BEFORE TRUNCATE FOR EACH STATEMENT EXECUTE FUNCTION core_memory.refuse_change()
+  primary key pins_pkey (kind, id, rev)
+
+table schema_migrations
+  version integer not null
+  name text not null
+  checksum text not null
+  applied_at timestamp with time zone not null
+  may: engine select; governor select
+  row security: on; policies: reads (select to public)
+  primary key schema_migrations_pkey (version)
+
+table scope_destinations
+  scope text not null
+  destination text not null
+  state text not null
+  granted_at timestamp with time zone not null
+  revoked_at timestamp with time zone null
+  may: engine select
+  row security: on; policies: engine (all to core_memory_engine)
+  trigger scope_destinations_no_truncate BEFORE TRUNCATE FOR EACH STATEMENT EXECUTE FUNCTION core_memory.refuse_change()
+  primary key scope_destinations_pkey (scope, destination)
+
+table scopes
+  scope text not null
+  workspace_id text not null
+  state text not null
+  created_at timestamp with time zone not null
+  state_changed_at timestamp with time zone not null
+  may: engine select
+  row security: on; policies: engine (all to core_memory_engine)
+  trigger scopes_keep_identity BEFORE DELETE OR UPDATE FOR EACH ROW EXECUTE FUNCTION core_memory.scopes_keep_identity()
+  trigger scopes_no_truncate BEFORE TRUNCATE FOR EACH STATEMENT EXECUTE FUNCTION core_memory.refuse_change()
+  primary key scopes_pkey (scope)
+  index scopes_workspace_idx (workspace_id)
+
+table tool_outcomes
+  workspace_id text not null
+  seq bigint not null
+  event_id uuid not null
+  scope text not null
+  call_id uuid not null
+  status text not null
+  action text not null
+  outcome text not null
+  compressor_id text not null
+  compressor_rev integer not null
+  compressed_bytes bigint not null
+  binding_id text not null
+  binding_rev bytea not null
+  model text not null
+  prompt_rev integer not null
+  read_at timestamp with time zone not null
+  may: engine select insert
+  row security: on; policies: engine (all to core_memory_engine)
+  trigger tool_outcomes_fixed BEFORE UPDATE FOR EACH ROW EXECUTE FUNCTION core_memory.refuse_change()
+  trigger tool_outcomes_live BEFORE INSERT FOR EACH ROW EXECUTE FUNCTION core_memory.stored_only_when_its_event_is_live()
+  trigger tool_outcomes_no_truncate BEFORE TRUNCATE FOR EACH STATEMENT EXECUTE FUNCTION core_memory.refuse_change()
+  trigger tool_outcomes_only_erase BEFORE DELETE FOR EACH ROW EXECUTE FUNCTION core_memory.deleted_only_when_its_event_is_erased()
+  index tool_outcomes_event_idx (event_id, seq)
+  primary key tool_outcomes_pkey (workspace_id, seq)
+
+table verdicts
+  workspace_id text not null
+  seq bigint not null
+  earlier_bead uuid not null
+  later_bead uuid not null
+  earlier_scope text not null
+  later_scope text not null
+  verdict text not null
+  direction text not null
+  label text null
+  note text null
+  call_id uuid not null
+  columns jsonb not null
+  columns_rev integer not null
+  score double precision null
+  pick_chance double precision not null
+  may: engine select insert
+  row security: on; policies: engine (all to core_memory_engine)
+  trigger verdicts_fixed BEFORE UPDATE FOR EACH ROW EXECUTE FUNCTION core_memory.refuse_change()
+  trigger verdicts_live BEFORE INSERT FOR EACH ROW EXECUTE FUNCTION core_memory.stored_only_for_live_beads('earlier_bead', 'later_bead')
+  trigger verdicts_no_truncate BEFORE TRUNCATE FOR EACH STATEMENT EXECUTE FUNCTION core_memory.refuse_change()
+  trigger verdicts_only_erase BEFORE DELETE FOR EACH ROW EXECUTE FUNCTION core_memory.deleted_only_when_a_bead_is_erased('earlier_bead', 'later_bead')
+  trigger verdicts_scopes BEFORE INSERT FOR EACH ROW EXECUTE FUNCTION core_memory.verdicts_carry_scopes()
+  index verdicts_earlier_idx (earlier_bead)
+  index verdicts_later_idx (later_bead)
+  primary key verdicts_pkey (workspace_id, seq)
+
+table work
+  kind text not null
+  item_id uuid not null
+  event_id uuid not null
+  workspace_id text not null
+  scope text not null
+  state text not null
+  attempts integer not null
+  alone boolean not null
+  not_before timestamp with time zone not null
+  leased_until timestamp with time zone null
+  problem text null
+  enqueued_at timestamp with time zone not null
+  may: engine select insert update delete
+  row security: on; policies: engine (all to core_memory_engine)
+  trigger work_no_truncate BEFORE TRUNCATE FOR EACH STATEMENT EXECUTE FUNCTION core_memory.refuse_change()
+  index work_event_idx (event_id)
+  index work_judging_idx (workspace_id) partial
+  index work_next_idx (kind, not_before) partial
+  primary key work_pkey (kind, item_id)
+  index work_scope_idx (scope)
+
+table workspace_seq
+  workspace_id text not null
+  last_seq bigint not null
+  may: no role
+  row security: on; policies: none
+  trigger workspace_seq_grows BEFORE DELETE OR UPDATE FOR EACH ROW EXECUTE FUNCTION core_memory.seq_only_grows()
+  trigger workspace_seq_no_truncate BEFORE TRUNCATE FOR EACH STATEMENT EXECUTE FUNCTION core_memory.refuse_change()
+  primary key workspace_seq_pkey (workspace_id)
+
+table workspaces
+  workspace_id text not null
+  id_key bytea not null
+  created_at timestamp with time zone not null
+  may: engine select
+  row security: on; policies: engine (all to core_memory_engine)
+  trigger workspaces_fixed BEFORE DELETE OR UPDATE FOR EACH ROW EXECUTE FUNCTION core_memory.refuse_change()
+  trigger workspaces_no_truncate BEFORE TRUNCATE FOR EACH STATEMENT EXECUTE FUNCTION core_memory.refuse_change()
+  primary key workspaces_pkey (workspace_id)
+
+function beads_only_erase() returns trigger
+  runs as its caller; search_path=pg_catalog, pg_temp
+  may call: no role
+function begin_workspace_write(target_workspace text, engine_schema integer, take integer) returns bigint
+  runs as its owner; search_path=pg_catalog, pg_temp
+  may call: engine
+function begin_write(target_scope text, engine_schema integer, take integer) returns TABLE(workspace_id text, state text, first_seq bigint)
+  runs as its owner; search_path=pg_catalog, pg_temp
+  may call: engine
+function create_workspace(new_workspace_id text) returns boolean
+  runs as its owner; search_path=pg_catalog, pg_temp
+  may call: governor
+function deleted_only_when_a_bead_is_erased() returns trigger
+  runs as its caller; search_path=pg_catalog, pg_temp
+  may call: no role
+function deleted_only_when_its_event_is_erased() returns trigger
+  runs as its caller; search_path=pg_catalog, pg_temp
+  may call: no role
+function deleted_only_with_its_event() returns trigger
+  runs as its caller; search_path=pg_catalog, pg_temp
+  may call: no role
+function edges_keep_their_shape() returns trigger
+  runs as its caller; search_path=pg_catalog, pg_temp
+  may call: no role
+function enroll_scope(new_scope text, in_workspace text) returns text
+  runs as its owner; search_path=pg_catalog, pg_temp
+  may call: governor
+function erase_event(target uuid, reason text, actor text) returns text
+  runs as its owner; search_path=pg_catalog, pg_temp
+  may call: governor
+function erase_events(targets uuid[], reason text, actor text) returns TABLE(event_id uuid, outcome text)
+  runs as its owner; search_path=pg_catalog, pg_temp
+  may call: governor
+function erase_key(target_scope text, target_source_ns text, target_external_id text, reason text, actor text) returns bigint
+  runs as its owner; search_path=pg_catalog, pg_temp
+  may call: governor
+function erase_live_events(event_ids uuid[], in_workspace text, reason text, actor text) returns bigint
+  runs as its owner; search_path=pg_catalog, pg_temp
+  may call: no role
+function erase_scope(target text, reason text, actor text, max_events integer) returns bigint
+  runs as its owner; search_path=pg_catalog, pg_temp
+  may call: governor
+function events_only_erase() returns trigger
+  runs as its caller; search_path=pg_catalog, pg_temp
+  may call: no role
+function grant_destination(target_scope text, target_destination text) returns text
+  runs as its owner; search_path=pg_catalog, pg_temp
+  may call: governor
+function hold_schema() returns void
+  runs as its owner; search_path=pg_catalog, pg_temp
+  may call: no role
+function lock_workspace(target_workspace text) returns void
+  runs as its owner; search_path=pg_catalog, pg_temp
+  may call: no role
+function name_links_carry_scopes() returns trigger
+  runs as its caller; search_path=pg_catalog, pg_temp
+  may call: no role
+function name_links_within_their_chunks() returns trigger
+  runs as its caller; search_path=pg_catalog, pg_temp
+  may call: no role
+function refuse_change() returns trigger
+  runs as its caller; search_path=pg_catalog, pg_temp
+  may call: no role
+function revoke_destination(target_scope text, target_destination text) returns text
+  runs as its owner; search_path=pg_catalog, pg_temp
+  may call: governor
+function scopes_keep_identity() returns trigger
+  runs as its caller; search_path=pg_catalog, pg_temp
+  may call: no role
+function seq_only_grows() returns trigger
+  runs as its caller; search_path=pg_catalog, pg_temp
+  may call: no role
+function set_scope_state(target text, new_state text) returns text
+  runs as its owner; search_path=pg_catalog, pg_temp
+  may call: governor
+function stored_only_for_live_beads() returns trigger
+  runs as its caller; search_path=pg_catalog, pg_temp
+  may call: no role
+function stored_only_when_its_event_is_live() returns trigger
+  runs as its caller; search_path=pg_catalog, pg_temp
+  may call: no role
+function stored_only_with_a_live_event() returns trigger
+  runs as its caller; search_path=pg_catalog, pg_temp
+  may call: no role
+function take_seq(target_workspace text, how_many integer) returns bigint
+  runs as its owner; search_path=pg_catalog, pg_temp
+  may call: no role
+function verdicts_carry_scopes() returns trigger
+  runs as its caller; search_path=pg_catalog, pg_temp
+  may call: no role

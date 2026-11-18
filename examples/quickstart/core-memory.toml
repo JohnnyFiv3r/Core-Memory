@@ -26,6 +26,14 @@ types = [
 # [tool_reader]
 # binding = "small"
 #
+# To have a model judge how each new memory relates to the ones near it in
+# time. It reads more text in one call than a reader does, and a wrong
+# relationship does more harm than a wrong type, so it may deserve a more
+# capable model than the readers use:
+#
+# [judge]
+# binding = "small"
+#
 # [[binding]]
 # id = "small"
 # provider = "anthropic"

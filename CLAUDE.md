@@ -24,7 +24,9 @@ auditable memory in PostgreSQL. For each SourceEvent it:
 5. shortens each tool call by fixed rules and asks a model what the call
    did and what came of it, when a tool reader is configured and the call's
    scope allows the model's destination;
-6. *planned:* asks a judge model how new beads relate to recent ones.
+6. asks a judge model how each new bead relates to the beads near it in
+   time, across the scopes of its workspace, when a judge is configured and
+   each bead's scope allows the model's destination.
 
 PostgreSQL is the only store and the system of record. The engine owns the
 `core_memory` schema. A host such as memoriesQL runs the engine against its
@@ -102,9 +104,21 @@ core-memory-contract -> core-memory-chunker -> core-memory-core
 ### 4. Relationships are judged, never inferred
 
 A relationship is never created from similarity, chronology or shared keys
-alone. Code computes a judge's inputs and never proposes or writes an edge;
-a score is never evidence. Structural links (reply-to, parent, revision-of)
-are facets and candidate seeds, not relationships.
+alone. Code computes what a judge is shown, by time alone, and writes what
+the judge said. It never proposes an edge and never picks a pair; a score
+is never evidence. Structural links (reply-to, parent, revision-of) are
+facets and candidate seeds, not relationships.
+
+- Every pair a judge was shown gets a verdict row, whatever it said.
+  `unsure`, and a pair that was never shown, are never a no.
+- An edge has no state and no weight, and is never changed or deleted.
+- A chain never branches. A bead is superseded at most once, a label bead
+  follows at most two beads, and only a current bead supersedes or is
+  superseded. The tables refuse anything else, whoever writes it.
+- A label that changes what a reader takes as current is written only
+  after a second read, made without the first, gives it again. The setting
+  `second_read` turns this off; nothing else does.
+- A bead a judge makes holds no text: IDs, and one of a fixed set of words.
 
 ### 5. One store, one transaction
 
@@ -117,7 +131,9 @@ are facets and candidate seeds, not relationships.
   security stays on for every table and nothing is granted to `PUBLIC`.
 - The engine's database role can read and insert. It cannot change or delete
   what it stored, change a scope's state, give model consent, or erase. The
-  queue of its own work (`work`) is the one table it changes in place.
+  queue of its own work (`work`) is the one table it changes in place, and
+  a label that waits for its second read (`pending_labels`) is the one
+  other row it deletes.
 
 ### 6. Text lives in one place
 
@@ -128,6 +144,14 @@ are facets and candidate seeds, not relationships.
 - Erasing a message removes its text and everything derived from that text,
   in one transaction. A new table that holds content must be erased with its
   source, and must say so in `docs/architecture.md`.
+- What code computed from two beads' content for a verdict
+  (`verdicts.columns`), and where a name stands in a chunk (`name_links`),
+  are derived from text: both go when either bead is erased. Edges stay,
+  as IDs. A label bead is erased with its source and keeps its place in its
+  chain, so what it superseded does not become current again.
+- A table that holds what was read in, or judged of, an event or a bead
+  takes a new row only while that event or bead is live, whoever writes
+  it. An erase would not reach the row again.
 - Logs, error messages, receipts and work queues never hold source text or
   the database URL. An error about the configuration repeats a setting's
   value only once the value has passed that setting's own check, and
@@ -143,10 +167,14 @@ are facets and candidate seeds, not relationships.
 
 - Every transaction that writes for a workspace locks its change counter
   before it reads anything it will act on: the engine through
-  `core_memory.begin_write`, governance functions through
+  `core_memory.begin_write` for one scope, or
+  `core_memory.begin_workspace_write` for a judge, which reads across the
+  scopes of a workspace; governance functions through
   `core_memory.lock_workspace`. No writer takes a row lock on a scope
   first. One lock, taken first, is what keeps writers from deadlocking and
   keeps a pause or a revocation from being overtaken.
+- A transaction that holds row locks on the queue never then waits for a
+  workspace. An erasure holds the workspace and waits for those rows.
 - Every row the engine writes for a workspace, a model call's receipt
   included, carries a `seq` taken from that counter under the lock. A reader that pages by `seq` greater than
   the last one it saw must never miss a row. Never number rows from a
@@ -161,8 +189,8 @@ Every migration locks `schema_migrations` first, and that lock is the first
 one everything else takes, so a call that arrives during a migration waits
 holding nothing the migration needs:
 
-- a write starts with `core_memory.begin_write`, which refuses another
-  version;
+- a write starts with `core_memory.begin_write` or
+  `core_memory.begin_workspace_write`, which refuse another version;
 - every function a role may call starts with `core_memory.hold_schema`;
 - a read of several statements locks the table before its first query, so
   its snapshot is never older than a migration it waited for;
@@ -178,7 +206,8 @@ Tests fail if a function or a store call takes another lock first.
   with `pg_temp` last, and names every object it uses with its schema. A
   test fails if a function does not.
 - Every function is revoked from `PUBLIC`. The engine role may execute
-  `begin_write` only; the governor role, the governance functions only.
+  `begin_write` and `begin_workspace_write` only; the governor role, the
+  governance functions only.
 - Engine sessions and migrations set the same search path, and
   `READ COMMITTED`.
 - A column that holds what a source said, or a hash of it, is excluded
@@ -216,6 +245,21 @@ Tests fail if a function or a store call takes another lock first.
   said.
 - A bead of a tool call is the call's event: one bead, with the event's ID,
   however many chunks its text has.
+- A judge's call goes through `Store::permit_judgment`, which does for a
+  workspace what `permit` does for a scope. Each bead is decided on its own:
+  it is shown only while its scope is active and has granted the judge's
+  destination, and the receipt names every bead shown.
+- A judge is shown a tool call as what a model wrote about it, never as
+  its stored text.
+- Nothing a judge writes is stored as text. A verdict is one of a fixed
+  set, a label is one of four words, and a name is a byte range of a chunk.
+- A judgment is stored only for beads its call's receipt names, that are
+  live, in a scope that is active, and whose work the call still holds
+  under the lease its claim set. Whatever settles a judge's work names
+  that lease: a worker whose lease ran out changes nothing.
+- No receipt is written for a call that is not made: a bead with no other
+  to be read with is settled without one, and the beads of a repair or a
+  second read are shown all together or not at all.
 
 ---
 
