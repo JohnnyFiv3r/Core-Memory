@@ -24,6 +24,7 @@ clap.workspace = true
 core-memory-contract.workspace = true
 core-memory-core.workspace = true
 core-memory-model-anthropic.workspace = true
+core-memory-model-http.workspace = true
 core-memory-model-openai.workspace = true
 core-memory-source-jsonl.workspace = true
 core-memory-store-postgres.workspace = true

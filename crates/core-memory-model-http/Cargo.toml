@@ -14,6 +14,10 @@ publish.workspace = true
 core-memory-core.workspace = true
 serde_json.workspace = true
 ureq.workspace = true
+webpki-root-certs.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
 
 [features]
 # A one-shot mock HTTP server for adapter tests.

@@ -21,7 +21,7 @@ use serde_json::json;
 
 use crate::config::Loaded;
 use crate::report::{self, Stop};
-use crate::runtime::{open_store, open_transport};
+use crate::runtime::{model_roots, open_store, open_transport};
 
 /// How long the reader waits before it looks again when nothing is due.
 const IDLE_WAIT: Duration = Duration::from_millis(1_000);
@@ -148,21 +148,22 @@ impl Reader {
     /// The readers and the judge `loaded` configures, or `None` if it
     /// configures none of them. Nothing is sent to a model here.
     pub fn open(loaded: &Loaded, engine: Arc<Engine>) -> Result<Option<Self>, Stop> {
+        if engine.reader().is_none() && engine.tool_reader().is_none() && engine.judge().is_none() {
+            return Ok(None);
+        }
+        let roots = model_roots(loaded)?;
         let chunks = engine
             .reader()
-            .map(|reader| open_transport(&reader.binding))
+            .map(|reader| open_transport(&reader.binding, roots.as_ref()))
             .transpose()?;
         let tool_calls = engine
             .tool_reader()
-            .map(|reader| open_transport(&reader.binding))
+            .map(|reader| open_transport(&reader.binding, roots.as_ref()))
             .transpose()?;
         let judge = engine
             .judge()
-            .map(|judge| open_transport(&judge.binding))
+            .map(|judge| open_transport(&judge.binding, roots.as_ref()))
             .transpose()?;
-        if chunks.is_none() && tool_calls.is_none() && judge.is_none() {
-            return Ok(None);
-        }
         let store = open_store(loaded)?;
         Ok(Some(Self {
             engine,

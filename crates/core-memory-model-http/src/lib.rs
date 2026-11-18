@@ -2,18 +2,78 @@
 //! retries, and errors sorted by whether the provider could have processed
 //! the request.
 
+use std::path::Path;
+use std::sync::Arc;
 use std::time::Duration;
 
 use core_memory_core::model::TransportError;
 use ureq::Agent;
+use ureq::tls::{Certificate, PemItem, RootCerts, TlsConfig};
 
 /// Most of a provider's error body kept in an error message.
 const ERROR_BODY_CHARS: usize = 500;
 
-/// A blocking HTTP client with one overall timeout per request.
+/// A blocking HTTP client with one overall timeout per request. It goes
+/// through the proxy that `HTTPS_PROXY` names, except to the hosts
+/// `NO_PROXY` lists.
 #[derive(Debug, Clone)]
 pub struct HttpClient {
     agent: Agent,
+}
+
+/// The certificate authorities a client trusts: the public roots, and the
+/// certificates of a private one, such as a proxy's that re-signs what it
+/// passes on.
+#[derive(Clone)]
+pub struct Roots {
+    certs: Arc<Vec<Certificate<'static>>>,
+    private: usize,
+}
+
+impl std::fmt::Debug for Roots {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Roots")
+            .field("private", &self.private)
+            .finish_non_exhaustive()
+    }
+}
+
+impl Roots {
+    /// The public roots and every certificate in the PEM file at `path`.
+    /// The error never repeats the path: a setting's value is only as
+    /// harmless as what was put there.
+    pub fn with_file(path: &Path) -> Result<Self, String> {
+        let pem = std::fs::read(path).map_err(|e| e.to_string())?;
+        Self::with_pem(&pem)
+    }
+
+    fn with_pem(pem: &[u8]) -> Result<Self, String> {
+        let mut private = Vec::new();
+        for item in ureq::tls::parse_pem(pem) {
+            match item.map_err(|e| e.to_string())? {
+                PemItem::Certificate(cert) => private.push(cert),
+                _ => return Err("it holds something other than certificates".into()),
+            }
+        }
+        if private.is_empty() {
+            return Err("it holds no certificate".into());
+        }
+        let count = private.len();
+        let mut certs: Vec<Certificate<'static>> = webpki_root_certs::TLS_SERVER_ROOT_CERTS
+            .iter()
+            .map(|der| Certificate::from_der(der))
+            .collect();
+        certs.extend(private);
+        Ok(Self {
+            certs: Arc::new(certs),
+            private: count,
+        })
+    }
+
+    /// How many certificates the file gave.
+    pub fn private(&self) -> usize {
+        self.private
+    }
 }
 
 /// A response of any status.
@@ -25,13 +85,25 @@ pub struct HttpReply {
 }
 
 impl HttpClient {
+    /// A client that trusts the public roots.
     pub fn new(timeout: Duration) -> Self {
-        let config = Agent::config_builder()
+        Self::trusting(timeout, None)
+    }
+
+    /// A client that trusts `roots`, or the public roots alone if `None`.
+    pub fn trusting(timeout: Duration, roots: Option<&Roots>) -> Self {
+        let mut config = Agent::config_builder()
             .timeout_global(Some(timeout))
-            .http_status_as_error(false)
-            .build();
+            .http_status_as_error(false);
+        if let Some(roots) = roots {
+            config = config.tls_config(
+                TlsConfig::builder()
+                    .root_certs(RootCerts::Specific(roots.certs.clone()))
+                    .build(),
+            );
+        }
         Self {
-            agent: Agent::new_with_config(config),
+            agent: Agent::new_with_config(config.build()),
         }
     }
 
@@ -335,6 +407,59 @@ mod tests {
             status_error("p", &unreadable, always),
             TransportError::Permanent { .. }
         ));
+    }
+
+    /// A self-signed authority made for these tests and nothing else.
+    const TEST_CA: &str = "-----BEGIN CERTIFICATE-----\n\
+MIIBkzCCATmgAwIBAgIUKcFoolTQZa7nRPSS3yea08CYRI4wCgYIKoZIzj0EAwIw\n\
+HjEcMBoGA1UEAwwTQ29yZSBNZW1vcnkgdGVzdCBDQTAgFw0yNjExMTgwMjI4NDZa\n\
+GA8yMTI2MTAyNTAyMjg0NlowHjEcMBoGA1UEAwwTQ29yZSBNZW1vcnkgdGVzdCBD\n\
+QTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABLoFXbY5bzMePwwxPcHxZzlWubd5\n\
+7fc2ZCoFybv/ptDSPpQ7guWGuQVED4TAOh14angTnQk6cn1jbdLnQ4hqhUajUzBR\n\
+MB0GA1UdDgQWBBTSMBhrWAIlfZmRdA+InApMcz00XTAfBgNVHSMEGDAWgBTSMBhr\n\
+WAIlfZmRdA+InApMcz00XTAPBgNVHRMBAf8EBTADAQH/MAoGCCqGSM49BAMCA0gA\n\
+MEUCIG2/Fa/qx/j0xw0IwRQ0FuNnlIojyuDQ/NDOCqkSqUFDAiEA6YSf+7LbyOCq\n\
+0iA2k66Cin8Y1D+1XBzZRQnrXQLskas=\n\
+-----END CERTIFICATE-----
+";
+
+    #[test]
+    fn a_private_authority_is_trusted_as_well_as_the_public_roots() {
+        let roots = Roots::with_pem(TEST_CA.as_bytes()).unwrap();
+        assert_eq!(roots.private(), 1);
+        assert_eq!(
+            roots.certs.len(),
+            webpki_root_certs::TLS_SERVER_ROOT_CERTS.len() + 1
+        );
+        let twice = format!("{TEST_CA}{TEST_CA}");
+        assert_eq!(Roots::with_pem(twice.as_bytes()).unwrap().private(), 2);
+        // A client trusting them is built without a request being sent.
+        HttpClient::trusting(Duration::from_secs(1), Some(&roots));
+    }
+
+    #[test]
+    fn a_file_without_certificates_or_with_a_key_is_refused() {
+        assert_eq!(
+            Roots::with_pem(b"not a certificate").unwrap_err(),
+            "it holds no certificate"
+        );
+        let key =
+            "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIA==\n-----END PRIVATE KEY-----\n";
+        let mixed = format!("{TEST_CA}{key}");
+        assert_eq!(
+            Roots::with_pem(mixed.as_bytes()).unwrap_err(),
+            "it holds something other than certificates"
+        );
+    }
+
+    #[test]
+    fn a_missing_file_is_refused_without_its_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("secret-name.pem");
+        let err = Roots::with_file(&path).unwrap_err();
+        assert!(!err.contains("secret-name"), "{err}");
+        std::fs::write(&path, TEST_CA).unwrap();
+        assert_eq!(Roots::with_file(&path).unwrap().private(), 1);
     }
 
     #[test]

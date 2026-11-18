@@ -58,8 +58,14 @@ impl fmt::Debug for OpenAiTransport {
 impl OpenAiTransport {
     /// `api_key` may be absent for local servers that need none.
     pub fn new(dialect: Dialect, api_key: Option<String>, timeout: Duration) -> Self {
+        Self::with_client(dialect, api_key, HttpClient::new(timeout))
+    }
+
+    /// A transport that sends through `client`, such as one that trusts a
+    /// private certificate authority.
+    pub fn with_client(dialect: Dialect, api_key: Option<String>, client: HttpClient) -> Self {
         Self {
-            client: HttpClient::new(timeout),
+            client,
             dialect,
             api_key,
         }

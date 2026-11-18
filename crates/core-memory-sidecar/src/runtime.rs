@@ -5,6 +5,7 @@ use std::time::Duration;
 
 use core_memory_core::{BindingConfig, Engine, ModelTransport, SystemClock};
 use core_memory_model_anthropic::AnthropicTransport;
+use core_memory_model_http::{HttpClient, Roots};
 use core_memory_model_openai::{Dialect, OpenAiTransport};
 use core_memory_store_postgres::{PostgresPool, PostgresStore};
 
@@ -52,11 +53,28 @@ pub fn check_binding(binding: &BindingConfig) -> Result<(), Stop> {
     Ok(OpenAiTransport::check_binding(binding)?)
 }
 
+/// The certificate authorities model calls trust: the public roots, and
+/// those of `[models] ca_file` if it names a file. `None` for the public
+/// roots alone.
+pub fn model_roots(loaded: &Loaded) -> Result<Option<Roots>, Stop> {
+    match &loaded.config.models.ca_file {
+        None => Ok(None),
+        // The path is not repeated. A setting's value is only as harmless
+        // as what was put there.
+        Some(path) => Roots::with_file(&loaded.resolve(path))
+            .map(Some)
+            .map_err(|e| Stop::Failed(format!("models.ca_file: {e}"))),
+    }
+}
+
 /// The transport for a binding, with its key read from the environment.
 /// Nothing is sent: a binding is first used when a chunk is read.
-pub fn open_transport(binding: &BindingConfig) -> Result<Box<dyn ModelTransport>, Stop> {
+pub fn open_transport(
+    binding: &BindingConfig,
+    roots: Option<&Roots>,
+) -> Result<Box<dyn ModelTransport>, Stop> {
     check_binding(binding)?;
-    let timeout = Duration::from_millis(binding.timeout_ms);
+    let client = HttpClient::trusting(Duration::from_millis(binding.timeout_ms), roots);
     let key = match &binding.api_key_env {
         None => None,
         Some(name) => Some(
@@ -73,8 +91,8 @@ pub fn open_transport(binding: &BindingConfig) -> Result<Box<dyn ModelTransport>
     };
     match (Dialect::for_provider(&binding.provider), key) {
         // A server on this machine may need no key.
-        (Some(dialect), key) => Ok(Box::new(OpenAiTransport::new(dialect, key, timeout))),
-        (None, Some(key)) => Ok(Box::new(AnthropicTransport::new(key, timeout))),
+        (Some(dialect), key) => Ok(Box::new(OpenAiTransport::with_client(dialect, key, client))),
+        (None, Some(key)) => Ok(Box::new(AnthropicTransport::with_client(key, client))),
         (None, None) => Err(Stop::Failed(format!(
             "binding `{}` has no API key",
             binding.id
@@ -107,5 +125,59 @@ impl Runtime {
             engine,
             store,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A self-signed authority made for these tests and nothing else.
+    const TEST_CA: &str = "-----BEGIN CERTIFICATE-----\n\
+MIIBkzCCATmgAwIBAgIUKcFoolTQZa7nRPSS3yea08CYRI4wCgYIKoZIzj0EAwIw\n\
+HjEcMBoGA1UEAwwTQ29yZSBNZW1vcnkgdGVzdCBDQTAgFw0yNjExMTgwMjI4NDZa\n\
+GA8yMTI2MTAyNTAyMjg0NlowHjEcMBoGA1UEAwwTQ29yZSBNZW1vcnkgdGVzdCBD\n\
+QTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABLoFXbY5bzMePwwxPcHxZzlWubd5\n\
+7fc2ZCoFybv/ptDSPpQ7guWGuQVED4TAOh14angTnQk6cn1jbdLnQ4hqhUajUzBR\n\
+MB0GA1UdDgQWBBTSMBhrWAIlfZmRdA+InApMcz00XTAfBgNVHSMEGDAWgBTSMBhr\n\
+WAIlfZmRdA+InApMcz00XTAPBgNVHRMBAf8EBTADAQH/MAoGCCqGSM49BAMCA0gA\n\
+MEUCIG2/Fa/qx/j0xw0IwRQ0FuNnlIojyuDQ/NDOCqkSqUFDAiEA6YSf+7LbyOCq\n\
+0iA2k66Cin8Y1D+1XBzZRQnrXQLskas=\n\
+-----END CERTIFICATE-----
+";
+
+    fn loaded(dir: &std::path::Path, models: &str) -> Loaded {
+        let path = dir.join("core-memory.toml");
+        std::fs::write(&path, models).unwrap();
+        Loaded::read(&path).unwrap()
+    }
+
+    #[test]
+    fn model_calls_trust_a_private_authority_named_beside_the_config() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(model_roots(&loaded(dir.path(), "")).unwrap().is_none());
+        std::fs::write(dir.path().join("proxy-ca.pem"), TEST_CA).unwrap();
+        let roots = model_roots(&loaded(
+            dir.path(),
+            "[models]\nca_file = \"proxy-ca.pem\"\n",
+        ))
+        .unwrap()
+        .unwrap();
+        assert_eq!(roots.private(), 1);
+    }
+
+    #[test]
+    fn a_missing_authority_file_stops_the_command_without_its_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let err = model_roots(&loaded(
+            dir.path(),
+            "[models]\nca_file = \"secret-name.pem\"\n",
+        ))
+        .unwrap_err();
+        let Stop::Failed(message) = err else {
+            panic!("a missing file is a configuration error")
+        };
+        assert!(message.starts_with("models.ca_file: "), "{message}");
+        assert!(!message.contains("secret-name"), "{message}");
     }
 }

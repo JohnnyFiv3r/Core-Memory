@@ -227,6 +227,16 @@ retry`. No call is made more often than that for one chunk, whatever fails,
 and a chunk the model declines when it is sent alone is set aside at once.
 Logs and receipts never hold chunk text or what a model said.
 
+Model calls go through the proxy that `HTTPS_PROXY` names, except to the
+hosts `NO_PROXY` lists. If that proxy re-signs what it passes on, or a model
+server of your own has a private certificate authority, name its
+certificates:
+
+```toml
+[models]
+ca_file = "proxy-ca.pem"   # trusted as well as the public roots
+```
+
 ### Tool calls
 
 An agent's call of a tool is an event like any other, with the call as its

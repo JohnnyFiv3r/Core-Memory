@@ -42,6 +42,9 @@ pub struct SidecarConfig {
     /// The models the engine may call.
     #[serde(default, rename = "binding")]
     pub bindings: Vec<BindingConfig>,
+    /// How the engine reaches the models it calls.
+    #[serde(default)]
+    pub models: ModelsConfig,
     /// Settings for `core-memory serve`.
     #[serde(default)]
     pub http: Option<HttpConfig>,
@@ -98,6 +101,18 @@ impl Default for StoreConfig {
             statement_timeout_ms: default_statement_timeout_ms(),
         }
     }
+}
+
+/// How the engine reaches the models it calls. A proxy is taken from
+/// `HTTPS_PROXY`, and `NO_PROXY` lists the hosts it is not used for.
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ModelsConfig {
+    /// PEM certificates of a private CA to trust as well as the public
+    /// roots, relative to the config file: a proxy that re-signs what it
+    /// passes on, or a model server of your own.
+    #[serde(default)]
+    pub ca_file: Option<PathBuf>,
 }
 
 fn default_pool_size() -> usize {
