@@ -33,7 +33,7 @@ pub use record::{
     ToolOutcomeRecord, ToolStatus,
 };
 pub use relation::{
-    BeadKind, BeadRecord, COLUMNS_REV, Direction, EdgeRecord, EdgeType, JudgeKind, JudgeRef, Label,
-    MadeBead, NameLinkRecord, PairColumns, Verdict, VerdictNote, VerdictRecord,
+    BeadKind, BeadRecord, COLUMNS_REV, Direction, EdgeRecord, EdgeType, JudgeRef, Label, MadeBead,
+    NameLinkRecord, PairColumns, Verdict, VerdictNote, VerdictRecord,
 };
 pub use timestamp::Timestamp;

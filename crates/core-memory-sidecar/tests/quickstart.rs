@@ -1640,7 +1640,6 @@ fn new_beads_are_judged_and_what_the_judge_said_is_exported() {
     };
     for verdict in &verdicts {
         assert_eq!(verdict["judge"]["binding_id"], "local");
-        assert_eq!(verdict["judge_kind"], "window");
         assert!(verdict.get("scope").is_none() && verdict.get("text").is_none());
     }
     let related: Vec<_> = verdicts

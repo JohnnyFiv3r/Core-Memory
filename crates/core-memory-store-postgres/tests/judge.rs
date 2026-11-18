@@ -337,7 +337,7 @@ fn new_beads_are_judged_against_the_beads_near_them_and_every_pair_gets_a_verdic
         "SELECT o.purpose, o.scope, o.destination, cardinality(o.bead_ids)::text,
                 cardinality(o.chunk_ids)::text, o.bytes_sent::text, r.result,
                 cardinality(j.new_beads)::text, cardinality(j.window_beads)::text,
-                j.judge_kind, j.read_no::text
+                j.read_no::text
            FROM core_memory.outbound_calls AS o
            JOIN core_memory.outbound_results AS r USING (call_id)
            JOIN core_memory.judge_reads AS j USING (call_id)",
@@ -357,7 +357,6 @@ fn new_beads_are_judged_against_the_beads_near_them_and_every_pair_gets_a_verdic
             "accepted",
             "3",
             "0",
-            "window",
             "1"
         ])
     );
@@ -2117,7 +2116,6 @@ fn the_end_of_a_judges_call_is_recorded_once() {
         &judged,
         core_memory_core::judge::Recording {
             id_key: &batch.id_key,
-            judge_kind: core_memory_contract::JudgeKind::Window,
             hold_labels: false,
         },
     );
@@ -2252,9 +2250,7 @@ fn what_a_judge_wrote_is_exported_and_one_scope_gets_only_what_lies_inside_it() 
             &verdict["verdict"],
             &verdict["direction"],
             &verdict["label"],
-            &verdict["judge_kind"],
             &verdict["read_no"],
-            &verdict["pick_chance"],
             &verdict["judge"]["binding_id"],
             &verdict["judge"]["rubric_rev"],
         ),
@@ -2263,9 +2259,7 @@ fn what_a_judge_wrote_is_exported_and_one_scope_gets_only_what_lies_inside_it() 
             &json!("supersedes"),
             &json!("later_to_earlier"),
             &json!("supersede"),
-            &json!("window"),
             &json!(1),
-            &json!(1.0),
             &json!("careful"),
             &json!(1),
         )
@@ -2546,9 +2540,9 @@ fn nothing_is_stored_about_a_bead_that_was_erased_whoever_writes_it() {
         (
             "verdicts",
             "INSERT INTO core_memory.verdicts (workspace_id, seq, earlier_bead, later_bead,
-                 verdict, direction, call_id, columns, columns_rev, pick_chance)
+                 verdict, direction, call_id, columns, columns_rev)
              SELECT v.workspace_id, 900001, b.bead_id, v.later_bead, 'none', 'undirected',
-                    v.call_id, v.columns, 1, 1
+                    v.call_id, v.columns, 1
                FROM core_memory.verdicts AS v, core_memory.beads AS b
               WHERE b.state = 'erased'",
         ),
@@ -2813,10 +2807,9 @@ fn a_verdict_and_a_name_link_carry_the_scopes_of_their_beads() {
     admin
         .batch_execute(
             "INSERT INTO core_memory.verdicts (workspace_id, seq, earlier_bead, later_bead,
-                 earlier_scope, later_scope, verdict, direction, call_id, columns, columns_rev,
-                 pick_chance)
+                 earlier_scope, later_scope, verdict, direction, call_id, columns, columns_rev)
              SELECT v.workspace_id, 900001, v.earlier_bead, v.later_bead, 'acme', 'acme',
-                    'none', 'undirected', v.call_id, v.columns, 1, 1
+                    'none', 'undirected', v.call_id, v.columns, 1
                FROM core_memory.verdicts AS v
               WHERE v.earlier_scope = 'acme' AND v.later_scope = 'beta'",
         )
@@ -2837,9 +2830,9 @@ fn a_verdict_and_a_name_link_carry_the_scopes_of_their_beads() {
                     'judge', r.call_id, r.judged_at, 'captured', r.judged_at, 900002
                FROM core_memory.judge_reads AS r;
              INSERT INTO core_memory.verdicts (workspace_id, seq, earlier_bead, later_bead,
-                 verdict, direction, call_id, columns, columns_rev, pick_chance)
+                 verdict, direction, call_id, columns, columns_rev)
              SELECT v.workspace_id, 900003, g.bead_id, v.later_bead, 'none', 'undirected',
-                    v.call_id, v.columns, 1, 1
+                    v.call_id, v.columns, 1
                FROM core_memory.verdicts AS v, core_memory.beads AS g
               WHERE v.seq = 900001 AND g.kind = 'group'",
         )
@@ -2885,7 +2878,7 @@ fn the_planner_keeps_no_sample_of_what_was_computed_from_two_beads() {
         ))
     };
     assert!(
-        sampled("'seq', 'verdict', 'earlier_scope', 'pick_chance'") >= 4,
+        sampled("'seq', 'verdict', 'earlier_scope', 'columns_rev'") >= 4,
         "ANALYZE collected statistics"
     );
     // What code computed about a pair says what both beads hold: how many
@@ -2956,7 +2949,6 @@ fn a_reply_that_comes_after_its_lease_ran_out_stores_nothing_for_work_another_wo
             &judged,
             Recording {
                 id_key,
-                judge_kind: core_memory_contract::JudgeKind::Window,
                 hold_labels: false,
             },
         );
@@ -3599,9 +3591,9 @@ fn the_tables_keep_a_chain_growing_at_its_head_whoever_writes_to_them() {
     let told = refused(
         &mut admin,
         "INSERT INTO core_memory.verdicts (workspace_id, seq, earlier_bead, later_bead,
-             verdict, direction, call_id, columns, columns_rev, pick_chance)
+             verdict, direction, call_id, columns, columns_rev)
          SELECT 'w2', 1, v.earlier_bead, v.later_bead, 'none', 'undirected', v.call_id,
-                v.columns, 1, 1
+                v.columns, 1
            FROM core_memory.verdicts AS v LIMIT 1",
         &[],
     );

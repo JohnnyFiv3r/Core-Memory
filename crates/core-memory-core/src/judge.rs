@@ -21,8 +21,8 @@ use std::ops::Range;
 
 use core_memory_contract::hash::canonical_json_digest;
 use core_memory_contract::{
-    BeadId, BeadKind, Direction, EdgeType, EventKey, IdKey, JudgeKind, Label, ObjectRef,
-    PairColumns, Sha256Digest, TimeBasis, Verdict, VerdictNote,
+    BeadId, BeadKind, Direction, EdgeType, EventKey, IdKey, Label, ObjectRef, PairColumns,
+    Sha256Digest, TimeBasis, Verdict, VerdictNote,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -1248,7 +1248,6 @@ pub fn pair_columns(
 pub struct Recording<'a> {
     /// The workspace's ID key, for the IDs of label and group beads.
     pub id_key: &'a IdKey,
-    pub judge_kind: JudgeKind,
     /// Whether labels that change what readers take as current are held
     /// for a second read.
     pub hold_labels: bool,
@@ -1343,7 +1342,6 @@ pub fn judgment(shown: &Shown, judged: &Judged, recording: Recording<'_>) -> Jud
         })
         .collect();
     JudgmentWrite {
-        judge_kind: recording.judge_kind,
         read_no: 1,
         rubric_rev: RUBRIC_REV,
         new_beads: shown.new.iter().map(|bead| bead.bead_id).collect(),
@@ -1405,7 +1403,6 @@ pub fn second_judgment(
         })
         .collect();
     JudgmentWrite {
-        judge_kind: JudgeKind::Window,
         read_no: 2,
         rubric_rev: RUBRIC_REV,
         new_beads: shown.new.iter().map(|bead| bead.bead_id).collect(),
@@ -1460,9 +1457,6 @@ fn verdicts(
                     if new_is_later { other_is_new } else { true },
                     if new_is_later { true } else { other_is_new },
                 ),
-                // A window read is shown every pair, and nothing ranked them.
-                score: None,
-                pick_chance: 1.0,
             }
         })
         .collect()
@@ -2512,14 +2506,10 @@ mod tests {
             &judged,
             Recording {
                 id_key: &key,
-                judge_kind: JudgeKind::Window,
                 hold_labels: true,
             },
         );
-        assert_eq!(
-            (write.judge_kind, write.read_no, write.rubric_rev),
-            (JudgeKind::Window, 1, RUBRIC_REV)
-        );
+        assert_eq!((write.read_no, write.rubric_rev), (1, RUBRIC_REV));
         assert_eq!(write.window_beads, [id(1), id(2)]);
         assert_eq!(write.new_beads, [id(3), id(4)]);
 
@@ -2585,9 +2575,7 @@ mod tests {
                 ),
             ]
         );
-        assert!(write.verdicts.iter().all(|v| v.note.is_none()
-            && v.score.is_none()
-            && (v.pick_chance - 1.0).abs() < f64::EPSILON));
+        assert!(write.verdicts.iter().all(|v| v.note.is_none()));
         let late = &write.verdicts[1].columns;
         assert_eq!(
             (late.earlier_is_new, late.later_is_new, late.gap_ms),
@@ -2656,7 +2644,6 @@ mod tests {
             &judged,
             Recording {
                 id_key: &key,
-                judge_kind: JudgeKind::Window,
                 hold_labels: false,
             },
         );
@@ -2668,7 +2655,6 @@ mod tests {
         let key = IdKey::from_bytes([7; 32]);
         let recording = Recording {
             id_key: &key,
-            judge_kind: JudgeKind::Window,
             hold_labels: true,
         };
         let reaffirms = |to: &str, rel: &str| json!({"to": to, "rel": rel, "label": "reaffirm"});
@@ -2737,7 +2723,7 @@ mod tests {
             second_judgment(&shown, &judged, &key, (Label::Supersede, &[id(1)]))
         };
         let agreed = second(json!({"to": "B1", "rel": "SUPERSEDES<", "label": "supersede"}));
-        assert_eq!((agreed.read_no, agreed.judge_kind), (2, JudgeKind::Window));
+        assert_eq!(agreed.read_no, 2);
         assert_eq!(
             agreed.labels,
             [LabelWrite {

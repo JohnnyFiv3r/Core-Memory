@@ -130,18 +130,6 @@ named! {
 }
 
 named! {
-    /// Who judged.
-    JudgeKind {
-        /// The judge's read of new beads against the recent ones.
-        Window => "window",
-        /// The judge's read of candidates a ranking model proposed.
-        Cold => "cold",
-        /// A person.
-        User => "user",
-    }
-}
-
-named! {
     /// Why a `supersedes` verdict wrote no label. A `supersedes` verdict
     /// without a note wrote its label in the same read.
     VerdictNote {
@@ -247,18 +235,10 @@ pub struct VerdictRecord {
     pub label: Option<Label>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<VerdictNote>,
-    pub judge_kind: JudgeKind,
     /// 2 for the second, blind read of a proposed label.
     pub read_no: u8,
     pub columns: PairColumns,
     pub columns_rev: u32,
-    /// What a ranking model said of the pair when it proposed it. Absent
-    /// for a window read, which proposes nothing.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub score: Option<f64>,
-    /// The chance with which the pair was picked to be read: 1 in a window
-    /// read, which reads every pair.
-    pub pick_chance: f64,
     pub judge: JudgeRef,
     /// The call that produced the verdict. Its receipt names where the
     /// beads' text was sent.
@@ -350,7 +330,6 @@ mod tests {
         check(Verdict::ALL, Verdict::as_str, Verdict::from_name);
         check(Direction::ALL, Direction::as_str, Direction::from_name);
         check(Label::ALL, Label::as_str, Label::from_name);
-        check(JudgeKind::ALL, JudgeKind::as_str, JudgeKind::from_name);
         check(
             VerdictNote::ALL,
             VerdictNote::as_str,

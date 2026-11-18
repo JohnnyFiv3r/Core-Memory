@@ -11,8 +11,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use core_memory_contract::{
     BeadId, BeadRecord, CallId, ChunkFacets, Direction, EdgeRecord, EdgeType, EventDetails,
-    EventKey, IdKey, JudgeKind, JudgeRef, Label, MadeBead, NameLinkRecord, PairColumns, ReaderRef,
-    TimeBasis, Timestamp, ToolStatus, Verdict, VerdictNote, VerdictRecord,
+    EventKey, IdKey, JudgeRef, Label, MadeBead, NameLinkRecord, PairColumns, ReaderRef, TimeBasis,
+    Timestamp, ToolStatus, Verdict, VerdictNote, VerdictRecord,
 };
 use core_memory_core::StoreError;
 use core_memory_core::store::{
@@ -1207,9 +1207,9 @@ pub(crate) fn export_judgments(
         .query(
             &format!(
                 "SELECT v.seq, v.earlier_bead, v.later_bead, v.verdict, v.direction, v.label,
-                        v.note, v.columns, v.columns_rev, v.score, v.pick_chance, v.call_id,
-                        r.judge_kind, r.read_no, r.rubric_rev, r.binding_id, r.binding_rev,
-                        r.model, r.judged_at, v.earlier_scope, v.later_scope
+                        v.note, v.columns, v.columns_rev, v.call_id, r.read_no, r.rubric_rev,
+                        r.binding_id, r.binding_rev, r.model, r.judged_at, v.earlier_scope,
+                        v.later_scope
                    FROM core_memory.verdicts AS v
                    JOIN core_memory.judge_reads AS r ON r.call_id = v.call_id
                   WHERE v.workspace_id = $1 AND v.seq > $2 AND v.seq <= $3 AND {inside}
@@ -1221,7 +1221,7 @@ pub(crate) fn export_judgments(
         .map_err(backend)?;
     for row in &rows {
         let seq = to_u64(row.get(0), "change number")?;
-        let (verdict, direction, kind): (&str, &str, &str) = (row.get(3), row.get(4), row.get(12));
+        let (verdict, direction): (&str, &str) = (row.get(3), row.get(4));
         let Json(columns): Json<PairColumns> = row.try_get(7).map_err(|e| {
             corrupt(format!(
                 "the columns of verdict {seq} do not read back: {e}"
@@ -1232,8 +1232,8 @@ pub(crate) fn export_judgments(
             seq,
             earlier_bead: BeadId(row.get::<_, Uuid>(1)),
             later_bead: BeadId(row.get::<_, Uuid>(2)),
-            earlier_scope: row.get(19),
-            later_scope: row.get(20),
+            earlier_scope: row.get(16),
+            later_scope: row.get(17),
             verdict: Verdict::from_name(verdict).ok_or_else(|| named(verdict, "verdict"))?,
             direction: Direction::from_name(direction)
                 .ok_or_else(|| named(direction, "direction"))?,
@@ -1245,21 +1245,18 @@ pub(crate) fn export_judgments(
                 .get::<_, Option<&str>>(6)
                 .map(|note| VerdictNote::from_name(note).ok_or_else(|| named(note, "note")))
                 .transpose()?,
-            judge_kind: JudgeKind::from_name(kind).ok_or_else(|| named(kind, "judge"))?,
-            read_no: u8::try_from(row.get::<_, i32>(13))
+            read_no: u8::try_from(row.get::<_, i32>(10))
                 .map_err(|_| corrupt(format!("verdict {seq} has no read number")))?,
             columns,
             columns_rev: to_u32(row.get(8), "columns revision")?,
-            score: row.get(9),
-            pick_chance: row.get(10),
             judge: JudgeRef {
-                binding_id: row.get(15),
-                binding_rev: digest(row.get(16), "binding revision")?,
-                model: row.get(17),
-                rubric_rev: to_u32(row.get(14), "rubric revision")?,
+                binding_id: row.get(12),
+                binding_rev: digest(row.get(13), "binding revision")?,
+                model: row.get(14),
+                rubric_rev: to_u32(row.get(11), "rubric revision")?,
             },
-            call_id: CallId(row.get::<_, Uuid>(11)),
-            judged_at: at(row, 18),
+            call_id: CallId(row.get::<_, Uuid>(9)),
+            judged_at: at(row, 15),
         };
         changes.insert(record.seq, Change::Verdict(Box::new(record)));
     }
@@ -1499,14 +1496,13 @@ fn store_judgment(
     let window: Vec<Uuid> = j.window_beads.iter().map(|bead| bead.0).collect();
     tx.execute(
         "INSERT INTO core_memory.judge_reads (
-             call_id, workspace_id, seq, judge_kind, read_no, new_beads, window_beads,
-             rubric_rev, binding_id, binding_rev, model, judged_at
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
+             call_id, workspace_id, seq, read_no, new_beads, window_beads, rubric_rev,
+             binding_id, binding_rev, model, judged_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
         &[
             &f.call_id.0,
             &f.workspace,
             &numbers.take()?,
-            &j.judge_kind.as_str(),
             &i32::from(j.read_no),
             &judged,
             &window,
@@ -1723,7 +1719,7 @@ fn store_judgment(
     let (mut earlier, mut later) = (Vec::new(), Vec::new());
     let (mut said, mut directions) = (Vec::new(), Vec::new());
     let (mut given, mut notes): (Vec<Option<&str>>, Vec<Option<&str>>) = (Vec::new(), Vec::new());
-    let (mut columns, mut scores, mut chances) = (Vec::new(), Vec::new(), Vec::new());
+    let mut columns = Vec::new();
     for verdict in &verdicts {
         let note = match (verdict.verdict, verdict.note) {
             (Verdict::Supersedes, None) => {
@@ -1749,20 +1745,17 @@ fn store_judgment(
         given.push(verdict.label.map(Label::as_str));
         notes.push(note.map(VerdictNote::as_str));
         columns.push(Json(&verdict.columns));
-        scores.push(verdict.score);
-        chances.push(verdict.pick_chance);
     }
     tx.execute(
         "INSERT INTO core_memory.verdicts (
              workspace_id, seq, earlier_bead, later_bead, verdict, direction, label, note,
-             call_id, columns, columns_rev, score, pick_chance
+             call_id, columns, columns_rev
          )
          SELECT $1, v.seq, v.earlier, v.later, v.verdict, v.direction, v.label, v.note, $2,
-                v.columns, $3, v.score, v.chance
+                v.columns, $3
            FROM UNNEST($4::int8[], $5::uuid[], $6::uuid[], $7::text[], $8::text[], $9::text[],
-                       $10::text[], $11::jsonb[], $12::float8[], $13::float8[])
-                AS v (seq, earlier, later, verdict, direction, label, note, columns, score,
-                      chance)",
+                       $10::text[], $11::jsonb[])
+                AS v (seq, earlier, later, verdict, direction, label, note, columns)",
         &[
             &f.workspace,
             &f.call_id.0,
@@ -1775,8 +1768,6 @@ fn store_judgment(
             &given,
             &notes,
             &columns,
-            &scores,
-            &chances,
         ],
     )
     .map_err(backend)?;

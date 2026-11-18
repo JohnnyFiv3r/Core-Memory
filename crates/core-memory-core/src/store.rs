@@ -12,10 +12,9 @@
 use core_memory_contract::{
     BeadId, BeadRecord, CallId, CatalogRef, Checkpoint, CheckpointReceipt, ChunkFacets, ChunkId,
     ChunkReadRecord, ChunkRecord, ChunkerRef, CompressorRef, Direction, EdgeRecord, EdgeType,
-    ErasureRecord, EventDetails, EventId, EventKey, EventRecord, IdKey, JudgeKind, Label,
-    NameLinkRecord, PairColumns, ProfileRef, ReadDecision, ReadSpan, ReaderRef, Sha256Digest,
-    TimeBasis, Timestamp, ToolCallDetails, ToolOutcomeRecord, ToolStatus, Verdict, VerdictNote,
-    VerdictRecord,
+    ErasureRecord, EventDetails, EventId, EventKey, EventRecord, IdKey, Label, NameLinkRecord,
+    PairColumns, ProfileRef, ReadDecision, ReadSpan, ReaderRef, Sha256Digest, TimeBasis, Timestamp,
+    ToolCallDetails, ToolOutcomeRecord, ToolStatus, Verdict, VerdictNote, VerdictRecord,
 };
 
 use crate::error::StoreError;
@@ -726,8 +725,6 @@ pub struct VerdictWrite {
     /// became of every other label, the store decides and notes.
     pub note: Option<VerdictNote>,
     pub columns: PairColumns,
-    pub score: Option<f64>,
-    pub pick_chance: f64,
 }
 
 /// A relationship between two beads of source content to store.
@@ -787,7 +784,6 @@ pub struct NameLinkWrite {
 /// transaction.
 #[derive(Debug, Clone, PartialEq)]
 pub struct JudgmentWrite {
-    pub judge_kind: JudgeKind,
     /// 1, or 2 for the second read of a proposed label.
     pub read_no: u8,
     pub rubric_rev: u32,

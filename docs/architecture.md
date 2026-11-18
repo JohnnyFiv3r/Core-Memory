@@ -791,15 +791,15 @@ attempt given back, so that no lease is left behind to keep other judges
 out of the workspace.
 
 A verdict row holds the two beads in time order, the scope of each, an
-explicit direction, the label if the verdict is `supersedes`, the kind of
-judge (`window`; `cold` and `user` are reserved), the rubric and binding
-revisions, and the pair's
-`columns` as they were at that moment: the gap in time, whether the beads
+explicit direction, the label if the verdict is `supersedes`, the rubric
+and binding revisions, and the pair's `columns` as they were at that
+moment: the gap in time, whether the beads
 share a scope, an event, a thread, a session or an actor, whether one
 replies to the other, how many identifiers and URLs they share, their kinds
 and types, and whether each was current and new to the judge. The columns
-are numbers, flags and vocabulary keys. They are for a model that ranks
-candidate pairs elsewhere. Nothing in the engine reads them back.
+are numbers, flags and vocabulary keys. They are for a host that learns
+which pairs are worth showing a judge. Nothing in the engine reads them
+back.
 
 A chain grows at its head. When a read is stored, a label is written only
 if its source and each bead it follows are still current, and its source
@@ -866,15 +866,13 @@ judge said of them:
 After an erase the tables take no new verdict, edge, label or name link
 about the erased bead, whoever writes it.
 
-### Candidates from elsewhere (*planned*)
+### Pairs beyond the window
 
-A host that ranks pairs across the whole store will hand them to the same
-judge: a new bead, the beads to read it against, and for each the score and
-the chance with which it was picked. They will be read with the same rubric
-and stored the same way, with the judge kind `cold`. The engine will not
-choose them and will not act on the score. The verdict table already has
-the columns for it (`judge_kind`, `score`, `pick_chance`); the call that
-hands candidates over is not built.
+The engine's judge reads a bead only against the beads near it in time.
+Finding pairs across the whole store, ranking them and judging them is a
+host's work: memoriesQL does it over the tables it reads, with judges and
+tables of its own. The engine keeps nothing for it but what any host may
+read: every verdict, a no included, with the pair's columns.
 
 ## Records and export
 

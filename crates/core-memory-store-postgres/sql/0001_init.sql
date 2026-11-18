@@ -427,7 +427,6 @@ CREATE TABLE core_memory.judge_reads (
     call_id uuid PRIMARY KEY REFERENCES core_memory.outbound_calls,
     workspace_id text NOT NULL REFERENCES core_memory.workspaces,
     seq bigint NOT NULL CHECK (seq > 0),
-    judge_kind text NOT NULL CHECK (judge_kind IN ('window', 'cold', 'user')),
     -- 2 for the second, blind read of one proposed label.
     read_no integer NOT NULL CHECK (read_no IN (1, 2)),
     new_beads uuid[] NOT NULL CHECK (cardinality(new_beads) > 0),
@@ -445,9 +444,9 @@ CREATE INDEX judge_reads_new_idx ON core_memory.judge_reads USING gin (new_beads
 ALTER TABLE core_memory.beads
     ADD CONSTRAINT beads_call_id_fkey FOREIGN KEY (call_id) REFERENCES core_memory.judge_reads;
 
--- One row for every pair a judge was shown, whatever it said. This is what
--- a ranking model elsewhere learns from, so it records a no as carefully
--- as a yes: 'unsure', and a pair never shown, are not a no.
+-- One row for every pair a judge was shown, whatever it said. A host may
+-- learn from it which pairs are worth showing, so it records a no as
+-- carefully as a yes: 'unsure', and a pair never shown, are not a no.
 --
 -- The two beads are in time order, and the direction is explicit because
 -- the order in which messages arrived is not the order in which things
@@ -488,10 +487,6 @@ CREATE TABLE core_memory.verdicts (
     call_id uuid NOT NULL REFERENCES core_memory.judge_reads,
     columns jsonb NOT NULL,
     columns_rev integer NOT NULL CHECK (columns_rev > 0),
-    -- What a ranking model said of the pair when it proposed it, and the
-    -- chance with which the pair was picked. A window read picks every pair.
-    score double precision,
-    pick_chance double precision NOT NULL CHECK (pick_chance > 0 AND pick_chance <= 1),
     PRIMARY KEY (workspace_id, seq),
     CHECK (earlier_bead <> later_bead),
     CHECK ((verdict = 'supersedes') = (label IS NOT NULL)),

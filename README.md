@@ -27,9 +27,9 @@ wrote about it, because a later reader is better served by those than by
 thousands of lines of output. What a judge says is stored as relationships
 between IDs, and as a record of every pair it looked at.
 
-[docs/architecture.md](docs/architecture.md) describes the design, including
-the one part that is planned and not built: taking candidate pairs from a
-ranking model outside the engine.
+[docs/architecture.md](docs/architecture.md) describes the design. Finding
+related pairs across the whole store, beyond what a judge reads in time
+order, is a host's work and not the engine's: memoriesQL does it.
 
 This branch is pre-release. Nothing from it is published to PyPI or crates.io.
 
@@ -466,9 +466,8 @@ written by code that does not know the new schema.
   judge made, edges, name links and erasures as `core_memory.record.v2` JSON
   Lines.
 
-Not built yet: taking candidate pairs for the judge from a ranking model
-outside the engine. Reading and judging have been tested against stand-in
-models only, not yet against a live one.
+Reading and judging have been tested against stand-in models only, not yet
+against a live one.
 
 ## Workspace
 

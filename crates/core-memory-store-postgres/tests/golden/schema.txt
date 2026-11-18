@@ -178,7 +178,6 @@ table judge_reads
   call_id uuid not null
   workspace_id text not null
   seq bigint not null
-  judge_kind text not null
   read_no integer not null
   new_beads uuid[] not null
   window_beads uuid[] not null
@@ -373,8 +372,6 @@ table verdicts
   call_id uuid not null
   columns jsonb not null
   columns_rev integer not null
-  score double precision null
-  pick_chance double precision not null
   may: engine select insert
   row security: on; policies: engine (all to core_memory_engine)
   trigger verdicts_fixed BEFORE UPDATE FOR EACH ROW EXECUTE FUNCTION core_memory.refuse_change()

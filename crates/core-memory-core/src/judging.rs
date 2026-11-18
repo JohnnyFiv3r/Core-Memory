@@ -12,7 +12,7 @@
 //!
 //! Nothing here logs or returns a bead's text or a model's.
 
-use core_memory_contract::{BeadId, CallId, JudgeKind, Label, ReaderRef, Sha256Digest, Timestamp};
+use core_memory_contract::{BeadId, CallId, Label, ReaderRef, Sha256Digest, Timestamp};
 
 use crate::engine::Engine;
 use crate::error::{ConfigError, EngineError};
@@ -552,7 +552,6 @@ impl Engine {
                     judged,
                     Recording {
                         id_key,
-                        judge_kind: JudgeKind::Window,
                         hold_labels: reading.judge.settings.second_read,
                     },
                 ),
