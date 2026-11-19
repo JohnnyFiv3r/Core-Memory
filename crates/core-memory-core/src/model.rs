@@ -165,6 +165,11 @@ pub struct ModelRequest {
     pub system: String,
     pub user: String,
     pub response_schema: serde_json::Value,
+    /// Whether the provider is asked to hold the reply to
+    /// `response_schema`. The engine checks every reply itself either way.
+    /// Held to its schema, a model can leave out what the schema does not
+    /// require and pick among choices it would not otherwise make.
+    pub enforce_schema: bool,
     pub max_output_tokens: u32,
 }
 
@@ -218,9 +223,13 @@ pub enum TransportError {
     },
     /// The request itself is unacceptable: credentials, model, settings.
     Permanent { message: String },
-    /// The model declined this request's content, or the request or its
-    /// reply did not fit. The same chunks in a smaller batch may succeed.
+    /// The model declined this request's content. The same chunks in a
+    /// smaller batch may succeed.
     Refused { message: String },
+    /// The request did not fit the model's context, or the reply was cut
+    /// off at the binding's `max_output_tokens`. The same chunks in a
+    /// smaller batch may succeed.
+    DidNotFit { message: String },
     /// The request may have been processed: a timeout after sending.
     InDoubt { message: String },
 }
@@ -231,6 +240,7 @@ impl fmt::Display for TransportError {
             TransportError::Transient { message, .. } => write!(f, "transient: {message}"),
             TransportError::Permanent { message } => write!(f, "permanent: {message}"),
             TransportError::Refused { message } => write!(f, "refused: {message}"),
+            TransportError::DidNotFit { message } => write!(f, "did not fit: {message}"),
             TransportError::InDoubt { message } => write!(f, "in doubt: {message}"),
         }
     }

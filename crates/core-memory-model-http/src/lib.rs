@@ -181,20 +181,29 @@ fn never_sent(kind: std::io::ErrorKind) -> bool {
     )
 }
 
+/// What a provider's error body says, where it says more than its status.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClientError {
+    /// The model declined the content.
+    Declined,
+    /// The request did not fit the model's context.
+    DidNotFit,
+}
+
 /// Maps a non-success status to a transport error. 408, 409, 429 and 5xx
 /// (including 529 overloaded) are retryable; 413 means the request was too
 /// large, so a smaller batch may succeed; other 4xx are not retryable,
 /// unless the provider's own error body says otherwise.
 ///
-/// `refused` is the adapter's reading of its provider's error bodies. It
-/// sees each other 4xx status with its body parsed as JSON, and returns
-/// true only for the documented shapes that mean the model declined the
-/// content or the request did not fit; those become
-/// [`TransportError::Refused`]. Everything else stays permanent.
+/// `read` is the adapter's reading of its provider's error bodies. It sees
+/// each other 4xx status with its body parsed as JSON, and names only the
+/// documented shapes that mean the model declined the content
+/// ([`TransportError::Refused`]) or the request did not fit
+/// ([`TransportError::DidNotFit`]). Everything else stays permanent.
 pub fn status_error(
     provider: &str,
     reply: &HttpReply,
-    refused: fn(u16, &serde_json::Value) -> bool,
+    read: fn(u16, &serde_json::Value) -> Option<ClientError>,
 ) -> TransportError {
     let snippet: String = reply.body.chars().take(ERROR_BODY_CHARS).collect();
     let message = format!("{provider} returned {}: {snippet}", reply.status);
@@ -203,12 +212,15 @@ pub fn status_error(
             message,
             retry_after_ms: reply.retry_after_ms,
         },
-        413 => TransportError::Refused { message },
-        status @ 400..=499
-            if serde_json::from_str(&reply.body).is_ok_and(|body| refused(status, &body)) =>
+        413 => TransportError::DidNotFit { message },
+        status @ 400..=499 => match serde_json::from_str(&reply.body)
+            .ok()
+            .and_then(|body| read(status, &body))
         {
-            TransportError::Refused { message }
-        }
+            Some(ClientError::Declined) => TransportError::Refused { message },
+            Some(ClientError::DidNotFit) => TransportError::DidNotFit { message },
+            None => TransportError::Permanent { message },
+        },
         _ => TransportError::Permanent { message },
     }
 }
@@ -362,19 +374,23 @@ mod tests {
         }
     }
 
-    fn never(_: u16, _: &serde_json::Value) -> bool {
-        false
+    fn never(_: u16, _: &serde_json::Value) -> Option<ClientError> {
+        None
     }
 
-    fn always(_: u16, _: &serde_json::Value) -> bool {
-        true
+    fn declined(_: u16, _: &serde_json::Value) -> Option<ClientError> {
+        Some(ClientError::Declined)
+    }
+
+    fn too_long(_: u16, _: &serde_json::Value) -> Option<ClientError> {
+        Some(ClientError::DidNotFit)
     }
 
     #[test]
     fn retryable_statuses_are_transient() {
         for status in [408, 409, 429, 500, 503, 529] {
             assert!(matches!(
-                status_error("p", &reply(status, Some(2000)), always),
+                status_error("p", &reply(status, Some(2000)), declined),
                 TransportError::Transient {
                     retry_after_ms: Some(2000),
                     ..
@@ -389,22 +405,26 @@ mod tests {
         }
         assert!(matches!(
             status_error("p", &reply(413, None), never),
-            TransportError::Refused { .. }
+            TransportError::DidNotFit { .. }
         ));
     }
 
     #[test]
     fn the_adapter_reads_other_client_errors() {
         assert!(matches!(
-            status_error("p", &reply(400, None), always),
+            status_error("p", &reply(400, None), declined),
             TransportError::Refused { .. }
+        ));
+        assert!(matches!(
+            status_error("p", &reply(400, None), too_long),
+            TransportError::DidNotFit { .. }
         ));
         let unreadable = HttpReply {
             body: "<html>bad request</html>".into(),
             ..reply(400, None)
         };
         assert!(matches!(
-            status_error("p", &unreadable, always),
+            status_error("p", &unreadable, declined),
             TransportError::Permanent { .. }
         ));
     }

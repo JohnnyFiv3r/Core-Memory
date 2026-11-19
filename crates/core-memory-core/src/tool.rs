@@ -128,6 +128,7 @@ pub fn render(shown: &ToolCallShown, max_output_tokens: u32) -> ModelRequest {
         system: SYSTEM_PROMPT.to_string(),
         user: shown.user.clone(),
         response_schema: reply_schema(),
+        enforce_schema: true,
         max_output_tokens,
     }
 }

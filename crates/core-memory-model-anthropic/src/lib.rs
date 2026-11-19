@@ -18,7 +18,7 @@ use std::time::Duration;
 use core_memory_core::model::{
     BindingConfig, ModelRequest, ModelResponse, ModelTransport, TransportError, Usage,
 };
-use core_memory_model_http::{HttpClient, parse_body, status_error};
+use core_memory_model_http::{ClientError, HttpClient, parse_body, status_error};
 use serde_json::{Value, json};
 
 /// The `anthropic-version` header this adapter speaks.
@@ -90,19 +90,26 @@ impl AnthropicTransport {
 
     /// The request body for one call.
     pub fn body(binding: &BindingConfig, request: &ModelRequest) -> Value {
-        let mut output_config = json!({
-            "format": {"type": "json_schema", "schema": sendable(&request.response_schema)},
-        });
-        if let Some(effort) = &binding.reasoning_effort {
-            output_config["effort"] = json!(effort);
+        let mut output_config = serde_json::Map::new();
+        if request.enforce_schema {
+            output_config.insert(
+                "format".into(),
+                json!({"type": "json_schema", "schema": sendable(&request.response_schema)}),
+            );
         }
-        json!({
+        if let Some(effort) = &binding.reasoning_effort {
+            output_config.insert("effort".into(), json!(effort));
+        }
+        let mut body = json!({
             "model": binding.model,
             "max_tokens": request.max_output_tokens,
             "system": request.system,
             "messages": [{"role": "user", "content": request.user}],
-            "output_config": output_config,
-        })
+        });
+        if !output_config.is_empty() {
+            body["output_config"] = Value::Object(output_config);
+        }
+        body
     }
 }
 
@@ -158,13 +165,14 @@ fn sendable(schema: &Value) -> Value {
 /// A smaller batch may fit. Requests over the size limit come back as 413,
 /// which the shared client already treats the same way; every other error
 /// keeps its status mapping.
-fn too_long(status: u16, body: &Value) -> bool {
+fn too_long(status: u16, body: &Value) -> Option<ClientError> {
     let error = &body["error"];
-    status == 400
+    (status == 400
         && error["type"] == "invalid_request_error"
         && error["message"]
             .as_str()
-            .is_some_and(|m| m.starts_with("prompt is too long"))
+            .is_some_and(|m| m.starts_with("prompt is too long")))
+    .then_some(ClientError::DidNotFit)
 }
 
 impl ModelTransport for AnthropicTransport {
@@ -197,7 +205,7 @@ impl ModelTransport for AnthropicTransport {
                 });
             }
             Some("max_tokens" | "model_context_window_exceeded") => {
-                return Err(TransportError::Refused {
+                return Err(TransportError::DidNotFit {
                     message: format!(
                         "the reply was cut off ({}); raise the binding's max_output_tokens",
                         body["stop_reason"]
@@ -253,6 +261,7 @@ mod tests {
             system: "classify".into(),
             user: "{\"chunks\": []}".into(),
             response_schema: json!({"type": "object", "additionalProperties": false, "properties": {}}),
+            enforce_schema: true,
             max_output_tokens: 4096,
         }
     }
@@ -361,6 +370,27 @@ mod tests {
     }
 
     #[test]
+    fn the_reply_shape_is_held_only_when_the_request_asks() {
+        let api = binding("https://api.anthropic.com");
+        let held = AnthropicTransport::body(&api, &request());
+        assert_eq!(held["output_config"]["format"]["type"], "json_schema");
+        let free = ModelRequest {
+            enforce_schema: false,
+            ..request()
+        };
+        assert_eq!(
+            AnthropicTransport::body(&api, &free)["output_config"],
+            json!({"effort": "low"})
+        );
+        let no_effort = BindingConfig {
+            reasoning_effort: None,
+            ..api
+        };
+        let sent = AnthropicTransport::body(&no_effort, &free);
+        assert!(sent.get("output_config").is_none(), "{sent}");
+    }
+
+    #[test]
     fn refusals_and_truncation_are_not_types() {
         let (url, _s) = serve_once(
             200,
@@ -381,12 +411,12 @@ mod tests {
         );
         let err = transport.send(&binding(&url), &request()).unwrap_err();
         assert!(
-            matches!(&err, TransportError::Refused { message } if message.contains("max_output_tokens"))
+            matches!(&err, TransportError::DidNotFit { message } if message.contains("max_output_tokens"))
         );
     }
 
     #[test]
-    fn a_prompt_too_long_for_the_context_window_is_refused() {
+    fn a_prompt_too_long_for_the_context_window_did_not_fit() {
         let transport = AnthropicTransport::new("sk-test", Duration::from_secs(5));
         let (url, _s) = serve_once(
             400,
@@ -397,7 +427,7 @@ mod tests {
         );
         let err = transport.send(&binding(&url), &request()).unwrap_err();
         assert!(
-            matches!(&err, TransportError::Refused { message } if message.contains("prompt is too long")),
+            matches!(&err, TransportError::DidNotFit { message } if message.contains("prompt is too long")),
             "{err:?}"
         );
 

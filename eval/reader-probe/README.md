@@ -3,7 +3,16 @@
 The second live run of `eval/locomo-smoke` typed every chunk, small talk
 included, and abstained on none, although the reader's prompt asks it to
 abstain on a message that only keeps a conversation going. Four harmless
-questions were also refused. This probe finds out why.
+questions were also refused. This probe found out why.
+
+**What it found (2026-11-19):** held to its reply shape, the model typed
+all 14 turns of small talk, and wrote about 160 output tokens for eight
+turns, too few for any quotes. With the shape not enforced, it abstained on
+all 14 and typed all 10 statements, writing several times as much, and the
+engine accepted every reply. Effort and batch size changed nothing. The four "refusals" were
+replies cut off at `max_output_tokens`. Since reader prompt revision 3 the
+engine no longer asks the provider to hold the reader's reply to its shape,
+and a cut-off reply is reported as `did_not_fit`. It cost $0.016.
 
 It sends the engine's chunk reader 24 turns of LoCoMo's `conv-26`: 14 of
 small talk, where abstaining is right (the four that were refused among
