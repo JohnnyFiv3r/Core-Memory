@@ -38,6 +38,32 @@ nothing, and needs no key.
 
 ## What it has found
 
+**2026-11-19, vocabularies** ($0.009, one run of 30 turns, so a turn can
+flip between runs):
+
+| Vocabulary | Small talk (14) | Statements (10) | Goal turns (6) |
+|---|---|---|---|
+| memoriesQL's 12 | 14 untyped | all typed but D3:16 | 5 `goal_declaration`, 1 `goal_update` |
+| 12 and `social` | 10 `social`, 2 untyped, 2 in an invalid reply | D3:16 `social` | 5 `goal_declaration`, 1 in an invalid reply |
+| 11 and `social`, one `goal` | 14 `social` | 4 `social` | 4 `goal`, 1 `action`, 1 `preference` |
+
+- With the reply shape not enforced the reader quotes again: 17 to 20
+  entities, 12 to 14 actions and 2 to 4 outcomes in 30 turns, using the new
+  kinds (`group`, `event`, `project`, `organization`).
+- Without a rule of its own about small talk, the reader left all 14 turns
+  untyped when no type fit them, and typed them `social` when that was
+  offered.
+- `social` as defined here takes statements that open with thanks ("Thanks,
+  Melanie! This necklace is super special to me - a gift from my grandma"):
+  its definition needs to say that a message which also tells something
+  takes the type of what it tells.
+- `goal_declaration` and `goal_update` were not told apart reliably: one of
+  three updates was typed `goal_update`. One `goal` took all three
+  declarations and two of the updates. How an update relates to its goal is
+  what the judge's edges record (a `reaffirm` chain in both live runs).
+- One reply in twelve wrote an outcome as a string; the engine would repair
+  it once, which the probe does not.
+
 **2026-11-19, the reply shape.** An earlier version sent 24 turns four ways.
 Held to its reply shape by the provider, the model typed all 14 turns of
 small talk and wrote about 160 output tokens for eight turns, too few for
