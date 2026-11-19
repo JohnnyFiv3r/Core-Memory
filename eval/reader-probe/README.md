@@ -44,7 +44,7 @@ flip between runs):
 | Vocabulary | Small talk (14) | Statements (10) | Goal turns (6) |
 |---|---|---|---|
 | memoriesQL's 12 | 14 untyped | all typed but D3:16 | 5 `goal_declaration`, 1 `goal_update` |
-| 12 and `social` | 10 `social`, 2 untyped, 2 in an invalid reply | D3:16 `social` | 5 `goal_declaration`, 1 in an invalid reply |
+| 12 and `social` | 9 `social`, 2 untyped, 3 in an invalid reply | D3:16 `social`, 4 in an invalid reply | 5 `goal_declaration`, 1 in an invalid reply |
 | 11 and `social`, one `goal` | 14 `social` | 4 `social` | 4 `goal`, 1 `action`, 1 `preference` |
 
 - With the reply shape not enforced the reader quotes again: 17 to 20
@@ -58,8 +58,9 @@ flip between runs):
   its definition needs to say that a message which also tells something
   takes the type of what it tells.
 - `goal_declaration` and `goal_update` were not told apart reliably: one of
-  three updates was typed `goal_update`. One `goal` took all three
-  declarations and two of the updates. How an update relates to its goal is
+  three updates was typed `goal_update`. One `goal` took two of the three
+  declarations and two of the three updates; the others went to
+  `preference` and `action`. How an update relates to its goal is
   what the judge's edges record (a `reaffirm` chain in both live runs).
 - One reply in twelve wrote an outcome as a string; the engine would repair
   it once, which the probe does not.
