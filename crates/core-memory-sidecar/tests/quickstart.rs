@@ -1273,10 +1273,18 @@ fn what_was_stored_before_a_reader_is_queued_and_failed_reads_are_retried() {
     assert_eq!(q.ok(&["read", "queue", "acme"])[0]["queued"], chunks);
     assert_eq!(q.ok(&["read", "queue", "acme"])[0]["queued"], 0);
 
-    // The provider turns the binding down. With one attempt allowed, the
-    // reads are set aside for an operator.
+    // The provider turns the binding down. Each run tries it once, and
+    // with one attempt allowed, the reads are set aside for an operator.
     model.fail_with(401);
-    let failed = q.ok(&["read", "run"]);
+    let mut failed = Vec::new();
+    loop {
+        let rounds = q.ok(&["read", "run"]);
+        assert!(rounds.len() <= 1, "{rounds:?}");
+        if rounds.is_empty() {
+            break;
+        }
+        failed.extend(rounds);
+    }
     assert!(
         failed
             .iter()
@@ -1321,6 +1329,40 @@ fn what_was_stored_before_a_reader_is_queued_and_failed_reads_are_retried() {
     let paused = q.run(&["read", "queue", "acme"]);
     assert_eq!(paused.status.code(), Some(1));
     assert!(stderr(&paused).contains("paused"), "{}", stderr(&paused));
+}
+
+#[test]
+fn a_binding_the_provider_turns_down_is_tried_once_per_run() {
+    let model = StandIn::start();
+    let q = Quickstart::ready();
+    q.configure(&model.config("batch_size = 1"));
+    q.ok(&["scope", "allow", "acme", "--binding", "local"]);
+    q.ok(&["ingest", "--input", "events.jsonl"]);
+    let chunks = of_kind(&q.ok(&["export"]), "chunk").len();
+    assert!(chunks > 1, "the test needs more than one batch");
+
+    // A wrong key fails every call alike: one is made, and the rest of the
+    // queue waits instead of spending the day's budget on more.
+    model.fail_with(401);
+    let rounds = q.ok(&["read", "run"]);
+    assert_eq!(rounds.len(), 1, "{rounds:?}");
+    assert_eq!(rounds[0]["read"]["problem"], "binding_rejected");
+    assert_eq!(model.requests().len(), 1);
+    let status = &q.ok(&["read", "status"])[0];
+    assert_eq!(
+        (&status["ready"], &status["failed"]),
+        (&Value::from(chunks), &Value::from(0))
+    );
+
+    // Fixed: what was not tried is read at once, and the chunk whose call
+    // was turned down waits out its pause.
+    model.fail_with(0);
+    let read: u64 = q
+        .ok(&["read", "run"])
+        .iter()
+        .map(|round| round["read"]["stored"].as_u64().unwrap())
+        .sum();
+    assert_eq!(read, chunks as u64 - 1);
 }
 
 #[cfg(unix)]
@@ -1864,27 +1906,30 @@ fn what_was_stored_before_a_judge_is_queued_for_it_when_asked() {
 
     // The provider turns the binding down. With one attempt allowed, the
     // beads are set aside for an operator, and told to be tried again.
-    // The record of four days later comes up alone: the others are still
-    // owed a judgment, so it has none to be read with, and no call is
-    // made for it. They are read with it once they are tried again.
+    // The run judges nothing more. In the next, the record of four days
+    // later comes up alone: the others are still owed a judgment, so it
+    // has none to be read with, and no call is made for it. They are read
+    // with it once they are tried again.
     model.fail_with(401);
-    let failed = q.ok(&["read", "run"]);
-    let outcomes: Vec<(Value, Value, Value)> = judged(&failed)
-        .iter()
-        .map(|round| {
-            (
-                round["new_beads"].clone(),
-                round["calls"].clone(),
-                round["problem"].clone(),
-            )
-        })
-        .collect();
+    let outcomes = |rounds: &[Value]| -> Vec<(Value, Value, Value)> {
+        judged(rounds)
+            .iter()
+            .map(|round| {
+                (
+                    round["new_beads"].clone(),
+                    round["calls"].clone(),
+                    round["problem"].clone(),
+                )
+            })
+            .collect()
+    };
     assert_eq!(
-        outcomes,
-        [
-            (json!(3), json!(1), json!("binding_rejected")),
-            (json!(1), json!(0), json!("nothing_to_compare")),
-        ]
+        outcomes(&q.ok(&["read", "run"])),
+        [(json!(3), json!(1), json!("binding_rejected"))]
+    );
+    assert_eq!(
+        outcomes(&q.ok(&["read", "run"])),
+        [(json!(1), json!(0), json!("nothing_to_compare"))]
     );
     let status = q.ok(&["read", "status"]);
     let judge = queue_of(&status, "judge");

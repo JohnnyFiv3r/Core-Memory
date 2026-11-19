@@ -39,7 +39,7 @@ use crate::store::{
 pub(crate) const DEFER_MS: u64 = 300_000;
 /// How long work waits after the provider turned a request itself down.
 /// That is a problem with the binding, which an operator has to fix.
-const BINDING_FAULT_BACKOFF_MS: u64 = 600_000;
+pub const BINDING_FAULT_BACKOFF_MS: u64 = 600_000;
 /// Margin a lease has over the two calls it may cover.
 pub(crate) const LEASE_MARGIN_MS: u64 = 10_000;
 /// Times the end of a call is offered to a store that is busy.

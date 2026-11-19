@@ -22,7 +22,7 @@ use serde_json::{Map, Value, json};
 use crate::model::{BindingConfig, ModelRequest};
 
 /// Revision of the prompt. Part of every binding revision.
-pub const PROMPT_REV: u32 = 1;
+pub const PROMPT_REV: u32 = 2;
 /// Revision of the reply validator. Part of every binding revision.
 pub const VALIDATOR_REV: u32 = 1;
 
@@ -39,11 +39,11 @@ const SYSTEM_PROMPT: &str = r#"You read short excerpts ("chunks") from one perso
 
 For every chunk:
 
-1. Choose its type. Pick the one listed type that best describes what the chunk is. If you cannot, abstain and say why:
+1. Choose its type. Give a listed type only when the chunk itself states what that type's definition describes, and pick the one that describes it best. If none does, abstain and say why:
    - "no_fit": none of the listed types describes the chunk.
    - "insufficient_evidence": the chunk is too short or unclear to tell.
    - "ambiguous": two or more types fit equally well.
-   Abstaining is a correct answer. A wrong type is worse than none.
+   Abstaining is a correct answer, and often the right one. A message that only keeps a conversation going states nothing a type describes: a greeting, thanks, praise, agreement, or a question that asks the other person to say more. Abstain on it with "no_fit". A wrong type is worse than none.
 
 2. Mark what the chunk mentions, by quoting it:
    - entities: named people, organizations, places, products, projects, artifacts (a document, file, ticket, message or piece of code) and events (a meeting, a release, an incident). Quote the name as it is written, and give its kind: person, organization, place, product, project, artifact, event or other.

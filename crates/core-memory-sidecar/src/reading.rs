@@ -10,7 +10,7 @@
 
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use core_memory_core::{
     CompiledJudge, Engine, EngineError, JudgeReport, JudgeRound, ModelTransport, ReadReport,
@@ -29,6 +29,13 @@ const IDLE_WAIT: Duration = Duration::from_millis(1_000);
 const STORE_WAIT: Duration = Duration::from_millis(5_000);
 /// The kinds of work: chunks, tool calls and judging.
 const KINDS: usize = 3;
+/// How long a kind of work makes no call after the provider turned its
+/// binding down: a wrong key or model fails every call alike. As long as
+/// the engine puts the work of that call off.
+const REJECTED_WAIT: Duration =
+    Duration::from_millis(core_memory_core::reader::BINDING_FAULT_BACKOFF_MS);
+/// What a round reports when the provider turned the binding down.
+const BINDING_REJECTED: &str = "binding_rejected";
 
 /// The configured readers and judge with a store connection of their own.
 #[derive(Debug)]
@@ -44,6 +51,9 @@ pub struct Reader {
     /// Which kind of work the next round looks for first, so that a long
     /// queue of one kind does not hold the others back.
     next: usize,
+    /// Until when each kind makes no call, after its binding was turned
+    /// down.
+    rejected: [Option<Instant>; KINDS],
 }
 
 /// What one round did.
@@ -90,6 +100,15 @@ impl Totals {
         self.calls += u64::from(calls);
         self.input_tokens = self.input_tokens.saturating_add(input_tokens);
         self.output_tokens = self.output_tokens.saturating_add(output_tokens);
+    }
+}
+
+impl Round {
+    fn problem(&self) -> Option<&'static str> {
+        match self {
+            Round::Read(report) => report.problem,
+            Round::Judged(report) => report.problem,
+        }
     }
 }
 
@@ -172,6 +191,7 @@ impl Reader {
             tool_calls,
             judge,
             next: 0,
+            rejected: [None; KINDS],
         }))
     }
 
@@ -241,16 +261,28 @@ impl Reader {
 
     /// One round of whichever kind of work is due, each kind going first
     /// in its turn when more than one is. `None` only when none is.
+    ///
+    /// A kind whose binding the provider turned down makes no call for a
+    /// while, whatever else it has queued: the next call would be turned
+    /// down too, and would still count against the day's budget.
     fn round(&mut self) -> Result<Option<Round>, EngineError> {
         let first = self.next;
         self.next = (first + 1) % KINDS;
+        let now = Instant::now();
         for turn in 0..KINDS {
-            let did = match (first + turn) % KINDS {
+            let kind = (first + turn) % KINDS;
+            if self.rejected[kind].is_some_and(|until| now < until) {
+                continue;
+            }
+            let did = match kind {
                 0 => self.chunk_round()?,
                 1 => self.tool_round()?,
                 _ => self.judge_round()?,
             };
-            if did.is_some() {
+            if let Some(round) = &did {
+                if round.problem() == Some(BINDING_REJECTED) {
+                    self.rejected[kind] = Some(now + REJECTED_WAIT);
+                }
                 return Ok(did);
             }
         }
@@ -259,7 +291,7 @@ impl Reader {
 
     /// Does everything that is due now. Work that was put off, because its
     /// scope gave no consent or a call failed, is due later and is not
-    /// waited for. Nor is a bead that waits to be judged: for a moment
+    /// waited for, and neither is work whose binding was turned down. Nor is a bead that waits to be judged: for a moment
     /// after it arrives, so that what arrives with it is judged with it,
     /// and for a model to read its chunk.
     pub fn drain(&mut self, mut each: impl FnMut(&Round)) -> Result<Totals, Stop> {

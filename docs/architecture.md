@@ -91,7 +91,7 @@ All tables are in the `core_memory` schema.
 | `chunk_reads` | What a model read in a chunk: a type of the vocabulary or why none, the reader that read it, `seq`. | Deleted. |
 | `chunk_read_spans` | Where a read found an entity, an action or an outcome: byte ranges of the chunk's text. | Deleted. |
 | `tool_outcomes` | What a model wrote about one tool call: a short action, a short outcome and a status, with the reader and the compressor that produced them, `seq`. | Deleted. |
-| `judge_reads` | One row for each read by a judge that was stored: the beads it was shown, by ID, the kind of judge, the rubric and binding revisions, `seq`. | Kept. |
+| `judge_reads` | One row for each read by a judge that was stored: the beads it was shown, by ID, the rubric and binding revisions, `seq`. | Kept. |
 | `verdicts` | One row for every pair a judge was shown: the two beads and the scope of each, what it said, the direction, and what code computed about the pair at that moment (`columns`), `seq`. No text. | Deleted, for a pair with an erased bead. |
 | `edges` | A relationship from one bead to another: type, the two IDs, `seq`. | Kept. They hold IDs. |
 | `labels` | What a label bead says (`supersede`, `retract`, `reaffirm`, `conflict`) and the bead it stands for. | Kept. The label bead is marked erased with its source. |
@@ -627,7 +627,7 @@ judge), each kind goes first in its turn.
 | The model declined, or the request or reply did not fit | Tried again alone, one chunk to a call. A chunk that was sent alone, and a tool call, is set aside at once: the same request would get the same answer. | `model_refused` |
 | The reply was invalid twice | Tried again alone. | `reply_invalid` |
 | A chunk of the batch was erased before the repair | Nothing more is sent. The rest is tried again after `retry_backoff_ms`. | `batch_changed` |
-| The provider turned the request itself down | Tried again after ten minutes. An operator has to fix the binding. | `binding_rejected` |
+| The provider turned the request itself down | Tried again after ten minutes. An operator has to fix the binding. The command makes no other call of that kind (chunks, tool calls or judging) for those ten minutes: a wrong key or model fails every call alike. | `binding_rejected` |
 | A tool call's stored text does not hold what its event says | Set aside at once. Nothing is sent. | `text_unreadable` |
 | The work was handed out `max_attempts` times and never settled | Set aside, when it would have been handed out again. | `attempts_spent` |
 
@@ -761,6 +761,13 @@ other bead to the new one, `LEADSTO<` from the new one to the other), and
 the rubric has the judge settle direction first: which statement is the
 later one, which thing happened first, whatever order the messages arrived
 in.
+
+The rubric also says what a relationship is not. That one message answers,
+thanks or reacts to another, or comes next in a conversation, is already
+kept as structure (`reply_to`, thread, session), and is not a relationship
+by itself: a question and its answer are not `leadsto`. The first live run
+(`eval/locomo-smoke`) showed why: without that rule, most of what the judge
+wrote joined a message to the reply next to it.
 
 A reply is rejected whole, and repaired once, if it is not of that shape,
 if a new bead has no entry or a pair two answers, or if what it says would

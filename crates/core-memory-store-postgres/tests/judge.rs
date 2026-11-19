@@ -2261,7 +2261,7 @@ fn what_a_judge_wrote_is_exported_and_one_scope_gets_only_what_lies_inside_it() 
             &json!("supersede"),
             &json!(1),
             &json!("careful"),
-            &json!(1),
+            &json!(core_memory_core::judge::RUBRIC_REV),
         )
     );
     assert_eq!(

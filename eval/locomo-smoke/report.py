@@ -2,7 +2,7 @@
 samples of what the judge said, to be read by a person. run.sh runs it.
 
     report.py <output-folder> <why the run stopped>
-    report.py --left <log of one `read run`>     prints: calls owed
+    report.py --left <log> <rounds>   of one `read run`; prints: calls owed rejected
 """
 
 import collections
@@ -32,15 +32,20 @@ def lines(path):
         return
 
 
-def left(log):
-    """Calls one `read run` made, and the work it left ready or leased. A
-    run that ended without its totals owes work still."""
+def left(log, rounds):
+    """Calls one `read run` made, the work it left ready or leased, and 1
+    if the API turned a binding down. A run that ended without its totals
+    owes work still."""
     calls, owed = 0, 1
     for line in lines(log):
         if "queued" in line and "read" in line:
             calls = line["read"]["calls"]
             owed = sum(w["ready"] + w["leased"] for w in line["queued"].values())
-    print(calls, owed)
+    rejected = any(
+        (round_.get("read") or round_.get("judged") or {}).get("problem") == "binding_rejected"
+        for round_ in lines(rounds)
+    )
+    print(calls, owed, int(rejected))
 
 
 def report(out, why):
@@ -184,8 +189,8 @@ def report(out, why):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) == 3 and sys.argv[1] == "--left":
-        left(sys.argv[2])
+    if len(sys.argv) == 4 and sys.argv[1] == "--left":
+        left(sys.argv[2], sys.argv[3])
     elif len(sys.argv) in (2, 3):
         report(sys.argv[1], sys.argv[2] if len(sys.argv) == 3 else "")
     else:

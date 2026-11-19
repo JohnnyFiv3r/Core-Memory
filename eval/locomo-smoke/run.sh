@@ -60,14 +60,21 @@ deadline=$(($(date -u +%s) + max_minutes * 60))
 quiet=0
 why=""
 while :; do
-  if ! cm read run >>"$out/rounds.jsonl" 2>"$out/last-run.log"; then
+  if ! cm read run >"$out/last-rounds.jsonl" 2>"$out/last-run.log"; then
     echo "run.sh: read run failed; see $out/last-run.log" >&2
   fi
+  cat "$out/last-rounds.jsonl" >>"$out/rounds.jsonl"
   cat "$out/last-run.log" >>"$out/runs.log"
-  # calls made, and work still to do: ready or leased.
-  read -r calls owed < <(python3 -I "$here/report.py" --left "$out/last-run.log")
+  # Calls made, work still to do (ready or leased), and whether the API
+  # turned a binding down.
+  read -r calls owed rejected < <(python3 -I "$here/report.py" --left \
+    "$out/last-run.log" "$out/last-rounds.jsonl")
   if [ "$owed" -eq 0 ]; then
     why="everything was read and judged"
+    break
+  fi
+  if [ "$rejected" -eq 1 ]; then
+    why="the API turned the key or a model down; see runs.log"
     break
   fi
   if [ "$calls" -eq 0 ]; then
