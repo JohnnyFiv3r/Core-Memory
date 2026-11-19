@@ -1,0 +1,51 @@
+# Live smoke test: one LoCoMo conversation, read by Claude Haiku 5.5 and
+# judged by Claude Opus 5.5. run.sh copies this file and adds [models] when
+# MODELS_CA_FILE is set.
+#
+# The budgets hold the worst case of one UTC day under $25. A call reserves
+# what it sends plus max_output_tokens, so:
+#   reader: 400 calls x 4,096 output at $0.50/M, and the rest of 3M tokens
+#           at $0.10/M as input                            <= $0.96
+#   judge:   60 calls x 16,000 output at $20/M, and the rest of 1.6M tokens
+#           at $4/M as input                               <= $21.76
+# Work the budget does not cover is left in the queue, and the report says so.
+
+[vocabulary]
+id = "smoke.types"
+types = [
+  { key = "life_event", rev = 1, definition = "Something that happened to the speaker or someone they know." },
+  { key = "plan", rev = 1, definition = "Something someone intends, arranges or commits to do." },
+  { key = "preference", rev = 1, definition = "What someone likes, values, wants or believes." },
+  { key = "fact", rev = 1, definition = "A lasting fact about a person: who they are, their relationships, work, home or history." },
+  { key = "feeling", rev = 1, definition = "How someone feels about something." },
+]
+
+[reader]
+binding = "reader"
+
+[judge]
+binding = "judge"
+max_new_beads = 12
+lease_ms = 600000
+
+[[binding]]
+id = "reader"
+provider = "anthropic"
+endpoint = "https://api.anthropic.com"
+model = "claude-haiku-5-5"
+reasoning_effort = "low"
+max_output_tokens = 4096
+api_key_env = "CORE_MEMORY_ANTHROPIC_KEY"
+timeout_ms = 120000
+budget = { max_requests_per_day = 400, max_tokens_per_day = 3000000 }
+
+[[binding]]
+id = "judge"
+provider = "anthropic"
+endpoint = "https://api.anthropic.com"
+model = "claude-opus-5-5"
+reasoning_effort = "medium"
+max_output_tokens = 16000
+api_key_env = "CORE_MEMORY_ANTHROPIC_KEY"
+timeout_ms = 240000
+budget = { max_requests_per_day = 60, max_tokens_per_day = 1600000 }
