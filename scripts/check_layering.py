@@ -23,6 +23,8 @@ ALLOWED = {
     "core-memory-model-*": ["core-memory-contract", "core-memory-core", "core-memory-model-http"],
     "core-memory-sidecar": ["*"],
     "core-memory": ["*"],
+    # Evaluation tools in eval/ sit on top, as the command does.
+    "reader-probe": ["*"],
 }
 
 # Third-party crates the lower layers must not use: core stays free of
