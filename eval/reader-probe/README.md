@@ -1,38 +1,26 @@
 # Reader probe
 
-The second live run of `eval/locomo-smoke` typed every chunk, small talk
-included, and abstained on none, although the reader's prompt asks it to
-abstain on a message that only keeps a conversation going. Four harmless
-questions were also refused. This probe found out why.
+Sends the engine's chunk reader the same 30 turns of LoCoMo's `conv-26`
+under three vocabularies, and prints, for each turn, the type the model
+chose and what it quoted: the entities with their kinds, the actions and
+the outcomes. A table at the end puts the three side by side.
 
-**What it found (2026-11-19):** held to its reply shape, the model typed
-all 14 turns of small talk, and wrote about 160 output tokens for eight
-turns, too few for any quotes. With the shape not enforced, it abstained on
-all 14 and typed all 10 statements, writing several times as much, and the
-engine accepted every reply. Effort and batch size changed nothing. The four "refusals" were
-replies cut off at `max_output_tokens`. Since reader prompt revision 3 the
-engine no longer asks the provider to hold the reader's reply to its shape,
-and a cut-off reply is reported as `did_not_fit`. It cost $0.016.
+The requests are the engine's own: its reader prompt and reply shape
+(`read::render`), its Anthropic request body and its HTTP client, with the
+reader's settings of `eval/locomo-smoke` (Claude Haiku 5.5 at effort `low`,
+eight turns to a call). Only the vocabulary changes:
 
-It sends the engine's chunk reader 24 turns of LoCoMo's `conv-26`: 14 of
-small talk, where abstaining is right (the four that were refused among
-them), and 10 that state something a type describes. It sends them four
-times, changing one thing each time:
+1. memoriesQL's 12 bead types, as its registry defines them;
+2. the 12 and `social`: a greeting, thanks, compliment, sympathy or check-in
+   that tends a relationship rather than telling news;
+3. 11 and `social`, with one `goal` in place of `goal_declaration` and
+   `goal_update`: how an update relates to its goal is the judge's to say.
 
-1. as in the second run: Claude Haiku 5.5 at effort `low`, eight to a call;
-2. at effort `medium`;
-3. one to a call;
-4. with the reply shape not enforced, so the model answers from the prompt
-   alone.
+The turns are 14 of small talk, 10 that tell something about the speaker,
+and 6 about Caroline's goals, stated and then restated with their progress.
 
-The requests are the engine's own: its prompt and reply shape, its Anthropic
-request body and its HTTP client. For each call it prints how the call ended
-(`stop_reason`, so a refusal and a cut-off reply are told apart), whether the
-engine would accept the reply, and what was chosen for each turn. A summary
-table ends the output.
-
-**It spends real money, very little:** 4 + 4 + 24 + 4 = 36 calls of Claude
-Haiku 5.5, about $0.03 in all.
+**It spends real money, very little:** 12 calls of Claude Haiku 5.5, about
+$0.01. It stops at once if the key is turned down.
 
 ## Running it
 
@@ -45,5 +33,18 @@ CORE_MEMORY_ANTHROPIC_KEY=... MODELS_CA_FILE=... \
 ```
 
 `MODELS_CA_FILE` is needed only behind a proxy that re-signs TLS. With
-`--dry-run` it prints the first request of each variant and sends nothing,
-and needs no key.
+`--dry-run` it prints the first request of each vocabulary and sends
+nothing, and needs no key.
+
+## What it has found
+
+**2026-11-19, the reply shape.** An earlier version sent 24 turns four ways.
+Held to its reply shape by the provider, the model typed all 14 turns of
+small talk and wrote about 160 output tokens for eight turns, too few for
+any quotes; effort and batch size changed nothing. With the shape not
+enforced, it abstained where its prompt said to and typed the rest, writing
+several times as much, and the engine accepted every reply. The second live
+run's four "refusals" were replies cut off at `max_output_tokens`. Since
+reader prompt revision 3 the engine no longer asks the provider to hold the
+reader's reply to its shape, and a cut-off reply is reported as
+`did_not_fit`. It cost $0.016.

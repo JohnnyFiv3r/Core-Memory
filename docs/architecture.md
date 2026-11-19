@@ -477,8 +477,14 @@ from. For each chunk it answers with:
 
 - **a type**: one key of the vocabulary, or an abstention (`no_fit`,
   `insufficient_evidence`, `ambiguous`). An abstention is a completed
-  judgment. It is stored and is not retried;
-- **entities, actions and outcomes**, each as a quote of the chunk.
+  judgment. It is stored and is not retried. The chunk is kept, judged and
+  found as any other; only its type is missing. Which messages have a type,
+  small talk among them, is the vocabulary's to say: the prompt has no rule
+  of its own about them;
+- **entities, actions and outcomes**, each as a quote of the chunk. An
+  entity has one of memoriesQL's entity kinds (person, organization, group,
+  place, project, product, system, agent, artifact, event), or `other` for
+  a named thing that is none of them.
 
 A quote is looked up in the chunk and kept as the byte range where it was
 found. Nothing the model wrote is stored: a type is a key of the
