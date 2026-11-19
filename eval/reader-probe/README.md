@@ -1,25 +1,26 @@
 # Reader probe
 
 Sends the engine's chunk reader the same 30 turns of LoCoMo's `conv-26`
-under three vocabularies, and prints, for each turn, the type the model
-chose and what it quoted: the entities with their kinds, the actions and
-the outcomes. A table at the end puts the three side by side.
+under two vocabularies, and prints, for each turn, the type the model chose
+and what it quoted: the entities with their kinds, the actions and the
+outcomes. A table at the end puts the two side by side.
 
 The requests are the engine's own: its reader prompt and reply shape
 (`read::render`), its Anthropic request body and its HTTP client, with the
 reader's settings of `eval/locomo-smoke` (Claude Haiku 5.5 at effort `low`,
 eight turns to a call). Only the vocabulary changes:
 
-1. memoriesQL's 12 bead types, as its registry defines them;
-2. the 12 and `social`: a greeting, thanks, compliment, sympathy or check-in
-   that tends a relationship rather than telling news;
-3. 11 and `social`, with one `goal` in place of `goal_declaration` and
-   `goal_update`: how an update relates to its goal is the judge's to say.
+1. memoriesQL's bead types with `goal_declaration` and `goal_update` merged
+   into one `goal`: 11 types;
+2. the 11 and `social`: a greeting, thanks, compliment, sympathy or
+   check-in that tends a relationship and states nothing else; a message
+   that also tells something takes the type of what it tells.
 
 The turns are 14 of small talk, 10 that tell something about the speaker,
 and 6 about Caroline's goals, stated and then restated with their progress.
+The vocabularies of the earlier run are kept in `earlier_variants`.
 
-**It spends real money, very little:** 12 calls of Claude Haiku 5.5, about
+**It spends real money, very little:** 8 calls of Claude Haiku 5.5, under
 $0.01. It stops at once if the key is turned down.
 
 ## Running it

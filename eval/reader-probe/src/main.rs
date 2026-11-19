@@ -79,17 +79,22 @@ const REGISTRY: [(&str, &str); 12] = [
 ];
 
 /// A type for what keeps people in touch, proposed beside the registry.
+///
+/// The first wording ("... that tends a relationship rather than telling
+/// news") took statements that open with thanks. This one says what a
+/// message that also tells something is.
 const SOCIAL: (&str, &str) = (
     "social",
-    "A greeting, thanks, compliment, sympathy or check-in that tends a relationship rather than telling news",
+    "A greeting, thanks, compliment, sympathy or check-in that tends a relationship and states nothing else. A message that also tells something takes the type of what it tells",
 );
 
-/// One type for a goal and the updates about it, proposed in place of
-/// `goal_declaration` and `goal_update`: how an update relates to the goal
-/// is said by the judge's relationships.
+/// One type for a goal and the updates about it, in place of
+/// `goal_declaration` and `goal_update`, as memoriesQL's registry will
+/// have it: how an update relates to its goal is what the judge's
+/// relationships record.
 const GOAL: (&str, &str) = (
     "goal",
-    "An explicit desired future state or objective, stated anew or restated with its progress, scope, status, completion or abandonment",
+    "An explicit observed desired future state or objective, or an observed update about one: its progress, scope, status, blocking, completion, or abandonment",
 );
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -138,16 +143,46 @@ struct Variant {
 }
 
 fn variants() -> Vec<Variant> {
-    let registry: Vec<_> = REGISTRY.to_vec();
-    let mut with_social = registry.clone();
+    // memoriesQL's registry once the two goal types are merged.
+    let mut merged: Vec<_> = REGISTRY
+        .iter()
+        .copied()
+        .filter(|(key, _)| !key.starts_with("goal_"))
+        .collect();
+    merged.insert(2, GOAL);
+    let mut with_social = merged.clone();
     with_social.push(SOCIAL);
+    vec![
+        Variant {
+            name: "memoriesQL's 11 types, with one goal",
+            types: merged,
+        },
+        Variant {
+            name: "the 11 and social",
+            types: with_social,
+        },
+    ]
+}
+
+/// The vocabularies of the probe's second run, kept so that a run can be
+/// repeated: memoriesQL's 12, the 12 and the first `social`, and 11 and the
+/// first `social` with one `goal`.
+#[allow(dead_code)]
+fn earlier_variants() -> Vec<Variant> {
+    let registry: Vec<_> = REGISTRY.to_vec();
+    let first_social = (
+        "social",
+        "A greeting, thanks, compliment, sympathy or check-in that tends a relationship rather than telling news",
+    );
+    let mut with_social = registry.clone();
+    with_social.push(first_social);
     let mut one_goal: Vec<_> = REGISTRY
         .iter()
         .copied()
         .filter(|(key, _)| !key.starts_with("goal_"))
         .collect();
     one_goal.insert(2, GOAL);
-    one_goal.push(SOCIAL);
+    one_goal.push(first_social);
     vec![
         Variant {
             name: "memoriesQL's 12 types",
@@ -267,8 +302,9 @@ fn run(data: &Path, dry_run: bool) -> Result<(), String> {
     }
 
     println!("\n## Each turn under each vocabulary\n");
-    println!("| Turn | Group | 12 types | 12 and social | one goal and social |");
-    println!("|---|---|---|---|---|");
+    let names: Vec<&str> = variants.iter().map(|v| v.name).collect();
+    println!("| Turn | Group | {} |", names.join(" | "));
+    println!("|---|---|{}", "---|".repeat(names.len()));
     for turn in &turns {
         let chosen = grid.get(turn.id).cloned().unwrap_or_default();
         println!(
@@ -497,13 +533,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_vocabularies_differ_only_as_proposed() {
-        let [registry, social, goal] = variants().try_into().ok().unwrap();
+    fn the_merged_registry_has_one_goal_and_social_is_added_to_it() {
+        let [merged, social] = variants().try_into().ok().unwrap();
+        assert_eq!(merged.types.len(), 11);
+        assert!(merged.types.contains(&GOAL));
+        assert!(!merged.types.iter().any(|(key, _)| key.starts_with("goal_")));
+        assert_eq!(social.types.len(), 12);
+        assert!(social.types.contains(&SOCIAL));
+    }
+
+    #[test]
+    fn the_earlier_vocabularies_differ_only_as_proposed() {
+        let [registry, social, goal] = earlier_variants().try_into().ok().unwrap();
         assert_eq!(registry.types.len(), 12);
         assert_eq!(social.types.len(), 13);
-        assert!(social.types.contains(&SOCIAL));
+        assert!(social.types.iter().any(|(key, _)| *key == "social"));
         assert_eq!(goal.types.len(), 12);
-        assert!(goal.types.contains(&GOAL) && goal.types.contains(&SOCIAL));
+        assert!(goal.types.contains(&GOAL));
         assert!(!goal.types.iter().any(|(key, _)| key.starts_with("goal_")));
     }
 }
