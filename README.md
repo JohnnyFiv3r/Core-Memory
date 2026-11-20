@@ -2,9 +2,9 @@
   <img src="docs/assets/core-memory-hero-banner.jpg" alt="Core Memory banner" />
 </p>
 
-# Core Memory 2.0 (in development)
+# Core Memory
 
-Core Memory 2.0 is a ground-up rewrite in Rust. It turns any stream of source
+Core Memory 2 is a ground-up rewrite in Rust. It turns any stream of source
 events (messages, documents, record changes, an agent's tool calls) into
 durable, auditable memory in PostgreSQL. For each event it:
 
