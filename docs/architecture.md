@@ -617,7 +617,9 @@ permitted, no receipt is written, and the work is set aside.
    retry or fallback. The adapters send over HTTPS, through the proxy that
    `HTTPS_PROXY` names unless `NO_PROXY` lists the host, and check the
    server against the public web roots plus an optional private CA
-   (`[models] ca_file`).
+   (`[models] ca_file`). An adapter signed in to rather than given a key
+   may first renew its access token, which sends OpenAI's sign-in service
+   no source text (see [Paying with a ChatGPT plan](#paying-with-a-chatgpt-plan)).
 
    A request's instructions are the same for every call of a reader, a
    tool reader or a judge, and come first. The Anthropic adapter marks
@@ -659,7 +661,14 @@ from it.
 
 A **destination** is the host of a binding's endpoint, in lower case, with
 its port if it names one. It is derived from the endpoint and never written
-by hand, so a binding pointed somewhere else needs consent again.
+by hand, so a binding pointed somewhere else needs consent again. A binding
+whose calls are made as one person's signed-in account, paid by their own
+plan, is a destination of its own: `signed-in@` and the host. Whatever
+builds the binding marks it so from its provider (the command does it for
+`openai-chatgpt`); a config cannot, and that provider's transport refuses a
+binding that is not marked. A plan's terms can limit whose activity it may
+serve, so a scope allowed to send text to a host with a key is not thereby
+allowed to send it on someone's plan.
 `core_memory.grant_destination(scope, destination)` and
 `revoke_destination` are governance functions; `core-memory scope allow`
 and `scope disallow` call them. The engine's role cannot.
@@ -705,12 +714,15 @@ read's identity.
 | A chunk of the batch was erased before the repair | Nothing more is sent. The rest is tried again after `retry_backoff_ms`. | `batch_changed` |
 | The provider turned the request itself down | Tried again after ten minutes. An operator has to fix the binding. No lane of that kind (chunks, tool calls or judging) starts another call for those ten minutes: a wrong key or model fails every call alike. Lanes that were already calling may each be turned down too. | `binding_rejected` |
 | The server's certificate is not trusted | Nothing was sent: the receipt says `not_sent`. Tried again after ten minutes, and no lane of that kind starts another call meanwhile, as for a binding turned down. An operator has to trust the certificate's authority with `[models] ca_file`, as behind a proxy or gateway that re-signs TLS. | `endpoint_untrusted` |
+| A binding signed in to cannot use its sign-in: there is none, it has ended, it lacks the plan's permission, or its owner has not agreed on this machine to calls in the background | Nothing reached the model: the receipt says `not_sent`. Tried again after ten minutes, and no lane of that kind starts another call meanwhile. The owner has to sign in again (`core-memory login chatgpt`). | `signin_required` |
+| The plan behind a binding has used what it may for now | Tried again after ten minutes, and no lane of that kind starts another call meanwhile. The receipt says `not_sent` if the provider turned the call away, and `in_doubt` if it stopped a reply it had begun. A call turned away costs the work no attempt, unless another call was made for it that round: the allowance comes back by itself, so the work waits for it instead of being set aside. | `plan_limit_reached` |
 | A tool call's stored text does not hold what its event says | Set aside at once. Nothing is sent. | `text_unreadable` |
 | The work was handed out `max_attempts` times and never settled | Set aside, when it would have been handed out again. | `attempts_spent` |
 
 Work that was put off before any call was made does not count as an
-attempt. Once a call was made for it, the attempt counts whatever comes
-next: a repair that is not permitted leaves the work put off and one attempt
+attempt, and neither does a call a plan turned away at the door because its
+allowance is spent for now. Once a call was made for it, the attempt counts
+whatever comes next: a repair that is not permitted leaves the work put off and one attempt
 poorer. After `max_attempts` calls an item's work is set aside as `failed`,
 until `core-memory read retry` puts it back.
 
@@ -736,6 +748,125 @@ about a tool call is in `tool_outcomes` and nowhere else. Of what a judge
 wrote, nothing is kept as text at all: a verdict is one of a fixed set of
 words, an arrow is a key of a fixed directory, and a name is a range of a
 chunk.
+
+### Paying with a ChatGPT plan
+
+A binding with `provider = "openai-chatgpt"` pays for its calls with its
+owner's ChatGPT Plus or Pro plan instead of API credits, through OpenAI's Sign
+in with ChatGPT for open-source apps. It is built from OpenAI's documentation
+of that flow and bound by its terms (effective 2026-11-04). The adapter is
+`core-memory-model-chatgpt`. Core knows nothing of it beyond two transport
+errors any signed-in provider could give.
+
+**Signing in.** `core-memory login chatgpt` asks the owner first whether Core
+Memory may use the plan in the background, and stops, saving nothing, without
+a `yes`. It then makes and saves this machine's host ID if it has none
+(`urn:uuid:` and a random UUID, in `chatgpt-host-id` beside the credentials
+file), listens on `127.0.0.1` (port 1455 if it is free), and opens the
+system browser at OpenAI's authorize endpoint with a fresh `state`, `nonce` and
+PKCE (`S256`) verifier, the scopes `openid profile email offline_access
+resource.invoke chatgpt.tokens.use.direct`, and `resource =
+https://api.openai.com/v1`. A first sign-in registers the app as "Core Memory"
+(`client_id = dynamic_agent_client`, `agent_name_hint`); a later one reuses the
+client issued then and hints the account by its email. It never sends the ID
+token as a hint: the URL is printed and passed to the browser on a command line
+other users of the machine can see.
+
+The callback must carry the attempt's `state`; one that does not is turned
+away and the wait goes on. A first sign-in must return an issued client, and a
+later one may not name a different client. The code is exchanged with the
+verifier and no secret. The ID token must be signed RS256 by a key in OpenAI's
+published key set, issued by `https://auth.openai.com`, to the issued client,
+unexpired, and carry the attempt's nonce. Its `sub` is the account, and a later
+sign-in must be the same account. A sign-in without the plan scope is kept but
+says so, and the transport makes no call with it; `login chatgpt --consent`
+asks again (`prompt=consent`).
+
+**The credentials file** holds the record OpenAI's guide lists (email, issuer,
+subject, issued client, host ID, ID, access and refresh tokens, expiry, granted
+scopes, `saved_at`) and one field of Core Memory's own: `background_use`, when
+the owner agreed, on which host, to which revision of the question. It is the
+binding's `credentials_file`, relative to the config file, or
+`~/.config/core-memory/chatgpt.json`. It is written whole: to a new file made
+owner-only (`0600`) beside it, then renamed over it, in a folder made `0700`. A
+file other users can read is refused. It is not in the database: tokens are
+not source text, and the terms keep their storage local and under the user's
+control.
+
+**A call** reads the file each time. It sends nothing unless the file holds
+the plan scope and the owner's consent recorded for this machine's host ID.
+When the access token has less than five minutes left, or the API turned it
+down on the last call, the call renews it first: it takes an exclusive lock on
+`<file>.lock`, reads the file again, uses the token another process renewed
+meanwhile if there is one, and otherwise renews with the saved client and
+refresh token and no scope, then saves the new tokens together. Refresh
+tokens rotate, so two processes renewing one sign-in would spend the same
+token twice; the lock prevents it. The call itself is one `POST
+https://api.openai.com/v1/responses` with `store: false`, `stream: true`,
+the system prompt as `instructions`, the request as one `input` item, the
+reply's JSON Schema as `text.format` where the engine asks for it, and the
+binding's `reasoning_effort`. None of the fields the plan's route refuses is
+sent: not `max_output_tokens`, which the engine still reserves against a
+budget, and not `temperature` or `seed`, which a binding may not set. The
+endpoint is fixed: a binding that names another is refused before anything is
+read, and nothing in the config or the environment changes where a token
+goes. A call succeeded only if its stream reached `response.completed`.
+
+| What came back | Transport error | `problem` |
+|---|---|---|
+| 401, from admission or `subscription_sharing_invalid_user`; no sign-in, no plan scope or no consent here; a refresh token OpenAI says is spent (`invalid_grant`, `invalid_refresh_token`, `token_expired`, `refresh_token_expired`, `refresh_token_invalidated`, `refresh_token_reused`), whose tokens are then cleared | `SignInRequired` | `signin_required` |
+| 429 `subscription_sharing_usage_limit_exceeded` | `LimitReached`, not started | `plan_limit_reached` |
+| `response.failed` with that code, after the reply began | `LimitReached`, started | `plan_limit_reached` |
+| 403 (admission, `subscription_sharing_user_not_eligible`, `subscription_sharing_route_not_supported`, `chatpass_v2_*`), 400 `subscription_sharing_unsupported_capability` (its `param` named), refresh `invalid_client` | `Permanent` | `binding_rejected` |
+| 503 (admission, `subscription_sharing_usage_unavailable`, `subscription_sharing_user_unavailable`), other 5xx, other 429, 408, a renewal that could not reach OpenAI | `Transient` | `provider_unavailable` |
+| 400 `context_length_exceeded`, 413, `response.incomplete` for `max_output_tokens` | `DidNotFit` | `did_not_fit` |
+| `response.incomplete` for `content_filter`, a refusal in the reply | `Refused` | `model_refused` |
+| Any other `response.failed`, an `error` event, a stream that ended without `response.completed` | `InDoubt` | `call_in_doubt` |
+
+A 401 is not tried again by the call that got it: the next call renews the
+token first. An error names OpenAI's status, code, `param` and request ID, and
+holds no token: one a server repeated is taken out.
+
+**Signing out.** `core-memory logout chatgpt` ends the renewable session at the
+revocation endpoint OpenAI's configuration names, which must be on OpenAI's
+sign-in host, trying twice more after a network failure or a server error.
+It then clears the
+tokens and the consent, keeping the account, its issued client and the host ID
+for the next sign-in, and says if OpenAI did not confirm the session ended.
+
+**A server without a browser.** A loopback callback reaches the machine with
+the browser, so the owner signs in there and copies the file to the server
+over SSH. `login chatgpt --import FILE` on the server makes the server's own
+host ID if it has none, puts it in the record in place of the other machine's,
+asks for and records the owner's consent there, and refuses a different
+account than one already signed in. The server renews the tokens from then on.
+
+**The terms, as built.**
+
+- *Tokens through the supported flow, stored locally under the user's
+  control.* Only the flow above obtains them; they are kept in the owner-only
+  file and nowhere else, never in a URL, a log, an error, a receipt or the
+  work queue. A token's `Debug` form is a placeholder.
+- *Requests from a runtime only that user controls, for their own activity.*
+  The engine runs where its owner runs it. A scope's text goes to the binding
+  only after `scope allow` grants `signed-in@api.openai.com`, and the
+  question at sign-in, the README and the example config tell the owner to
+  grant it only to scopes that hold their own activity. The grant is the
+  plan's own: a scope allowed for an `openai` API-key binding
+  (`api.openai.com`) is not allowed for this, so switching a reader to the
+  plan sends nothing until each scope is allowed for it.
+- *Express consent before background use.* Asked before signing in, recorded
+  with its time, host and revision; without it no call is made.
+- *The connected application only.* The token serves this engine's own
+  calls. No command prints it, nothing hands it to another program, and the
+  engine offers no API through it.
+- *No charge, no pooling, the app's own name.* Core Memory charges nothing,
+  keeps one account per credentials file, and registers as "Core Memory".
+
+Sign-in, renewal, the stream and every mapped error are tested against a
+stand-in for OpenAI's servers with a test signing key. The flow has not yet
+been run against OpenAI's own servers: `auth.openai.com` was not reachable
+from where it was built.
 
 ## Relationships
 

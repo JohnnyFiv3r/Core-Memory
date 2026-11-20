@@ -16,6 +16,7 @@ use core_memory_contract::{
 use core_memory_core::store::{Change, Purpose, ScopeState, Store};
 use core_memory_core::{Clock, EngineError, RecallQuery, ScopeGrants, StoreError, SystemClock};
 use core_memory_sidecar::config::Loaded;
+use core_memory_sidecar::login;
 use core_memory_sidecar::reading::{self, Reader};
 use core_memory_sidecar::report::{self, Stop};
 use core_memory_sidecar::runtime::{Runtime, build_engine, check_binding, model_roots, open_store};
@@ -155,6 +156,27 @@ enum Command {
     Serve,
     /// Validate the config file and print its profiles. Does not connect.
     Check,
+    /// Sign in to a ChatGPT Plus or Pro account, so the model calls of an
+    /// `openai-chatgpt` binding use its plan instead of API credits. Asks
+    /// first whether Core Memory may use the plan in the background, and
+    /// signs nothing in without a yes.
+    Login {
+        #[arg(value_enum)]
+        provider: SignInProvider,
+        #[command(flatten)]
+        options: LoginArgs,
+    },
+    /// Sign out of a ChatGPT account: end its session with OpenAI and clear
+    /// its tokens here. The account's registration and this machine's host
+    /// ID are kept for the next sign-in.
+    Logout {
+        #[arg(value_enum)]
+        provider: SignInProvider,
+        /// The credentials file. Default: the one the config's
+        /// `openai-chatgpt` binding names, else the default file.
+        #[arg(long)]
+        credentials: Option<PathBuf>,
+    },
     /// Generate an HTTP bearer token and the config lines that accept it.
     Token {
         /// Token id to put in the config.
@@ -165,6 +187,45 @@ enum Command {
     Schema { name: Option<String> },
     /// Print the HTTP API's OpenAPI document.
     Openapi,
+}
+
+/// What can be signed in to.
+#[derive(Clone, Copy, clap::ValueEnum)]
+enum SignInProvider {
+    /// A ChatGPT account, through Sign in with ChatGPT.
+    Chatgpt,
+}
+
+#[derive(clap::Args)]
+struct LoginArgs {
+    /// The credentials file. Default: the one the config's
+    /// `openai-chatgpt` binding names, else
+    /// ~/.config/core-memory/chatgpt.json.
+    #[arg(long)]
+    credentials: Option<PathBuf>,
+    /// Show the sign-in, without signing in. Sends nothing.
+    #[arg(long, conflicts_with_all = ["models", "import", "consent", "allow_background_use"])]
+    status: bool,
+    /// List the models the account may use: what a binding's `model` may
+    /// name.
+    #[arg(long, conflicts_with_all = ["import", "consent", "allow_background_use"])]
+    models: bool,
+    /// Import a sign-in made on another machine, for a server with no
+    /// browser: the credentials file copied here over SSH. It keeps this
+    /// machine's own host ID.
+    #[arg(long, value_name = "FILE", conflicts_with = "consent")]
+    import: Option<PathBuf>,
+    /// Ask OpenAI to show its consent screen again, as to let Core Memory
+    /// use the plan after declining it.
+    #[arg(long)]
+    consent: bool,
+    /// Agree to Core Memory using the plan in the background without being
+    /// asked, for scripts. This is the same consent the question asks for.
+    #[arg(long)]
+    allow_background_use: bool,
+    /// Print the sign-in URL without opening a browser.
+    #[arg(long)]
+    no_browser: bool,
 }
 
 #[derive(Subcommand)]
@@ -311,6 +372,16 @@ fn main() -> ExitCode {
         } => erase(config, &reason, &actor, target),
         Command::Serve => serve(config),
         Command::Check => check(config),
+        Command::Login {
+            provider: SignInProvider::Chatgpt,
+            options,
+        } => login(config, options),
+        Command::Logout {
+            provider: SignInProvider::Chatgpt,
+            credentials,
+        } => login::logout(config, credentials.as_deref())
+            .and_then(report::print)
+            .map(|()| ExitCode::SUCCESS),
         Command::Token { id } => token(&id),
         Command::Schema { name } => schema(name.as_deref()),
         Command::Openapi => print_json(&openapi::document()),
@@ -948,6 +1019,28 @@ fn check(config_path: &Path) -> Result<ExitCode, Stop> {
             "content": p.def.content,
             "chunker": p.chunker_ref,
         }))?;
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+fn login(config_path: &Path, args: LoginArgs) -> Result<ExitCode, Stop> {
+    let options = login::LoginOptions {
+        credentials: args.credentials,
+        status: args.status,
+        models: args.models,
+        import: args.import,
+        ask_again: args.consent,
+        allow_background_use: args.allow_background_use,
+        no_browser: args.no_browser,
+    };
+    let lines = login::login(
+        config_path,
+        &options,
+        &mut io::stdin().lock(),
+        &mut io::stderr().lock(),
+    )?;
+    for line in lines {
+        report::print(line)?;
     }
     Ok(ExitCode::SUCCESS)
 }

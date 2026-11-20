@@ -401,6 +401,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "core-memory-model-chatgpt"
+version = "2.0.0"
+dependencies = [
+ "base64 0.23.1",
+ "core-memory-core",
+ "core-memory-model-http",
+ "getrandom 0.4.3",
+ "ring",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "time",
+ "uuid",
+]
+
+[[package]]
 name = "core-memory-model-http"
 version = "2.0.0"
 dependencies = [
@@ -430,6 +446,7 @@ dependencies = [
  "core-memory-contract",
  "core-memory-core",
  "core-memory-model-anthropic",
+ "core-memory-model-chatgpt",
  "core-memory-model-http",
  "core-memory-model-openai",
  "core-memory-source-jsonl",
@@ -444,6 +461,7 @@ dependencies = [
  "serde_json",
  "socket2",
  "tempfile",
+ "time",
  "tokio",
  "toml",
  "tower",

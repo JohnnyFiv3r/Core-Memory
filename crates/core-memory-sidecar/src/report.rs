@@ -61,6 +61,12 @@ pub fn log(line: serde_json::Value) {
     }
 }
 
+/// Says something to the person at the terminal, on standard error, so
+/// standard output keeps only the command's result.
+pub fn say(text: &str) {
+    to_stderr(&presentable(text));
+}
+
 /// Says on standard error why the command stopped.
 pub fn stopped(stop: &Stop) {
     to_stderr(&format!("core-memory: {}", presentable(stop.message())));

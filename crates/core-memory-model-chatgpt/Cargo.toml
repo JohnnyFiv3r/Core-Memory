@@ -1,0 +1,33 @@
+[package]
+name = "core-memory-model-chatgpt"
+description = "ChatGPT plan transport for the Core Memory engine: Sign in with ChatGPT and the Responses API"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[dependencies]
+# base64url for PKCE, state, nonce and the parts of an ID token. The
+# version ureq already uses, so no new crate.
+base64.workspace = true
+core-memory-core.workspace = true
+core-memory-model-http.workspace = true
+getrandom.workspace = true
+# RSA signature checks of ID tokens and SHA-256 for PKCE. Already in the
+# build as rustls's crypto provider, so no new crate.
+ring.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+time.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+core-memory-model-http = { workspace = true, features = ["testing"] }
+tempfile.workspace = true
+
+[lints]
+workspace = true

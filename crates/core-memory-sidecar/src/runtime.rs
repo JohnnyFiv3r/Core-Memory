@@ -1,10 +1,12 @@
 //! Opening the engine and the store a config describes.
 
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
 use core_memory_core::{BindingConfig, Engine, ModelTransport, SystemClock};
 use core_memory_model_anthropic::AnthropicTransport;
+use core_memory_model_chatgpt::ChatGptTransport;
 use core_memory_model_http::{HttpClient, Roots};
 use core_memory_model_openai::{Dialect, OpenAiTransport};
 use core_memory_store_postgres::{PostgresPool, PostgresStore};
@@ -33,6 +35,17 @@ pub fn open_pool(loaded: &Loaded) -> Result<PostgresPool, Stop> {
 /// Checks that a binding names a provider this build can call and has the
 /// settings that provider's API takes. Reads no key and sends nothing.
 pub fn check_binding(binding: &BindingConfig) -> Result<(), Stop> {
+    if binding.provider == core_memory_model_chatgpt::PROVIDER {
+        return Ok(ChatGptTransport::check_binding(binding)?);
+    }
+    if binding.credentials_file.is_some() {
+        return Err(Stop::Failed(format!(
+            "binding `{}`: credentials_file is for provider `{}`; this provider takes \
+             api_key_env",
+            binding.id,
+            core_memory_model_chatgpt::PROVIDER
+        )));
+    }
     if binding.provider == core_memory_model_anthropic::PROVIDER {
         AnthropicTransport::check_binding(binding)?;
         if binding.api_key_env.is_none() {
@@ -46,8 +59,9 @@ pub fn check_binding(binding: &BindingConfig) -> Result<(), Stop> {
     }
     if Dialect::for_provider(&binding.provider).is_none() {
         return Err(Stop::Failed(format!(
-            "binding `{}`: provider must be `anthropic`, `openai` or `openai-compatible`",
-            binding.id
+            "binding `{}`: provider must be `anthropic`, `openai`, `openai-compatible` or `{}`",
+            binding.id,
+            core_memory_model_chatgpt::PROVIDER
         )));
     }
     Ok(OpenAiTransport::check_binding(binding)?)
@@ -67,14 +81,38 @@ pub fn model_roots(loaded: &Loaded) -> Result<Option<Roots>, Stop> {
     }
 }
 
-/// The transport for a binding, with its key read from the environment.
-/// Nothing is sent: a binding is first used when a chunk is read.
+/// Where an `openai-chatgpt` binding's sign-in is kept: its
+/// `credentials_file`, relative to the config file, or the default file in
+/// the user's config folder.
+pub fn credentials_path(loaded: &Loaded, binding: &BindingConfig) -> Result<PathBuf, Stop> {
+    match &binding.credentials_file {
+        Some(file) => Ok(loaded.resolve(Path::new(file))),
+        None => core_memory_model_chatgpt::default_path().ok_or_else(|| {
+            Stop::Failed(format!(
+                "binding `{}`: no config folder to keep the ChatGPT sign-in in (neither HOME \
+                 nor XDG_CONFIG_HOME is set); set credentials_file",
+                binding.id
+            ))
+        }),
+    }
+}
+
+/// The transport for a binding, with its key read from the environment,
+/// or, for a binding signed in to, its credentials file named. Nothing is
+/// sent and no file is read: a binding is first used when a chunk is read.
 pub fn open_transport(
+    loaded: &Loaded,
     binding: &BindingConfig,
     roots: Option<&Roots>,
 ) -> Result<Box<dyn ModelTransport>, Stop> {
     check_binding(binding)?;
     let client = HttpClient::trusting(Duration::from_millis(binding.timeout_ms), roots);
+    if binding.provider == core_memory_model_chatgpt::PROVIDER {
+        return Ok(Box::new(ChatGptTransport::new(
+            credentials_path(loaded, binding)?,
+            client,
+        )));
+    }
     let key = match &binding.api_key_env {
         None => None,
         Some(name) => Some(
