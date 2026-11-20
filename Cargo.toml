@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/*", "eval/reader-probe"]
 
 [workspace.package]
-version = "2.0.0"
+version = "2.0.1"
 edition = "2024"
 rust-version = "1.89"
 license = "Apache-2.0"
@@ -13,15 +13,15 @@ authors = ["John Inniger"]
 publish = false
 
 [workspace.dependencies]
-core-memory-contract = { path = "crates/core-memory-contract", version = "=2.0.0" }
-core-memory-chunker = { path = "crates/core-memory-chunker", version = "=2.0.0" }
-core-memory-core = { path = "crates/core-memory-core", version = "=2.0.0" }
-core-memory-store-postgres = { path = "crates/core-memory-store-postgres", version = "=2.0.0" }
-core-memory-source-jsonl = { path = "crates/core-memory-source-jsonl", version = "=2.0.0" }
-core-memory-model-http = { path = "crates/core-memory-model-http", version = "=2.0.0" }
-core-memory-model-anthropic = { path = "crates/core-memory-model-anthropic", version = "=2.0.0" }
-core-memory-model-openai = { path = "crates/core-memory-model-openai", version = "=2.0.0" }
-core-memory-model-chatgpt = { path = "crates/core-memory-model-chatgpt", version = "=2.0.0" }
+core-memory-contract = { path = "crates/core-memory-contract", version = "=2.0.1" }
+core-memory-chunker = { path = "crates/core-memory-chunker", version = "=2.0.1" }
+core-memory-core = { path = "crates/core-memory-core", version = "=2.0.1" }
+core-memory-store-postgres = { path = "crates/core-memory-store-postgres", version = "=2.0.1" }
+core-memory-source-jsonl = { path = "crates/core-memory-source-jsonl", version = "=2.0.1" }
+core-memory-model-http = { path = "crates/core-memory-model-http", version = "=2.0.1" }
+core-memory-model-anthropic = { path = "crates/core-memory-model-anthropic", version = "=2.0.1" }
+core-memory-model-openai = { path = "crates/core-memory-model-openai", version = "=2.0.1" }
+core-memory-model-chatgpt = { path = "crates/core-memory-model-chatgpt", version = "=2.0.1" }
 
 axum = "0.8"
 base64 = "0.23"
