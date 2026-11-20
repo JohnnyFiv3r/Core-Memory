@@ -68,9 +68,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       # manylinux2014 (glibc 2.17) for x86_64; aarch64 is cross-compiled in
-      # maturin's cross image. TLS is rustls with ring, which builds there
-      # with the image's C compiler: no OpenSSL, no aws-lc, no cmake.
+      # maturin's cross image. TLS is rustls with ring, which needs only the
+      # image's C compiler: no OpenSSL, no aws-lc, no cmake.
       - uses: PyO3/maturin-action@v1.51.0
+        # The cross image's older GCC does not define __ARM_ARCH, which
+        # ring's ARM assembly requires; aarch64 is ARMv8. Only the aarch64
+        # build reads this variable.
+        env:
+          CFLAGS_aarch64_unknown_linux_gnu: -D__ARM_ARCH=8
         with:
           target: ${{ matrix.target }}
           manylinux: auto
