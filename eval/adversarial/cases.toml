@@ -966,3 +966,43 @@ a = "J15.3"
 b = "J15.2"
 expect = ["none", "near"]
 why = "A reaction. Near is fair: it is about the coffee machine."
+
+[[thread]]
+id = "J16"
+probe = "two accounts neither can settle, then one that does"
+
+[[thread.message]]
+id = "J16.1"
+speaker = "Ana"
+at = 0
+text = "The team dinner on Friday is at Luigi's."
+
+[[thread.message]]
+id = "J16.2"
+speaker = "Ben"
+at = 30
+text = "I heard Friday's team dinner is at the Thai place on Main."
+
+[[thread.message]]
+id = "J16.3"
+speaker = "Ana"
+at = 120
+text = "Called the restaurant to check: Friday's dinner is booked at Luigi's."
+
+[[thread.pair]]
+a = "J16.2"
+b = "J16.1"
+expect = ["!contradicts", "unsure"]
+why = "Two places for one dinner, and neither message has the better claim or says the other is out of date. Both stay current until something settles it."
+
+[[thread.pair]]
+a = "J16.3"
+b = "J16.1"
+expect = ["confirms"]
+why = "Checked, and the same as before."
+
+[[thread.pair]]
+a = "J16.3"
+b = "J16.2"
+expect = ["repl"]
+why = "It settles the dispute against the Thai place: a reader should now go by Luigi's."

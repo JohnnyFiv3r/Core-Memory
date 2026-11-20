@@ -38,22 +38,25 @@ sometimes the case is what needs changing.
 | not English | Spanish and German |
 | shape | a log line, a bare link |
 
-**15 threads for the judge**, 38 messages and 26 scored pairs: a goal
+**16 threads for the judge**, 41 messages and 29 scored pairs: a goal
 withdrawn, a correction, a fact confirmed after doubt, two statements that
 cannot both be right, a question and its answer, one name for two people,
 the same words about unrelated matters, a problem with its fix and result, a
 message that tells the judge to retract everything before it, a decision
 reversed, more about a thing that replaces nothing, one list split over two
-messages, a move nobody calls a correction, a hypothesis and its result, and
-small talk. Some of their messages carry an expected type too.
+messages, a move nobody calls a correction, a hypothesis and its result,
+small talk, and two accounts that neither side can settle until a third
+message does. Some of their messages carry an expected type too. The runs
+recorded below, up to and including revision 4's, had the first 15 threads
+and 26 pairs; J16 was added after them.
 
 Each case for the reader stands ten days from the next, and each thread
 twenty days from the next, farther apart than the judge's seven-day window:
 the reader's cases are compared with nothing, and each thread is judged on
 its own.
 
-**It spends real money, very little:** the reader reads 101 messages, eight
-to a call, and the judge reads 15 threads, with a second read of each
+**It spends real money, very little:** the reader reads 104 messages, eight
+to a call, and the judge reads 16 threads, with a second read of each
 replacement or withdrawal it gives. Expect about $1.
 
 ## Running it
@@ -172,3 +175,40 @@ $1.01):
 - The reader was the same in both, 194 of 201, as it should be.
 - Three runs a side is still few: J02's fall and J13's rise are within
   what one pair does from run to run.
+
+**2026-11-20, rubric revision 4: Burgess's arrows, three runs** ($1.27,
+about seven minutes, 63 judge calls):
+
+| Pair | Revision 3 | Revision 4 |
+|---|---|---|
+| all 26 pairs, 3 runs | 71 of 78 | 78 of 78 |
+| J02, a correction | 1 of 3 | 3 of 3, `repl` |
+| J04, a contradiction | 0 of 3 | 3 of 3, `repl` |
+| J13, a move nobody calls a correction | 1 of 3 | 3 of 3, `repl` |
+
+- **No reply was rejected**, in any run: one field of arrow names held.
+- **The three pairs that came right** are scored by the same answers as
+  before, translated: a replacement for J02, J10 and J13, a replacement or
+  a contradiction for J04. The arrows' answers changed in one way that
+  counts: `!confuse` is now right for the two people named Sam and for the
+  two budgets. The judge gave `!confuse` for Samantha against Sam in every
+  run; every other pair would have been right under the old answers'
+  meaning too.
+- **The contradiction was never left open.** The judge read "per legal" in
+  J04 as a correction and gave `repl` in every run; no first read anywhere
+  gave `!contradicts`. In the third run the second read did not give
+  `repl` again, so nothing was written and both statements stayed current.
+  J16 was added to see the arrow used where neither side has the better
+  claim.
+- **The judge used the new arrows where they fit**: `answered-by` for both
+  questions with their answers in every run (J03, J05), `confirms` for the
+  fact confirmed after doubt and for the hypothesis borne out, `implem` for
+  the training plan of the goal, `cause` and then `result` for the problem,
+  its fix and what came of it, `attr-of` for the venue's parking, and
+  `withdraws` for the goal given up.
+- **It costs more**: $1.27 against revision 3's $1.01 for three runs, from
+  the longer instructions. The judge's share was $1.23.
+- The reader, which did not change, was right on 197 of 201, as against
+  194 under the two revisions before: within what it does from run to run.
+- 78 of 78 on cases we wrote ourselves says the rubric and the cases agree.
+  It does not say the judge is right on what a person would write.
