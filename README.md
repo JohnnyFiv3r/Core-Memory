@@ -30,6 +30,7 @@ between IDs, and as a record of every pair it looked at.
 [docs/architecture.md](docs/architecture.md) describes the design. Finding
 related pairs across the whole store, beyond what a judge reads in time
 order, is a host's work and not the engine's: memoriesQL does it.
+[docs/lineage.md](docs/lineage.md) says what became of each part of 1.x.
 
 This branch is pre-release. Nothing from it is published to PyPI or crates.io.
 
@@ -493,16 +494,36 @@ written by code that does not know the new schema.
 - **Tool calls**: stored whole as one bead, shortened by fixed rules, and
   read by a model that records what each call did and what came of it.
 - **Judging**: a model says how each new memory relates to the ones near
-  it in time. Every pair it reads is recorded, a statement is replaced at
-  most once, and a replacement is read twice before it is written.
+  it in time, in the arrows of Mark Burgess's Semantic Spacetime. Every
+  pair it reads is recorded. A statement is replaced or withdrawn at most
+  once, and only after a second read gives the same arrow; a contradiction
+  keeps both sides current.
+- **Throughput and cost**: reading, tool calls and judging each run in
+  lanes of their own, with as many reader workers as you configure, and
+  every call's instructions are sent first so the provider can cache them.
 - **An authenticated HTTP service** with per-token scope grants, readiness and
   an OpenAPI document.
 - **Export** of events, chunks, reads, tool outcomes, verdicts, the beads a
   judge made, edges, name links and erasures as `core_memory.record.v2` JSON
   Lines.
 
-Reading and judging have been tested against stand-in models only, not yet
-against a live one.
+## Measured
+
+Every result below was measured with live models: Claude Haiku 5.5 reading,
+and Claude Opus 5.5 judging.
+
+- **[Hard cases](eval/adversarial/)** are 104 messages written to mislead
+  a reader or a judge, each with the answers we count as right. Over three
+  runs, the reader was right on 193 of 201 and the judge on 86 to 87 of 87.
+  It closes a settled dispute, keeps an unsettled one open, and does not
+  follow a message that tells it what to do. Three runs cost $0.40 and take
+  3½ minutes.
+- **[LoCoMo](eval/locomo-smoke/)**: one 419-turn conversation is read and
+  judged in about 6 minutes, for about $1.35. All ten conversations would
+  cost about $17–19.
+- **[Judges compared](eval/compare/)**: Claude Sonnet 5.5 costs about 42%
+  less as the judge. It missed replacements and groups that Opus got right,
+  so Opus stays the judge.
 
 ## Workspace
 
@@ -545,7 +566,8 @@ pip install "core-memory<2"
 ```
 
 Releases up to 1.1.2 are tagged on `v1.x`. Bug and security fixes for 1.x are
-made there.
+made there. [docs/lineage.md](docs/lineage.md) goes through each 1.x module
+and says what 2.0 kept, replaced, dropped or left to the host.
 
 ## License
 
