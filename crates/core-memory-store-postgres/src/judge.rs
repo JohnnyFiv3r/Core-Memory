@@ -1361,6 +1361,28 @@ fn store_judgment(
         .iter()
         .map(|row| row.get(0))
         .collect();
+    // A second read settles its held arrow only if what it says of every
+    // bead the arrow would end may be stored. A head that is live in a
+    // scope that is not active may not be written about now, and the
+    // arrow would be lost: the second read is owed again instead, and is
+    // put back below as a new bead in a stopped scope is. A head that was
+    // erased took the held arrow with it.
+    let waits = match f.settles {
+        Some(source) => tx
+            .query_one(
+                "SELECT EXISTS (
+                     SELECT 1
+                       FROM core_memory.pending_chains AS p
+                       JOIN core_memory.beads AS b ON b.bead_id = ANY (p.head_beads)
+                       JOIN core_memory.scopes AS s ON s.scope = b.scope
+                      WHERE p.source_bead = $1 AND b.state = 'live' AND s.state <> 'active')",
+                &[&source.0],
+            )
+            .map_err(backend)?
+            .get::<_, bool>(0)
+            .then_some(source.0),
+        None => None,
+    };
     // Of the new beads, the ones still owed a judgment by this call: their
     // work is still held under its lease, and is done now. A bead whose
     // work is gone was erased, or judged by another worker. A bead whose
@@ -1371,7 +1393,7 @@ fn store_judgment(
         .new_beads
         .iter()
         .map(|bead| bead.0)
-        .filter(|id| valid.contains(id))
+        .filter(|id| valid.contains(id) && waits != Some(*id))
         .collect();
     let owed: BTreeSet<Uuid> = tx
         .query(
@@ -1386,7 +1408,8 @@ fn store_judgment(
         .map(|row| row.get(0))
         .collect();
     // A new bead that may not be written about now, because its scope
-    // stopped being active while the judge read, is put back. Its work
+    // stopped being active while the judge read, is put back, and so is
+    // the source of a held arrow whose head's scope stopped. Its work
     // would otherwise keep the lease, and with it every other judge out of
     // the workspace, until the lease ran out. Its attempt is given back:
     // nothing about it was wrong.
