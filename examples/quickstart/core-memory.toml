@@ -42,6 +42,18 @@ types = [
 # max_output_tokens = 4096
 # api_key_env = "ANTHROPIC_API_KEY"
 # budget = { max_requests_per_day = 2000, max_tokens_per_day = 5000000 }
+#
+# Or pay with your ChatGPT Plus or Pro plan instead of API credits: sign in
+# once with `core-memory login chatgpt`, then name the binding where `small`
+# is named above. Allow it only for scopes that hold your own activity.
+#
+# [[binding]]
+# id = "plan"
+# provider = "openai-chatgpt"
+# endpoint = "https://api.openai.com/v1"     # the only endpoint it takes
+# model = "<a model `core-memory login chatgpt --models` lists>"
+# max_output_tokens = 4096                   # reserved against a budget, never sent
+# credentials_file = "chatgpt.json"          # optional; default ~/.config/core-memory/chatgpt.json
 
 # A source profile for CRM change events. A profile says how a source is
 # admitted, chunked and faceted. It never assigns a type; it may only narrow

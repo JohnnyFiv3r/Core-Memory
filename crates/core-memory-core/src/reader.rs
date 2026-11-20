@@ -130,6 +130,26 @@ pub(crate) fn failure(error: &TransportError, backoff_ms: u64) -> Failure {
             false,
             BINDING_FAULT_BACKOFF_MS.max(backoff_ms),
         ),
+        // Nothing was processed, and nothing will be until the binding's
+        // owner signs in again.
+        TransportError::SignInRequired { .. } => (
+            CallResult::NotSent,
+            "signin_required",
+            false,
+            BINDING_FAULT_BACKOFF_MS.max(backoff_ms),
+        ),
+        // The plan's allowance is spent for now. A reply cut off by it may
+        // have been processed; one turned away at the door was not.
+        TransportError::LimitReached { started, .. } => (
+            if *started {
+                CallResult::InDoubt
+            } else {
+                CallResult::NotSent
+            },
+            "plan_limit_reached",
+            false,
+            BINDING_FAULT_BACKOFF_MS.max(backoff_ms),
+        ),
     };
     Failure {
         result,
@@ -819,6 +839,48 @@ mod tests {
             (in_doubt.result, in_doubt.problem),
             (CallResult::InDoubt, "call_in_doubt")
         );
+    }
+
+    #[test]
+    fn a_sign_in_or_a_plan_limit_pauses_the_binding() {
+        let signin = super::failure(
+            &TransportError::SignInRequired {
+                message: "signed out".into(),
+            },
+            1_000,
+        );
+        // Nothing reached the model, and nothing will until the owner signs
+        // in again: as long a wait as for a binding turned down.
+        assert_eq!(
+            (signin.result, signin.problem, signin.alone),
+            (CallResult::NotSent, "signin_required", false)
+        );
+        assert_eq!(signin.wait_ms, super::BINDING_FAULT_BACKOFF_MS);
+        let at_door = super::failure(
+            &TransportError::LimitReached {
+                message: "limit".into(),
+                started: false,
+            },
+            1_000,
+        );
+        let mid_reply = super::failure(
+            &TransportError::LimitReached {
+                message: "limit".into(),
+                started: true,
+            },
+            1_000,
+        );
+        assert_eq!(
+            (at_door.result, at_door.problem),
+            (CallResult::NotSent, "plan_limit_reached")
+        );
+        // A reply cut off by the limit may have been processed.
+        assert_eq!(
+            (mid_reply.result, mid_reply.problem),
+            (CallResult::InDoubt, "plan_limit_reached")
+        );
+        assert_eq!(at_door.wait_ms, super::BINDING_FAULT_BACKOFF_MS);
+        assert!(!at_door.alone && !mid_reply.alone);
     }
 
     use crate::{Engine, EngineConfig, ManualClock};

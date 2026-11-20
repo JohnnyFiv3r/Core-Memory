@@ -1134,6 +1134,45 @@ fn a_binding_the_provider_turns_down_backs_off_for_longer() {
 }
 
 #[test]
+fn a_sign_in_to_renew_or_a_plan_limit_is_recorded_as_such_and_waits() {
+    let mut w = reading("");
+    w.accept(&chat("1", "waiting for the owner to sign in again"));
+    let transport = ScriptedTransport::new(vec![
+        Err(TransportError::SignInRequired {
+            message: "signed out".into(),
+        }),
+        // The plan's limit, reached after the reply began.
+        Err(TransportError::LimitReached {
+            message: "limit".into(),
+            started: true,
+        }),
+    ]);
+    assert_eq!(
+        handled(round(&mut w, &transport)).problem,
+        Some("signin_required")
+    );
+    // Nothing reached the model.
+    assert_eq!(
+        w.count("SELECT count(*) FROM core_memory.outbound_results WHERE result = 'not_sent'"),
+        1
+    );
+    // As long a wait as for a binding turned down.
+    w.clock.advance_millis(60_000);
+    assert_eq!(round(&mut w, &transport), ReadRound::Idle);
+    w.clock.advance_millis(600_000);
+    assert_eq!(
+        handled(round(&mut w, &transport)).problem,
+        Some("plan_limit_reached")
+    );
+    assert_eq!(
+        w.count("SELECT count(*) FROM core_memory.outbound_results WHERE result = 'in_doubt'"),
+        1
+    );
+    w.clock.advance_millis(660_000);
+    assert_eq!(handled(round(&mut w, &FnTransport(decide_all))).stored, 1);
+}
+
+#[test]
 fn a_days_budget_stops_calls_until_the_next_day() {
     let mut w =
         reading("[binding.budget]\nmax_requests_per_day = 1\nmax_tokens_per_day = 1000000\n");

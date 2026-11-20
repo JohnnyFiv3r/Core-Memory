@@ -367,6 +367,17 @@ impl Loaded {
                     n + 1
                 ));
             }
+            if binding
+                .credentials_file
+                .as_deref()
+                .is_some_and(|file| file.trim().is_empty())
+            {
+                return Err(format!(
+                    "binding number {}: credentials_file must name a file, or be left out for \
+                     the default one",
+                    n + 1
+                ));
+            }
         }
         for (name, value, max) in [
             (

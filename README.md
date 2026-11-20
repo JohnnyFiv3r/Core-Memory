@@ -286,6 +286,90 @@ Without it, a call to a server whose certificate is not trusted sends
 nothing: `core-memory read status` shows its work put off with the problem
 `endpoint_untrusted`, and no call of that kind is tried for ten minutes.
 
+### Using your ChatGPT plan
+
+With a ChatGPT Plus or Pro account, the reader, the tool reader and the judge
+can use your plan instead of API credits. This works with OpenAI's models only;
+an Anthropic binding still needs an API key.
+
+Sign in once, on the machine that runs Core Memory:
+
+```bash
+core-memory login chatgpt
+```
+
+It first asks whether Core Memory may use your plan in the background, and
+signs nothing in unless you answer `yes`. Then it opens your browser at
+OpenAI's sign-in, where Core Memory registers under its own name, and waits
+for the browser to come back. It saves the sign-in to
+`~/.config/core-memory/chatgpt.json`, readable by you only, and shows the
+account and whether you let it use your plan. Then point a binding at it:
+
+```toml
+[[binding]]
+id = "plan"
+provider = "openai-chatgpt"
+endpoint = "https://api.openai.com/v1"   # the only endpoint it takes
+model = "<a model from `core-memory login chatgpt --models`>"
+max_output_tokens = 4096                 # reserved against a budget, never sent
+# credentials_file = "chatgpt.json"      # beside the config; default above
+```
+
+and name it in `[reader]`, `[tool_reader]` or `[judge]`. The binding takes no
+`temperature`, `seed` or `api_key_env`. `reasoning_effort` is sent.
+
+```bash
+core-memory login chatgpt --status    # who is signed in, plan and consent; sends nothing
+core-memory login chatgpt --models    # the models your account may use
+core-memory login chatgpt --consent   # sign in again and allow plan use, after declining it
+core-memory logout chatgpt            # end the session with OpenAI and clear the tokens here
+```
+
+What this is bound by, from OpenAI's Sign in with ChatGPT terms:
+
+- **Your own activity only.** Your plan may serve only requests that come from
+  your own activity. Allow the binding's destination (`core-memory scope allow
+  <scope> --binding plan`) only for scopes that hold your own conversations,
+  notes and tool runs, never another person's. Consent is to a host, and an
+  `openai` API-key binding has the same one (`api.openai.com`), so check
+  `core-memory scope list` before you switch a reader to your plan.
+- **Your consent to background use.** Core Memory reads and judges in the
+  background without asking each time, so `login` asks you first and records
+  your answer and when you gave it. Without it, or on another machine than the
+  one you gave it on, no call is made.
+- **Tokens stay with you.** The sign-in is kept only in that file, on your
+  machine, written whole and readable by you only; a file others can read is
+  refused. Tokens are never logged, never put in a URL, and never in an error,
+  a receipt or a work queue. They go only to OpenAI, at fixed addresses
+  nothing in the config can change. Core Memory hands them to no other program
+  and offers no API on top of them.
+- **Your plan's limits apply.** Plus has a five-hour limit shared by every app
+  that uses your plan. When it is reached, `core-memory read status` shows
+  work put off with the problem `plan_limit_reached`, and no call of that
+  kind is made for ten minutes. Work set aside meanwhile goes back with
+  `core-memory read retry`. See and change what Core Memory may use at
+  [ChatGPT settings, Usage](https://chatgpt.com/settings/usage). A sign-in
+  that has ended shows as `signin_required`: run `core-memory login chatgpt`.
+
+On a server with no browser, sign in where your browser is, into a file kept
+apart from your own sign-in, copy it over SSH, and import it on the server.
+The import keeps the server's own host ID and asks for your consent there:
+
+```bash
+# on your computer
+core-memory login chatgpt --credentials ~/core-memory-server/chatgpt.json
+scp ~/core-memory-server/chatgpt.json server:/tmp/chatgpt.json
+rm -r ~/core-memory-server       # the server renews it from now on, not this computer
+# on the server
+core-memory login chatgpt --import /tmp/chatgpt.json && rm /tmp/chatgpt.json
+```
+
+Each renewal replaces the refresh token, so only one machine may renew a
+sign-in: that is why the copy on your computer is deleted. Use a server only
+you control.
+Sign-in was built from OpenAI's documentation and tested against a stand-in
+for OpenAI's servers; it has not yet been tried against OpenAI's own.
+
 ### Tool calls
 
 An agent's call of a tool is an event like any other, with the call as its
@@ -565,7 +649,8 @@ written by code that does not know the new schema.
 - **Reading by a model**: each chunk's type and the places of its entities,
   actions and outcomes, behind per-scope consent, a receipt for every call
   and a daily budget. Transports for Anthropic, OpenAI and OpenAI-compatible
-  servers.
+  servers, and for OpenAI's models on your own ChatGPT plan through Sign in
+  with ChatGPT.
 - **Tool calls**: stored whole as one bead, shortened by fixed rules, and
   read by a model that records what each call did and what came of it.
 - **Judging**: a model says how each new memory relates to the ones near

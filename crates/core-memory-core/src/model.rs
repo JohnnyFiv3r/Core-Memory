@@ -44,6 +44,11 @@ pub struct BindingConfig {
     /// Environment variable holding the provider credential.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api_key_env: Option<String>,
+    /// File holding the sign-in of a provider that is signed in to rather
+    /// than given a key, such as `openai-chatgpt`. Relative to the config
+    /// file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credentials_file: Option<String>,
 }
 
 fn default_timeout_ms() -> u64 {
@@ -245,6 +250,18 @@ pub enum TransportError {
     /// refused before any of the request was sent. Every call will fail
     /// alike until an operator changes what the engine trusts.
     Untrusted { message: String },
+    /// The binding is signed in to rather than given a key, and its
+    /// sign-in cannot be used: it is missing, expired past renewal or
+    /// revoked, lacks the permission the call needs, or its owner has not
+    /// agreed to the engine calling in the background. The provider did not
+    /// process the request. Every call fails alike until the owner signs in
+    /// again.
+    SignInRequired { message: String },
+    /// The plan or account behind the binding has used the allowance it
+    /// has for now. Every call fails alike until it is renewed or raised.
+    /// `started` is whether the provider had begun its reply when it
+    /// stopped: if so, the request may have been processed.
+    LimitReached { message: String, started: bool },
 }
 
 impl fmt::Display for TransportError {
@@ -256,6 +273,8 @@ impl fmt::Display for TransportError {
             TransportError::DidNotFit { message } => write!(f, "did not fit: {message}"),
             TransportError::InDoubt { message } => write!(f, "in doubt: {message}"),
             TransportError::Untrusted { message } => write!(f, "untrusted: {message}"),
+            TransportError::SignInRequired { message } => write!(f, "sign-in required: {message}"),
+            TransportError::LimitReached { message, .. } => write!(f, "limit reached: {message}"),
         }
     }
 }
@@ -352,6 +371,7 @@ mod tests {
             budget: None,
             timeout_ms: 60_000,
             api_key_env: None,
+            credentials_file: None,
         }
     }
 

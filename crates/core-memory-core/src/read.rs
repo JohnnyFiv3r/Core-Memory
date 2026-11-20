@@ -1155,6 +1155,7 @@ mod tests {
         let mut b = binding();
         b.timeout_ms = 5;
         b.api_key_env = Some("OTHER".into());
+        b.credentials_file = Some("elsewhere/chatgpt.json".into());
         b.budget = Some(crate::model::BudgetConfig {
             max_requests_per_day: 1,
             max_tokens_per_day: 1,

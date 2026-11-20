@@ -36,9 +36,16 @@ const STORE_WAIT: Duration = Duration::from_millis(5_000);
 /// the work of that call off.
 const REJECTED_WAIT: Duration =
     Duration::from_millis(core_memory_core::reader::BINDING_FAULT_BACKOFF_MS);
-/// What a round reports when the provider turned the binding down, and when
-/// the server's certificate was not trusted.
-const BINDING_FAULTS: [&str; 2] = ["binding_rejected", "endpoint_untrusted"];
+/// What a round reports when the provider turned the binding down, when
+/// the server's certificate was not trusted, when the binding's sign-in
+/// cannot be used, and when its plan's allowance is spent. Each fails every
+/// call alike until someone acts, so the lane waits instead of asking again.
+const BINDING_FAULTS: [&str; 4] = [
+    "binding_rejected",
+    "endpoint_untrusted",
+    "signin_required",
+    "plan_limit_reached",
+];
 
 /// A kind of work.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -214,7 +221,7 @@ impl Reader {
                     kind,
                     engine: Arc::clone(&engine),
                     store: open_store(loaded)?,
-                    transport: open_transport(binding, roots.as_ref())?,
+                    transport: open_transport(loaded, binding, roots.as_ref())?,
                     rejected: Arc::clone(&rejected),
                 });
             }
