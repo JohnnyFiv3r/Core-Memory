@@ -76,7 +76,9 @@ about a cent a run. `READER_EFFORT` sets the reader's `reasoning_effort`
 (`none` turns its thinking off, which Claude Haiku 5.5 allows and the
 models that always think refuse). `report.md` then gives the reader's tokens,
 what its rejected replies had wrong (`reply_faults`) and the quotes it
-dropped.
+dropped. To compare judges, `JUDGE_MODEL` and `JUDGE_EFFORT` set the judge's
+model and effort (say `JUDGE_MODEL=claude-sonnet-5-5`), and
+[`eval/compare`](../compare/) lines two runs up pair by pair.
 
 The judge answers a hard pair differently from run to run, so one run says
 little about a pair or about a change to the judge. `REPEATS=3` (up to 5,

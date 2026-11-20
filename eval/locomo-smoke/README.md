@@ -50,7 +50,9 @@ returns, written into `core-memory.toml`, since the test runs without
 memoriesQL.
 
 Settings: `LOCOMO_SAMPLE` for another conversation, `MAX_MINUTES` for another
-time limit. The test refuses to start with less than the time limit and half
+time limit, and `JUDGE_MODEL`, `JUDGE_EFFORT` and `READER_EFFORT` to run the
+same conversation with other models (see `configure.py`, and
+[`eval/compare`](../compare/) to compare two runs). The test refuses to start with less than the time limit and half
 an hour left in the UTC day, since a run past midnight would get a second
 day's budget.
 

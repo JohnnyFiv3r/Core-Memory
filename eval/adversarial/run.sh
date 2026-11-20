@@ -39,27 +39,16 @@ fi
 config="$out/core-memory.toml"
 cp "$smoke/core-memory.toml" "$config"
 # READER_ONLY=1 reads the messages and judges nothing, for a few cents: to
-# compare readers. READER_EFFORT sets the reader's reasoning_effort.
+# compare readers. READER_EFFORT sets the reader's reasoning_effort;
+# JUDGE_MODEL and JUDGE_EFFORT set the judge's model and effort, to compare
+# judges. See ../locomo-smoke/configure.py.
 reader_only=${READER_ONLY:-0}
-python3 -I - "$config" "$reader_only" "${READER_EFFORT:-}" <<'PY'
-import re, sys
-path, reader_only, effort = sys.argv[1], sys.argv[2] == "1", sys.argv[3]
-text = open(path).read()
-if reader_only:
-    # The [judge] table, up to the next table.
-    text = re.sub(r"(?ms)^\[judge\]\n.*?(?=^\[)", "", text)
-if effort:
-    if not re.fullmatch(r"[a-z]+", effort):
-        sys.exit("run.sh: READER_EFFORT must be a word such as low or none")
-    text, n = re.subn(
-        r'(id = "reader"\n(?:(?!\[).*\n)*?)reasoning_effort = "[a-z]+"',
-        rf'\1reasoning_effort = "{effort}"',
-        text,
-    )
-    if n != 1:
-        sys.exit("run.sh: the reader binding has no reasoning_effort to set")
-open(path, "w").write(text)
-PY
+settings=()
+[ "$reader_only" = "1" ] && settings+=(--reader-only)
+[ -n "${READER_EFFORT:-}" ] && settings+=(--reader-effort "$READER_EFFORT")
+[ -n "${JUDGE_MODEL:-}" ] && settings+=(--judge-model "$JUDGE_MODEL")
+[ -n "${JUDGE_EFFORT:-}" ] && settings+=(--judge-effort "$JUDGE_EFFORT")
+python3 -I "$smoke/configure.py" "$config" ${settings[@]+"${settings[@]}"}
 if [ -n "${MODELS_CA_FILE:-}" ]; then
   printf '\n[models]\nca_file = "%s"\n' "$MODELS_CA_FILE" >>"$config"
 fi

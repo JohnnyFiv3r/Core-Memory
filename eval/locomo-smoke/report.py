@@ -12,10 +12,15 @@ from pathlib import Path
 
 # Dollars per million tokens, input and output, for prompts of up to 100K
 # tokens: https://platform.claude.com/docs/en/about-claude/pricing
-PRICES = {"claude-haiku-5-5": (0.10, 0.50), "claude-opus-5-5": (4.00, 20.00)}
+PRICES = {
+    "claude-haiku-5-5": (0.10, 0.50),
+    "claude-sonnet-5-5": (2.00, 10.00),
+    "claude-opus-5-5": (4.00, 20.00),
+}
 # What the provider charges for input it reads from its prompt cache, as a
-# part of the input price: a tenth on most models, a twentieth on Opus 5.5.
-CACHE_READ = {"claude-haiku-5-5": 0.1, "claude-opus-5-5": 0.05}
+# part of the input price: a tenth on most models, a twentieth on Opus 5.5
+# and Sonnet 5.5.
+CACHE_READ = {"claude-haiku-5-5": 0.1, "claude-sonnet-5-5": 0.05, "claude-opus-5-5": 0.05}
 # And for input it writes there for five minutes, on every model.
 CACHE_WRITE = 1.25
 SAMPLES = 6
