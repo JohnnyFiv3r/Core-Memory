@@ -1142,7 +1142,19 @@ fn a_pause_is_not_starved_by_a_busy_scope() {
                 })
             })
             .collect();
-        std::thread::sleep(Duration::from_millis(400));
+        // The pause is made once the writers are busy, however fast the
+        // machine is: a fixed wait left a slow runner short of that.
+        let mut busy = db.connect();
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while busy
+            .query_one("SELECT count(*) FROM core_memory.events", &[])
+            .unwrap()
+            .get::<_, i64>(0)
+            <= 20
+        {
+            assert!(Instant::now() < deadline, "the writers never got busy");
+            std::thread::sleep(Duration::from_millis(20));
+        }
         let mut governor = db.store();
         let started = Instant::now();
         governor
