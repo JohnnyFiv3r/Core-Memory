@@ -73,7 +73,8 @@ hour by default.
 
 To compare readers, `READER_ONLY=1` reads the messages and judges nothing:
 about a cent a run. `READER_EFFORT` sets the reader's `reasoning_effort`
-(`none` turns its thinking off). `report.md` then gives the reader's tokens,
+(`none` turns its thinking off, which Claude Haiku 5.5 allows and the
+models that always think refuse). `report.md` then gives the reader's tokens,
 what its rejected replies had wrong (`reply_faults`) and the quotes it
 dropped.
 

@@ -601,9 +601,10 @@ permitted, no receipt is written, and the work is set aside.
    A request's instructions are the same for every call of a reader, a
    tool reader or a judge, and come first. The Anthropic adapter marks
    them for the provider's prompt cache. What a call reads from the cache
-   costs a tenth of the input price, and what it writes there a quarter
-   more than that price; an entry lasts five minutes past its last use. A
-   judge's instructions are most of what it sends. Instructions too short to cache
+   costs a tenth of the input price or less (a twentieth on Claude Opus
+   5.5), and what it writes there a quarter more than that price; an entry
+   lasts five minutes past its last use. A judge's instructions are most of
+   what it sends. Instructions too short to cache
    are sent the same way and are not cached. OpenAI caches a long prompt's
    start by itself. Either way the round's log line counts the input tokens
    read from and written to the cache (`cache_read_tokens`,
@@ -681,7 +682,7 @@ read's identity.
 | The request did not fit the model's context, or the reply was cut off at `max_output_tokens` | Tried again alone, as above. | `did_not_fit` |
 | The reply was invalid twice | Tried again alone. | `reply_invalid` |
 | A chunk of the batch was erased before the repair | Nothing more is sent. The rest is tried again after `retry_backoff_ms`. | `batch_changed` |
-| The provider turned the request itself down | Tried again after ten minutes. An operator has to fix the binding. No lane of that kind (chunks, tool calls or judging) makes another call for those ten minutes: a wrong key or model fails every call alike. | `binding_rejected` |
+| The provider turned the request itself down | Tried again after ten minutes. An operator has to fix the binding. No lane of that kind (chunks, tool calls or judging) starts another call for those ten minutes: a wrong key or model fails every call alike. Lanes that were already calling may each be turned down too. | `binding_rejected` |
 | A tool call's stored text does not hold what its event says | Set aside at once. Nothing is sent. | `text_unreadable` |
 | The work was handed out `max_attempts` times and never settled | Set aside, when it would have been handed out again. | `attempts_spent` |
 

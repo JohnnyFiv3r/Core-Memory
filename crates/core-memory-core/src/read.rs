@@ -666,7 +666,10 @@ fn span_of(quoted: &Value, chunk: &str, field: &str, entity: bool) -> Result<Pla
 /// turn a line break inside a quote into a space, and a curly apostrophe
 /// into a straight one. The range returned is always of `text` itself.
 pub fn locate(text: &str, quote: &str, occurrence: usize) -> Option<Range<usize>> {
-    if quote.trim().is_empty() || occurrence == 0 {
+    // A quote of nothing but spaces and invisible characters says nothing.
+    let wanted = Loose::of(quote);
+    let wanted = wanted.text.trim();
+    if wanted.is_empty() || occurrence == 0 {
         return None;
     }
     if text.contains(quote) {
@@ -674,11 +677,6 @@ pub fn locate(text: &str, quote: &str, occurrence: usize) -> Option<Range<usize>
             .match_indices(quote)
             .nth(occurrence - 1)
             .map(|(start, found)| start..start + found.len());
-    }
-    let wanted = Loose::of(quote);
-    let wanted = wanted.text.trim();
-    if wanted.is_empty() {
-        return None;
     }
     let loose = Loose::of(text);
     let (start, found) = loose.text.match_indices(wanted).nth(occurrence - 1)?;
@@ -1053,6 +1051,9 @@ mod tests {
             "re\u{00AD}lease is on\u{200B} Friday"
         );
         assert_eq!(locate(text, "Dont ship", 1), None);
+        // A quote of nothing visible is no quote, even where it is found.
+        assert_eq!(locate(hidden, "\u{200B}", 1), None);
+        assert_eq!(locate(hidden, " \u{00AD} ", 1), None);
         let second = text.rfind('\u{2019}').unwrap();
         assert_eq!(locate(text, "\u{2019}", 2), Some(second..second + 3));
         assert_eq!(

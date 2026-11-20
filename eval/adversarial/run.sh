@@ -123,7 +123,8 @@ only=()
 if [ "$reader_only" = "1" ]; then
   only=(--reader-only)
 fi
-python3 -I "$here/score.py" "${only[@]}" "$here/cases.toml" "$out/export.jsonl" >"$out/score.md"
+# ${only[@]+...}: an empty array is "unbound" to bash before 4.4 under set -u.
+python3 -I "$here/score.py" ${only[@]+"${only[@]}"} "$here/cases.toml" "$out/export.jsonl" >"$out/score.md"
 cat "$out/score.md"
 echo
 cat "$out/report.md"

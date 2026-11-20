@@ -13,9 +13,11 @@ from pathlib import Path
 # Dollars per million tokens, input and output, for prompts of up to 100K
 # tokens: https://platform.claude.com/docs/en/about-claude/pricing
 PRICES = {"claude-haiku-5-5": (0.10, 0.50), "claude-opus-5-5": (4.00, 20.00)}
-# What the provider charges for input it reads from its prompt cache, and
-# for input it writes there for five minutes, as parts of the input price.
-CACHE_READ, CACHE_WRITE = 0.1, 1.25
+# What the provider charges for input it reads from its prompt cache, as a
+# part of the input price: a tenth on most models, a twentieth on Opus 5.5.
+CACHE_READ = {"claude-haiku-5-5": 0.1, "claude-opus-5-5": 0.05}
+# And for input it writes there for five minutes, on every model.
+CACHE_WRITE = 1.25
 SAMPLES = 6
 TEXT = 200
 
@@ -56,7 +58,8 @@ def report(out, why):
     check = list(lines(out / "check.jsonl"))
     models = {c["binding"]: c["model"] for c in check if "binding" in c and "model" in c}
     reader = next(c["reader"]["binding"] for c in check if "reader" in c)
-    judge = next(c["judge"]["binding"] for c in check if "judge" in c)
+    # A run that only reads has no judge.
+    judge = next((c["judge"]["binding"] for c in check if "judge" in c), None)
 
     kinds = collections.defaultdict(list)
     for record in lines(out / "export.jsonl"):
@@ -91,12 +94,14 @@ def report(out, why):
         return chunk["text"].encode("utf-8")[start:end].decode("utf-8", "replace")
 
     # ---- what the models cost, from what the provider reported ----
-    spent = {reader: collections.Counter(), judge: collections.Counter()}
+    spent = {reader: collections.Counter()}
+    if judge:
+        spent[judge] = collections.Counter()
     problems = collections.Counter()
     faults = collections.Counter()
     for round_ in lines(out / "rounds.jsonl"):
         for kind, binding in (("read", reader), ("judged", judge)):
-            if kind in round_:
+            if kind in round_ and binding in spent:
                 said_ = round_[kind]
                 spent[binding]["rounds"] += 1
                 for field in (
@@ -186,7 +191,7 @@ def report(out, why):
         read, written = counted["cache_read_tokens"], counted["cache_write_tokens"]
         plain = counted["input_tokens"] - read - written
         cost = (
-            (plain + read * CACHE_READ + written * CACHE_WRITE) * price_in
+            (plain + read * CACHE_READ.get(model, 0.1) + written * CACHE_WRITE) * price_in
             + counted["output_tokens"] * price_out
         ) / 1e6
         total += cost
@@ -218,6 +223,9 @@ def report(out, why):
             )
     w.append("")
 
+    if not judge:
+        print("\n".join(w))
+        return
     w.append("## What the judge said, to read\n")
     if not edges and not kinds["name_link"]:
         w.append("Nothing.\n")

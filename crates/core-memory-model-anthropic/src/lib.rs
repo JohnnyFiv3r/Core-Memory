@@ -29,8 +29,16 @@ pub const DEFAULT_ENDPOINT: &str = "https://api.anthropic.com";
 pub const PROVIDER: &str = "anthropic";
 
 /// `none` is not an effort the API knows: it turns thinking off, which the
-/// API takes at effort `low`.
+/// API takes at effort `low`, and only from some models.
 const EFFORT_LEVELS: [&str; 6] = ["none", "low", "medium", "high", "xhigh", "max"];
+/// Models whose thinking cannot be turned off: the API answers 400 to a
+/// request that tries. Claude Haiku 5.5 and Claude Opus 5 can.
+const THINKING_ALWAYS_ON: [&str; 4] = [
+    "claude-opus-5-5",
+    "claude-sonnet-5-5",
+    "claude-fable-",
+    "claude-mythos-",
+];
 
 pub struct AnthropicTransport {
     client: HttpClient,
@@ -85,6 +93,16 @@ impl AnthropicTransport {
                 EFFORT_LEVELS.join(", ")
             ));
         }
+        if binding.reasoning_effort.as_deref() == Some("none")
+            && THINKING_ALWAYS_ON
+                .iter()
+                .any(|model| binding.model.starts_with(model))
+        {
+            return Err(format!(
+                "binding `{id}`: {} always thinks; set reasoning_effort to low or higher instead of none",
+                binding.model
+            ));
+        }
         if !(binding.endpoint.starts_with("https://") || binding.endpoint.starts_with("http://")) {
             return Err(format!("binding `{id}`: endpoint must be an http(s) URL"));
         }
@@ -107,8 +125,9 @@ impl AnthropicTransport {
         }
         // The instructions are the same for every call of a reader or a
         // judge, and come first, so the provider may keep them in its
-        // prompt cache and charge a tenth for them the next time. A prompt
-        // too short to cache is sent the same way, and is not cached.
+        // prompt cache and charge a fraction of the price for them the next
+        // time. A prompt too short to cache is sent the same way, and is
+        // not cached.
         let mut body = json!({
             "model": binding.model,
             "max_tokens": request.max_output_tokens,
@@ -334,11 +353,17 @@ mod tests {
     #[test]
     fn effort_none_turns_thinking_off() {
         let mut quiet = binding("https://api.anthropic.com");
+        quiet.model = "claude-haiku-5-5".into();
         quiet.reasoning_effort = Some("none".into());
         AnthropicTransport::check_binding(&quiet).unwrap();
         let sent = AnthropicTransport::body(&quiet, &request());
         assert_eq!(sent["thinking"], json!({"type": "disabled"}));
         assert_eq!(sent["output_config"]["effort"], "low");
+        // A model that always thinks is refused before any call.
+        let mut always = quiet.clone();
+        always.model = "claude-opus-5-5".into();
+        let refused = AnthropicTransport::check_binding(&always).unwrap_err();
+        assert!(refused.contains("always thinks"), "{refused}");
         // Any other effort leaves thinking to the model.
         let sent = AnthropicTransport::body(&binding("https://api.anthropic.com"), &request());
         assert!(sent.get("thinking").is_none());

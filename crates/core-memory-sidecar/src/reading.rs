@@ -54,9 +54,11 @@ struct Lane {
     engine: Arc<Engine>,
     store: PostgresStore,
     transport: Box<dyn ModelTransport>,
-    /// Until when lanes of this kind make no call, after the provider
-    /// turned their binding down. Shared by the lanes of one kind, so that
-    /// a wrong key is tried once, not once by each worker.
+    /// Until when lanes of this kind start no call, after the provider
+    /// turned their binding down. Shared by the lanes of one kind: once one
+    /// call is turned down, no lane starts another. A lane already calling
+    /// may be turned down too, so a wrong key is tried at most once by each
+    /// worker, not once a round.
     rejected: Arc<Mutex<Option<Instant>>>,
 }
 
