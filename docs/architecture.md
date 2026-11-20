@@ -319,7 +319,12 @@ own governed deletion. The engine decides nothing about who may erase.
 
 PostgreSQL keeps what was erased in places the erase cannot reach:
 
-- **Dead tuples**, until `VACUUM`.
+- **Table pages.** `VACUUM` marks an erased row's space free but does not
+  overwrite it, so the bytes stay in the table's pages, its TOAST table's
+  included, until new rows reuse the space or the table is rewritten. On
+  PostgreSQL 18, a deleted row's text was still in its table's file after
+  `VACUUM`, and gone after `VACUUM FULL`. `VACUUM FULL` locks the table
+  while it runs; a tool such as `pg_repack` rewrites it without that lock.
 - **Index pages.** `events_key_idx` can keep an erased key as a page
   boundary after `VACUUM`. `REINDEX INDEX core_memory.events_key_idx`
   removes it. `chunk_text_search_idx` can keep words of erased text as keys
@@ -327,8 +332,10 @@ PostgreSQL keeps what was erased in places the erase cannot reach:
   `REINDEX INDEX core_memory.chunk_text_search_idx` removes them.
 - **WAL and backups**, until they expire.
 
-Operators should vacuum and reindex after erasing, and treat their backup
-retention as the longest erased text can survive.
+Operators who must remove erased text from disk should rewrite the tables
+that held it, `chunk_text` above all, and reindex the indexes above, after
+erasing. They should treat their backup retention as the longest erased
+text can survive.
 
 The planner's statistics are not on this list. `ANALYZE` copies sample
 values of a column into `pg_statistic`, so the columns that hold what a

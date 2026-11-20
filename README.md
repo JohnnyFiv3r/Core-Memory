@@ -435,11 +435,13 @@ is written to a journal with the reason and who asked, and exported as an
 `erase scope` works in batches. Pause or revoke the scope first if nothing
 more should be admitted to it while it is erased.
 
-PostgreSQL keeps deleted rows on disk until `VACUUM`, erased keys and words
-in index pages until `REINDEX`, and both in WAL and backups until those
-expire. Vacuum and reindex after erasing (`events_key_idx` and
-`chunk_text_search_idx`), and treat your backup retention as the longest
-that erased text can survive.
+PostgreSQL keeps deleted rows' bytes in table pages until the space is
+reused or the table is rewritten (`VACUUM` frees the space but does not
+overwrite it; `VACUUM FULL` or `pg_repack` rewrites the table), erased keys
+and words in index pages until `REINDEX`, and both in WAL and backups until
+those expire. To remove erased text from disk, rewrite `chunk_text` and
+reindex `events_key_idx` and `chunk_text_search_idx` after erasing, and
+treat your backup retention as the longest that erased text can survive.
 
 `erase key` without `--revision` succeeds when no revision is left to erase,
 and prints how many it erased: an erased event keeps no key, so the command
