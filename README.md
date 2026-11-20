@@ -4,9 +4,9 @@
 
 # Core Memory
 
-**2.0.0** is released: `pip install core-memory` ·
+**2.0.1** is released: `pip install core-memory` ·
 [PyPI](https://pypi.org/project/core-memory/) ·
-[release notes](https://github.com/JohnnyFiv3r/Core-Memory/releases/tag/v2.0.0)
+[release notes](https://github.com/JohnnyFiv3r/Core-Memory/releases/tag/v2.0.1)
 
 Core Memory 2 is a ground-up rewrite in Rust. It turns any stream of source
 events (messages, documents, record changes, an agent's tool calls) into
@@ -49,7 +49,7 @@ silicon), so no Rust toolchain is needed:
 
 ```bash
 uv tool install core-memory     # or: pipx install core-memory
-core-memory --version           # core-memory 2.0.0
+core-memory --version           # core-memory 2.0.1
 ```
 
 The engine needs PostgreSQL 15 or newer. The package holds only the command:
@@ -645,7 +645,7 @@ schema.
 A database created by a build from before 2.0.0 must be recreated, not
 migrated.
 
-## What 2.0.0 does
+## What Core Memory 2 does
 
 - **Admission** with stable identity: `(scope, source_ns, external_id,
   revision)`. Replays, identity conflicts, tombstones, scope grants and
