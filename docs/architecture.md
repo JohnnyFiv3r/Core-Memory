@@ -1016,7 +1016,11 @@ that one was set aside as failed. A chain given in one read is so written
 from its oldest statement on. A held arrow that can no longer be written
 when its turn comes, because a bead it is about was ended meanwhile or its
 source took the other arrow, is dropped without a call, and its first
-verdict keeps its note.
+verdict keeps its note. A second read settles its held arrow only once
+what it says may be stored about every bead the arrow is about. If the
+scope of one of them stopped being active while the second read was made,
+nothing of that read is stored, the arrow stays held, and the read is owed
+again without counting an attempt, as a new bead in a stopped scope is.
 
 A group is what the judge affirmed pair by pair with `same-memory`. A new
 bead joins the one group its partners already share, or a new group is made

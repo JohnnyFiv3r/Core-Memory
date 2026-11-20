@@ -3389,6 +3389,97 @@ fn a_second_read_waits_without_a_receipt_while_a_bead_it_needs_may_not_be_shown(
 }
 
 #[test]
+fn a_held_arrow_whose_head_stops_while_its_second_read_is_made_is_read_again() {
+    let mut w = judging("second_read = true");
+    w.store.enroll_scope("beta", "w1").unwrap();
+    allow(&w, "beta");
+    bead(
+        &mut w,
+        &said_in("beta", "1", 0, "The launch is on Thursday."),
+    );
+    bead(&mut w, &said("2", 9, "The launch moves to Friday."));
+    let says = judge_saying(&[("moves to Friday", "is on Thursday", "repl")]);
+    let calls = Mutex::new(0u32);
+    let url = w.db.url.clone();
+    // The second read gives the arrow again. While it is made, the scope
+    // of the statement it would end is paused.
+    let transport = FnTransport(|request: &ModelRequest| {
+        let mut calls = calls.lock().unwrap();
+        *calls += 1;
+        if *calls == 2 {
+            postgres::Client::connect(&url, postgres::NoTls)
+                .unwrap()
+                .batch_execute("SELECT core_memory.set_scope_state('beta', 'paused')")
+                .unwrap();
+        }
+        says(request)
+    });
+    assert_eq!(handled(round(&mut w, &transport)).held, 1);
+    let report = handled(round(&mut w, &transport));
+    assert_eq!(
+        (
+            report.second_read,
+            report.calls,
+            report.chains,
+            report.verdicts
+        ),
+        (true, 1, 0, 0)
+    );
+    // Nothing may be stored about the paused scope's bead now, so the
+    // arrow is not written, and it is not lost either: it is still held,
+    // and its second read is owed again, without an attempt spent.
+    assert_eq!(
+        w.count("SELECT count(*) FROM core_memory.edges WHERE arrow = 'repl'"),
+        0
+    );
+    assert_eq!(
+        w.count("SELECT count(*) FROM core_memory.pending_chains"),
+        1
+    );
+    assert_eq!(
+        rows(
+            &w,
+            "SELECT kind, scope, state, attempts::text, problem FROM core_memory.work"
+        ),
+        [row(&[
+            "second_read",
+            "acme",
+            "ready",
+            "0",
+            "scope_not_active"
+        ])]
+    );
+    assert_eq!(
+        rows(
+            &w,
+            "SELECT verdict, note FROM core_memory.verdicts WHERE arrow = 'repl'"
+        ),
+        [row(&["leadsto", "awaits_second_read"])]
+    );
+    // The scope is active again. The second read is made again, agrees,
+    // and the arrow is written.
+    w.store
+        .set_scope_state("beta", core_memory_core::store::ScopeState::Active)
+        .unwrap();
+    let report = handled(round(&mut w, &transport));
+    assert_eq!((report.second_read, report.chains), (true, 1));
+    assert_eq!(*calls.lock().unwrap(), 3);
+    assert_eq!(
+        chain(&w),
+        [row(&[
+            "repl",
+            "The launch moves to Friday.",
+            "The launch is on Thursday."
+        ])]
+    );
+    assert_eq!(
+        w.count("SELECT count(*) FROM core_memory.pending_chains"),
+        0
+    );
+    assert_eq!(w.count("SELECT count(*) FROM core_memory.work"), 0);
+}
+
+#[test]
 fn a_bead_withheld_from_the_first_call_keeps_its_reason_when_the_repair_is_not_sent() {
     for max_attempts in [3, 1] {
         let config = judge_config("second_read = false", "").replace(
