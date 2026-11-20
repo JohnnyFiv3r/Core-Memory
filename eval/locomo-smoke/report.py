@@ -115,6 +115,19 @@ def report(out, why):
     w.append(f"- chunks read: {len(reads)} of {len(chunks)}" + (f" ({how})" if how else ""))
     if types:
         w.append(f"- types: {', '.join(f'{k} {n}' for k, n in types.most_common())}")
+    abstained = collections.Counter(
+        r["reason"] for r in reads.values() if r.get("status") == "abstained"
+    )
+    if abstained:
+        w.append(f"- abstained: {', '.join(f'{k} {n}' for k, n in abstained.most_common())}")
+    quoted = collections.Counter(
+        span["kind"] for r in reads.values() for span in r.get("spans", [])
+    )
+    with_quotes = sum(1 for r in reads.values() if r.get("spans"))
+    w.append(
+        f"- quotes kept: {', '.join(f'{k} {n}' for k, n in sorted(quoted.items())) or 'none'}"
+        f", in {with_quotes} of {len(reads)} reads"
+    )
     verdicts = collections.Counter(
         (v["read_no"], v["verdict"]) for v in kinds["verdict"]
     )

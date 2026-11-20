@@ -569,7 +569,11 @@ permitted, no receipt is written, and the work is set aside.
    `HTTPS_PROXY` names unless `NO_PROXY` lists the host, and check the
    server against the public web roots plus an optional private CA
    (`[models] ca_file`).
-3. **Validate** the reply against the closed shape above.
+3. **Validate** the reply against the closed shape above. The engine checks
+   every reply itself. It asks the provider to hold the judge's and the
+   tool reader's replies to their shape, and not the chunk reader's: held
+   to it, Claude Haiku 5.5 typed every chunk, small talk included, and
+   quoted nothing (`eval/reader-probe`).
 4. **Finish.** One transaction records how the call ended in
    `outbound_results`, stores the reads and their spans, or the tool
    outcome, and settles the queue. A read is stored only for a chunk the
@@ -624,7 +628,8 @@ judge), each kind goes first in its turn.
 | The day's budget is spent | Put off until the next UTC day. | `over_budget` |
 | The provider did not process the request | Tried again after `retry_backoff_ms`, or the provider's own delay. | `provider_unavailable` |
 | The request may have been processed | Tried again after `retry_backoff_ms`. | `call_in_doubt` |
-| The model declined, or the request or reply did not fit | Tried again alone, one chunk to a call. A chunk that was sent alone, and a tool call, is set aside at once: the same request would get the same answer. | `model_refused` |
+| The model declined | Tried again alone, one chunk to a call. A chunk that was sent alone, and a tool call, is set aside at once: the same request would get the same answer. | `model_refused` |
+| The request did not fit the model's context, or the reply was cut off at `max_output_tokens` | Tried again alone, as above. | `did_not_fit` |
 | The reply was invalid twice | Tried again alone. | `reply_invalid` |
 | A chunk of the batch was erased before the repair | Nothing more is sent. The rest is tried again after `retry_backoff_ms`. | `batch_changed` |
 | The provider turned the request itself down | Tried again after ten minutes. An operator has to fix the binding. The command makes no other call of that kind (chunks, tool calls or judging) for those ten minutes: a wrong key or model fails every call alike. | `binding_rejected` |

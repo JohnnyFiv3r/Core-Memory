@@ -1425,6 +1425,7 @@ fn a_call_that_fails_is_recorded_and_a_bead_the_judge_declines_alone_is_set_asid
             system: String::new(),
             user: r#"{"listed":[],"new":[{"id":"N1"}]}"#.into(),
             response_schema: Value::Null,
+            enforce_schema: true,
             max_output_tokens: 0,
         }),
     ]);

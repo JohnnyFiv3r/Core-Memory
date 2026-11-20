@@ -112,6 +112,7 @@ pub(crate) fn failure(error: &TransportError, backoff_ms: u64) -> Failure {
         // The model declined this content, or it did not fit. Alone, each
         // item either reads or fails by itself.
         TransportError::Refused { .. } => (CallResult::Refused, "model_refused", true, backoff_ms),
+        TransportError::DidNotFit { .. } => (CallResult::Refused, "did_not_fit", true, backoff_ms),
         TransportError::Permanent { .. } => (
             CallResult::Failed,
             "binding_rejected",
@@ -701,6 +702,33 @@ fn inputs(chunks: &[PermittedChunk]) -> Vec<ChunkInput<'_>> {
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+
+    use crate::model::TransportError;
+    use crate::store::CallResult;
+
+    #[test]
+    fn a_reply_cut_off_is_told_from_one_declined() {
+        let declined = super::failure(
+            &TransportError::Refused {
+                message: "declined".into(),
+            },
+            1_000,
+        );
+        let cut_off = super::failure(
+            &TransportError::DidNotFit {
+                message: "cut off".into(),
+            },
+            1_000,
+        );
+        assert_eq!(
+            (declined.problem, cut_off.problem),
+            ("model_refused", "did_not_fit")
+        );
+        // Either way the chunks are tried again alone, where a smaller
+        // request may succeed.
+        assert!(declined.alone && cut_off.alone);
+        assert_eq!(cut_off.result, CallResult::Refused);
+    }
 
     use crate::{Engine, EngineConfig, ManualClock};
 

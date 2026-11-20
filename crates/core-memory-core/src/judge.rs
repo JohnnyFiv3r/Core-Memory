@@ -452,6 +452,7 @@ pub fn render(shown: &Shown, max_output_tokens: u32) -> ModelRequest {
             new.join(",\n")
         ),
         response_schema: reply_schema(),
+        enforce_schema: true,
         max_output_tokens,
     }
 }

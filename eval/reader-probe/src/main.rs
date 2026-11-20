@@ -68,7 +68,8 @@ struct Variant {
     name: &'static str,
     effort: Option<&'static str>,
     per_call: usize,
-    /// Whether the reply shape is enforced, as the engine does.
+    /// Whether the provider is asked to hold the reply to its shape, as the
+    /// engine did until reader prompt revision 3.
     enforced: bool,
 }
 
@@ -181,13 +182,9 @@ fn run(data: &Path, dry_run: bool) -> Result<(), String> {
                     role: Some("user"),
                 })
                 .collect();
-            let request = read::render(&types, &inputs, MAX_OUTPUT_TOKENS);
-            let mut body = AnthropicTransport::body(&binding, &request);
-            if !variant.enforced
-                && let Some(config) = body["output_config"].as_object_mut()
-            {
-                config.remove("format");
-            }
+            let mut request = read::render(&types, &inputs, MAX_OUTPUT_TOKENS);
+            request.enforce_schema = variant.enforced;
+            let body = AnthropicTransport::body(&binding, &request);
             if dry_run {
                 println!(
                     "{}",

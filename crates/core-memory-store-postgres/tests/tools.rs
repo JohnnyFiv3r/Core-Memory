@@ -156,6 +156,7 @@ fn a_tool_call_is_one_bead_read_whole_and_recorded_in_a_few_words() {
         system: String::new(),
         user: String::new(),
         response_schema: Value::Null,
+        enforce_schema: true,
         max_output_tokens: 0,
     })]);
     let report = handled(round(&mut w, &transport));
@@ -441,6 +442,7 @@ fn a_call_that_fails_is_recorded_and_tried_again_later() {
             system: String::new(),
             user: String::new(),
             response_schema: Value::Null,
+            enforce_schema: true,
             max_output_tokens: 0,
         }),
     ]);

@@ -12,7 +12,7 @@ use std::time::Duration;
 use core_memory_core::model::{
     BindingConfig, ModelRequest, ModelResponse, ModelTransport, TransportError, Usage,
 };
-use core_memory_model_http::{HttpClient, parse_body, status_error};
+use core_memory_model_http::{ClientError, HttpClient, parse_body, status_error};
 use serde_json::{Value, json};
 
 /// Which flavour of the API a binding speaks.
@@ -92,15 +92,17 @@ impl OpenAiTransport {
                 {"role": "system", "content": request.system},
                 {"role": "user", "content": request.user},
             ],
-            "response_format": {
+        });
+        if request.enforce_schema {
+            body["response_format"] = json!({
                 "type": "json_schema",
                 "json_schema": {
                     "name": "core_memory_classification",
                     "schema": request.response_schema,
                     "strict": false,
                 },
-            },
-        });
+            });
+        }
         let max_field = match self.dialect {
             Dialect::OpenAi => "max_completion_tokens",
             Dialect::Compatible => "max_tokens",
@@ -123,12 +125,15 @@ impl OpenAiTransport {
 /// `error.code` is `context_length_exceeded` (the messages exceed the
 /// model's context window) or `content_filter` (Azure OpenAI's filter
 /// declined the prompt). Every other error keeps its status mapping.
-fn declined_or_too_long(status: u16, body: &Value) -> bool {
-    status == 400
-        && matches!(
-            body["error"]["code"].as_str(),
-            Some("context_length_exceeded" | "content_filter")
-        )
+fn declined_or_too_long(status: u16, body: &Value) -> Option<ClientError> {
+    if status != 400 {
+        return None;
+    }
+    match body["error"]["code"].as_str() {
+        Some("context_length_exceeded") => Some(ClientError::DidNotFit),
+        Some("content_filter") => Some(ClientError::Declined),
+        _ => None,
+    }
 }
 
 impl ModelTransport for OpenAiTransport {
@@ -163,7 +168,7 @@ impl ModelTransport for OpenAiTransport {
             });
         }
         if choice["finish_reason"] == "length" {
-            return Err(TransportError::Refused {
+            return Err(TransportError::DidNotFit {
                 message: "the reply was cut off (length); raise the binding's max_output_tokens"
                     .into(),
             });
@@ -206,6 +211,7 @@ mod tests {
             system: "classify".into(),
             user: "{\"chunks\": []}".into(),
             response_schema: json!({"type": "object"}),
+            enforce_schema: true,
             max_output_tokens: 1024,
         }
     }
@@ -282,12 +288,27 @@ mod tests {
         );
         assert!(matches!(
             transport.send(&binding("openai", &url), &request()),
-            Err(TransportError::Refused { .. })
+            Err(TransportError::DidNotFit { .. })
         ));
     }
 
     #[test]
-    fn oversized_and_filtered_prompts_are_refused() {
+    fn the_reply_shape_is_sent_only_when_the_request_asks() {
+        let transport = OpenAiTransport::new(Dialect::OpenAi, None, Duration::from_secs(5));
+        let api = binding("openai", "https://api.openai.com/v1");
+        assert_eq!(
+            transport.body(&api, &request())["response_format"]["type"],
+            "json_schema"
+        );
+        let free = ModelRequest {
+            enforce_schema: false,
+            ..request()
+        };
+        assert!(transport.body(&api, &free).get("response_format").is_none());
+    }
+
+    #[test]
+    fn oversized_prompts_did_not_fit_and_filtered_ones_are_refused() {
         let transport =
             OpenAiTransport::new(Dialect::OpenAi, Some("k".into()), Duration::from_secs(5));
         let send = |status: u16, body: &str, provider: &str| {
@@ -299,7 +320,7 @@ mod tests {
             "type": "invalid_request_error", "param": "messages", "code": "context_length_exceeded"}}"#;
         let err = send(400, too_long, "openai").unwrap_err();
         assert!(
-            matches!(&err, TransportError::Refused { message } if message.contains("context_length_exceeded")),
+            matches!(&err, TransportError::DidNotFit { message } if message.contains("context_length_exceeded")),
             "{err:?}"
         );
 
