@@ -47,8 +47,8 @@ reversed, more about a thing that replaces nothing, one list split over two
 messages, a move nobody calls a correction, a hypothesis and its result,
 small talk, and two accounts that neither side can settle until a third
 message does. Some of their messages carry an expected type too. The runs
-recorded below, up to and including revision 4's, had the first 15 threads
-and 26 pairs; J16 was added after them.
+recorded below had the first 15 threads and 26 pairs, until J16 was added
+for the second run of revision 4.
 
 Each case for the reader stands ten days from the next, and each thread
 twenty days from the next, farther apart than the judge's seven-day window:
@@ -212,3 +212,25 @@ about seven minutes, 63 judge calls):
   194 under the two revisions before: within what it does from run to run.
 - 78 of 78 on cases we wrote ourselves says the rubric and the cases agree.
   It does not say the judge is right on what a person would write.
+
+**2026-11-20, revision 4 again, with J16** ($1.41, about eight minutes, 70
+judge calls):
+
+- **The judge: 87 of 87**, all 29 pairs in all three runs, and no reply
+  rejected.
+- **J16, two accounts neither side can settle:** `!contradicts` in every
+  run, so both stayed current, with the dispute open. The call to the
+  restaurant then `confirms` Ana's first account and `repl`s the Thai
+  place; the second read gave `repl` again each time, and that closed the
+  dispute. This is the first live run in which the judge used
+  `!contradicts`, and it did so where the case wants it.
+- **J04, the contradiction settled "per legal":** `repl` in two runs, each
+  confirmed by its second read, and `!contradicts` in the third. Both are
+  right: the message cites legal, and the judge may take that as settling
+  it or not.
+- An `!contradicts` edge points from one bead to the other by their IDs,
+  which differ from run to run, so it runs either way across runs. Its
+  verdicts are `undirected`, as a symmetric arrow's are.
+- The reader, unchanged, was right on 196 of 201: the sarcastic "ship it
+  on Friday at 5pm" was `decision` in every run, and once "Can you send me
+  the Q3 numbers" was left untyped (`no_fit`).
