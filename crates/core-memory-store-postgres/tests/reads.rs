@@ -78,6 +78,7 @@ fn reply(items: Vec<Value>) -> Result<ModelResponse, TransportError> {
         usage: Usage {
             input_tokens: 100,
             output_tokens: 20,
+            ..Usage::default()
         },
     })
 }
@@ -139,9 +140,10 @@ fn a_chunk_is_read_and_what_was_found_is_stored_as_ranges() {
         shown(&requests[0]),
         [("C1".into(), Some("user".into()), text.to_string())]
     );
-    let user: Value = serde_json::from_str(&requests[0].user).unwrap();
+    let listed: Value =
+        serde_json::from_str(requests[0].system.rsplit_once('\n').unwrap().1).unwrap();
     assert_eq!(
-        user["types"],
+        listed["types"],
         json!([{"key": "decision"}, {"key": "outcome"}])
     );
 
@@ -932,6 +934,7 @@ fn the_end_of_a_call_is_recorded_once_and_a_wild_token_count_is_no_obstacle() {
         usage: Some(Usage {
             input_tokens: u64::MAX,
             output_tokens: 7,
+            ..Usage::default()
         }),
         reads: &reads,
         tool_outcome: None,
@@ -1151,8 +1154,9 @@ fn a_batch_is_one_scope_and_one_profile_and_a_profile_narrows_the_types() {
     let batches = Arc::new(Mutex::new(Vec::new()));
     let seen = Arc::clone(&batches);
     let transport = FnTransport(move |request: &ModelRequest| {
-        let user: Value = serde_json::from_str(&request.user).unwrap();
-        let types: Vec<String> = user["types"]
+        let listed: Value =
+            serde_json::from_str(request.system.rsplit_once('\n').unwrap().1).unwrap();
+        let types: Vec<String> = listed["types"]
             .as_array()
             .unwrap()
             .iter()

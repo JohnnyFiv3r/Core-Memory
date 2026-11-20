@@ -475,8 +475,9 @@ the same.
 ### What a read is
 
 The model is shown a batch of chunks, all of one scope and one source
-profile, under handles (`C1`, `C2`, ...), with the types it may choose
-from. For each chunk it answers with:
+profile, under handles (`C1`, `C2`, ...). The types it may choose from
+follow its instructions, so every batch of one vocabulary starts with the
+same text (prompt revision 5). For each chunk it answers with:
 
 - **a type**: one key of the vocabulary, or an abstention (`no_fit`,
   `insufficient_evidence`, `ambiguous`). An abstention is a completed
@@ -587,6 +588,18 @@ permitted, no receipt is written, and the work is set aside.
    `HTTPS_PROXY` names unless `NO_PROXY` lists the host, and check the
    server against the public web roots plus an optional private CA
    (`[models] ca_file`).
+
+   A request's instructions are the same for every call of a reader, a
+   tool reader or a judge, and come first. The Anthropic adapter marks
+   them for the provider's prompt cache. What a call reads from the cache
+   costs a tenth of the input price, and what it writes there a quarter
+   more than that price; an entry lasts five minutes past its last use. A
+   judge's instructions are most of what it sends. Instructions too short to cache
+   are sent the same way and are not cached. OpenAI caches a long prompt's
+   start by itself. Either way the round's log line counts the input tokens
+   read from and written to the cache (`cache_read_tokens`,
+   `cache_write_tokens`), which are part of `input_tokens`. Caching changes
+   nothing a model says, and is not part of a binding's revision.
 3. **Validate** the reply against the closed shape above. The engine checks
    every reply itself. It asks the provider to hold the judge's and the
    tool reader's replies to their shape, and not the chunk reader's: held

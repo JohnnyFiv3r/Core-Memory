@@ -181,8 +181,17 @@ pub struct ModelResponse {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Usage {
+    /// Every token of the request, however the provider priced it.
     pub input_tokens: u64,
     pub output_tokens: u64,
+    /// Of `input_tokens`, those the provider read from its prompt cache,
+    /// at a fraction of the price.
+    #[serde(default)]
+    pub cache_read_tokens: u64,
+    /// Of `input_tokens`, those the provider wrote to its prompt cache, at
+    /// a little more than the price.
+    #[serde(default)]
+    pub cache_write_tokens: u64,
 }
 
 /// Longest problem about a reply, in bytes, that is sent back to a model.

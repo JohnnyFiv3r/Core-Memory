@@ -100,10 +100,18 @@ impl AnthropicTransport {
         if let Some(effort) = &binding.reasoning_effort {
             output_config.insert("effort".into(), json!(effort));
         }
+        // The instructions are the same for every call of a reader or a
+        // judge, and come first, so the provider may keep them in its
+        // prompt cache and charge a tenth for them the next time. A prompt
+        // too short to cache is sent the same way, and is not cached.
         let mut body = json!({
             "model": binding.model,
             "max_tokens": request.max_output_tokens,
-            "system": request.system,
+            "system": [{
+                "type": "text",
+                "text": request.system,
+                "cache_control": {"type": "ephemeral"},
+            }],
             "messages": [{"role": "user", "content": request.user}],
         });
         if !output_config.is_empty() {
@@ -227,13 +235,19 @@ impl ModelTransport for AnthropicTransport {
             .unwrap_or_default();
         let usage = &body["usage"];
         let count = |field: &str| usage[field].as_u64().unwrap_or(0);
+        let (read, written) = (
+            count("cache_read_input_tokens"),
+            count("cache_creation_input_tokens"),
+        );
         Ok(ModelResponse {
             text,
             usage: Usage {
                 input_tokens: count("input_tokens")
-                    + count("cache_creation_input_tokens")
-                    + count("cache_read_input_tokens"),
+                    .saturating_add(read)
+                    .saturating_add(written),
                 output_tokens: count("output_tokens"),
+                cache_read_tokens: read,
+                cache_write_tokens: written,
             },
         })
     }
@@ -273,13 +287,23 @@ mod tests {
             &[("content-type", "application/json")],
             r#"{"content": [{"type": "thinking", "thinking": ""}, {"type": "text", "text": "{\"items\": []}"}],
                 "stop_reason": "end_turn",
-                "usage": {"input_tokens": 100, "cache_read_input_tokens": 20, "output_tokens": 7}}"#,
+                "usage": {"input_tokens": 100, "cache_read_input_tokens": 20,
+                          "cache_creation_input_tokens": 5, "output_tokens": 7}}"#,
         );
         let transport = AnthropicTransport::new("sk-test", Duration::from_secs(5));
         let response = transport.send(&binding(&url), &request()).unwrap();
         assert_eq!(response.text, "{\"items\": []}");
-        assert_eq!(response.usage.input_tokens, 120);
-        assert_eq!(response.usage.output_tokens, 7);
+        // Every input token, and of them those read from and written to the
+        // provider's cache.
+        assert_eq!(
+            response.usage,
+            Usage {
+                input_tokens: 125,
+                output_tokens: 7,
+                cache_read_tokens: 20,
+                cache_write_tokens: 5,
+            }
+        );
 
         let received = server.join().unwrap();
         assert_eq!(received.request_line, "POST /v1/messages HTTP/1.1");
@@ -290,6 +314,11 @@ mod tests {
         assert_eq!(sent["output_config"]["effort"], "low");
         assert_eq!(sent["output_config"]["format"]["type"], "json_schema");
         assert_eq!(sent["messages"][0]["role"], "user");
+        // The instructions may be cached: they are the same for every call.
+        assert_eq!(
+            sent["system"],
+            json!([{"type": "text", "text": "classify", "cache_control": {"type": "ephemeral"}}])
+        );
         assert!(sent.get("temperature").is_none());
         assert!(sent.get("fallbacks").is_none());
     }

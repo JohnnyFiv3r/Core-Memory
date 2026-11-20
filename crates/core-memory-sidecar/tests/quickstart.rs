@@ -1083,7 +1083,15 @@ fn completion(request: &Value) -> Value {
             "usage": {"prompt_tokens": 700, "completion_tokens": 40},
         });
     }
-    let first_type = shown["types"][0]["key"].clone();
+    // The types follow the instructions, as their last line.
+    let system = request["messages"][0]["content"]
+        .as_str()
+        .unwrap_or_default();
+    let listed: Value = system
+        .rsplit_once('\n')
+        .and_then(|(_, types)| serde_json::from_str(types).ok())
+        .unwrap_or(Value::Null);
+    let first_type = listed["types"][0]["key"].clone();
     let items: Vec<Value> = shown["chunks"]
         .as_array()
         .map(Vec::as_slice)

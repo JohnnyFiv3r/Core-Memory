@@ -90,27 +90,43 @@ pub struct Totals {
     pub calls: u64,
     pub input_tokens: u64,
     pub output_tokens: u64,
+    pub cache_read_tokens: u64,
+    pub cache_write_tokens: u64,
 }
 
 impl Totals {
     fn add(&mut self, round: &Round) {
         self.rounds += 1;
-        let (calls, input_tokens, output_tokens) = match round {
+        let (calls, input_tokens, output_tokens, cache_read, cache_write) = match round {
             Round::Read(report) => {
                 self.chunks += u64::from(report.chunks);
                 self.tool_calls += u64::from(report.tool_calls);
                 self.stored += u64::from(report.stored);
-                (report.calls, report.input_tokens, report.output_tokens)
+                (
+                    report.calls,
+                    report.input_tokens,
+                    report.output_tokens,
+                    report.cache_read_tokens,
+                    report.cache_write_tokens,
+                )
             }
             Round::Judged(report) => {
                 self.judged += u64::from(report.judged);
                 self.verdicts += u64::from(report.verdicts);
-                (report.calls, report.input_tokens, report.output_tokens)
+                (
+                    report.calls,
+                    report.input_tokens,
+                    report.output_tokens,
+                    report.cache_read_tokens,
+                    report.cache_write_tokens,
+                )
             }
         };
         self.calls += u64::from(calls);
         self.input_tokens = self.input_tokens.saturating_add(input_tokens);
         self.output_tokens = self.output_tokens.saturating_add(output_tokens);
+        self.cache_read_tokens = self.cache_read_tokens.saturating_add(cache_read);
+        self.cache_write_tokens = self.cache_write_tokens.saturating_add(cache_write);
     }
 }
 
@@ -135,6 +151,8 @@ pub fn describe(round: &Round) -> serde_json::Value {
             "calls": report.calls,
             "input_tokens": report.input_tokens,
             "output_tokens": report.output_tokens,
+            "cache_read_tokens": report.cache_read_tokens,
+            "cache_write_tokens": report.cache_write_tokens,
             "problem": report.problem,
             "reply_faults": report.reply_faults.iter().map(|fault| fault.as_str()).collect::<Vec<_>>(),
             "quotes_dropped": report.quotes_dropped,
@@ -157,6 +175,8 @@ pub fn describe(round: &Round) -> serde_json::Value {
             "calls": report.calls,
             "input_tokens": report.input_tokens,
             "output_tokens": report.output_tokens,
+            "cache_read_tokens": report.cache_read_tokens,
+            "cache_write_tokens": report.cache_write_tokens,
             "problem": report.problem,
             "reply_faults": report.reply_faults.iter().map(|fault| fault.as_str()).collect::<Vec<_>>(),
         }}),

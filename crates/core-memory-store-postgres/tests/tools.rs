@@ -81,6 +81,7 @@ fn said(action: &str, outcome: &str, status: &str) -> Result<ModelResponse, Tran
         usage: Usage {
             input_tokens: 100,
             output_tokens: 20,
+            ..Usage::default()
         },
     })
 }
@@ -615,6 +616,7 @@ fn a_token_count_no_column_can_hold_does_not_lose_the_reply() {
             usage: Usage {
                 input_tokens: u64::MAX,
                 output_tokens: u64::MAX - 1,
+                ..Usage::default()
             },
         })
     });
@@ -640,6 +642,7 @@ fn a_token_count_no_column_can_hold_does_not_lose_the_reply() {
             usage: Usage {
                 input_tokens: u64::MAX,
                 output_tokens: 1,
+                ..Usage::default()
             },
         }),
         Ok(ModelResponse {
@@ -648,6 +651,7 @@ fn a_token_count_no_column_can_hold_does_not_lose_the_reply() {
             usage: Usage {
                 input_tokens: u64::MAX,
                 output_tokens: 1,
+                ..Usage::default()
             },
         }),
     ]);

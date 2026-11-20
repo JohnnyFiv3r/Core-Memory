@@ -64,7 +64,8 @@ fn event(value: serde_json::Value) -> SourceEvent {
 /// the chunk that says too little.
 fn stand_in(request: &ModelRequest) -> Result<ModelResponse, TransportError> {
     let shown: Value = serde_json::from_str(request.user.lines().next().unwrap()).unwrap();
-    let allowed = &shown["types"];
+    let listed: Value = serde_json::from_str(request.system.rsplit_once('\n').unwrap().1).unwrap();
+    let allowed = &listed["types"];
     let items: Vec<Value> = shown["chunks"]
         .as_array()
         .unwrap()
@@ -91,6 +92,7 @@ fn stand_in(request: &ModelRequest) -> Result<ModelResponse, TransportError> {
         usage: Usage {
             input_tokens: 900,
             output_tokens: 120,
+            ..Usage::default()
         },
     })
 }
@@ -185,6 +187,7 @@ fn judge(request: &ModelRequest) -> Result<ModelResponse, TransportError> {
         usage: Usage {
             input_tokens: 1_500,
             output_tokens: 200,
+            ..Usage::default()
         },
     })
 }
@@ -316,6 +319,7 @@ fn exported_records_match_the_golden_file() {
             usage: Usage {
                 input_tokens: 700,
                 output_tokens: 60,
+                ..Usage::default()
             },
         })
     });

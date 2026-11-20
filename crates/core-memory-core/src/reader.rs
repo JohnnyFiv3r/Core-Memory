@@ -232,6 +232,10 @@ pub struct ReadReport {
     pub calls: u32,
     pub input_tokens: u64,
     pub output_tokens: u64,
+    /// Of `input_tokens`, those read from and written to the provider's
+    /// prompt cache, which it prices differently.
+    pub cache_read_tokens: u64,
+    pub cache_write_tokens: u64,
     /// Why the batch was not read, if it was not.
     pub problem: Option<&'static str>,
     /// What was wrong with the replies this round rejected, a first reply
@@ -258,6 +262,12 @@ impl ReadReport {
     pub(crate) fn count(&mut self, usage: &Usage) {
         self.input_tokens = self.input_tokens.saturating_add(usage.input_tokens);
         self.output_tokens = self.output_tokens.saturating_add(usage.output_tokens);
+        self.cache_read_tokens = self
+            .cache_read_tokens
+            .saturating_add(usage.cache_read_tokens);
+        self.cache_write_tokens = self
+            .cache_write_tokens
+            .saturating_add(usage.cache_write_tokens);
     }
 }
 
