@@ -18,8 +18,8 @@ use crate::engine::Engine;
 use crate::error::{ConfigError, EngineError};
 use crate::ident::is_identifier;
 use crate::judge::{
-    JudgeConfig, Judged, Names, RUBRIC_REV, Recording, content_bytes, judge_binding_rev, judgment,
-    render, second_judgment, validate,
+    Fault, JudgeConfig, Judged, Names, RUBRIC_REV, Recording, Rejected, content_bytes,
+    judge_binding_rev, judgment, render, second_judgment, validate,
 };
 use crate::model::{BindingConfig, ModelRequest, ModelTransport, Usage};
 use crate::read::repair;
@@ -157,6 +157,9 @@ pub struct JudgeReport {
     pub output_tokens: u64,
     /// Why the beads were not judged, if they were not.
     pub problem: Option<&'static str>,
+    /// What was wrong with the replies this read rejected, a first reply
+    /// that its repair put right included. Codes only.
+    pub reply_faults: Vec<Fault>,
 }
 
 impl JudgeReport {
@@ -164,6 +167,15 @@ impl JudgeReport {
         self.calls += 1;
         self.input_tokens = self.input_tokens.saturating_add(usage.input_tokens);
         self.output_tokens = self.output_tokens.saturating_add(usage.output_tokens);
+    }
+
+    fn reject(&mut self, rejected: &Rejected) {
+        for fault in &rejected.faults {
+            if !self.reply_faults.contains(fault) {
+                self.reply_faults.push(*fault);
+            }
+        }
+        self.reply_faults.sort();
     }
 
     fn stored(&mut self, finished: JudgmentFinished, judged: &Judged) {
@@ -408,7 +420,7 @@ impl Engine {
             }
         };
         report.count(&response.usage);
-        let errors = match validate(&response.text, &shown, Names::MustBeFound) {
+        let rejected = match validate(&response.text, &shown, Names::MustBeFound) {
             Ok(judged) => {
                 return self.store_judgment(
                     store,
@@ -419,8 +431,9 @@ impl Engine {
                     report,
                 );
             }
-            Err(errors) => errors,
+            Err(rejected) => rejected,
         };
+        report.reject(&rejected);
         // The reply is recorded as rejected. The work stays in hand for
         // the repair, which is a call of its own.
         self.finish_judgment(
@@ -437,7 +450,7 @@ impl Engine {
         )?;
 
         // ---- the one repair ----
-        let repair_request = repair(&request, &response.text, &errors);
+        let repair_request = repair(&request, &response.text, &rejected.problems);
         let permit = store.permit_judgment(&JudgePermitRequest {
             workspace: &reading.batch.workspace,
             purpose: reading.purpose,
@@ -495,7 +508,8 @@ impl Engine {
                 Vec::new(),
                 report,
             ),
-            Err(_) => {
+            Err(rejected) => {
+                report.reject(&rejected);
                 // Twice invalid. Each bead is judged on its own from now
                 // on, so one the model cannot answer for holds no other
                 // back.

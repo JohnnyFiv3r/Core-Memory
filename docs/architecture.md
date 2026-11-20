@@ -799,6 +799,14 @@ counted (`names_rejected`), as an unfound quote of a chunk read is. If the
 repair is rejected too, nothing is written, the pairs stay unjudged, and
 the beads are tried again alone.
 
+The problems quote the reply, so they go back to the model and nowhere
+else. What kind each one was is a code from a fixed set, and the round's
+log line lists the kinds its rejected replies had (`reply_faults`), a first
+reply that the repair put right included: `not_json`, `shape`,
+`unknown_memory` (a handle the entry may not answer for or about),
+`relationship` (a code or label not allowed there), `answered_twice`,
+`missing_entry`, `not_current`, `chain`, `group` and `name`.
+
 ### What a read stores
 
 One transaction, under the workspace's write lock, stores a row for the

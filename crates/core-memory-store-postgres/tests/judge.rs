@@ -11,6 +11,7 @@ use std::sync::Mutex;
 
 use common::{CONFIG, World, behind_a_migration, kind_of};
 use core_memory_contract::{BeadId, EventId, SourceEvent};
+use core_memory_core::judge::Fault;
 use core_memory_core::model::{
     FnTransport, ModelRequest, ModelResponse, ModelTransport, ScriptedTransport, TransportError,
     Usage,
@@ -1327,6 +1328,8 @@ fn a_reply_that_breaks_the_rules_is_repaired_once_and_then_each_bead_is_read_alo
         (report.calls, report.judged, report.verdicts, report.problem),
         (2, 2, 1, None)
     );
+    // The repair put it right, and the round still says what was wrong.
+    assert_eq!(report.reply_faults, [Fault::MissingEntry]);
     let requests = transport.requests();
     assert!(requests[1].user.starts_with(&requests[0].user));
     assert!(
@@ -1359,6 +1362,7 @@ fn a_reply_that_breaks_the_rules_is_repaired_once_and_then_each_bead_is_read_alo
         (report.new_beads, report.calls, report.problem),
         (2, 2, Some("reply_invalid"))
     );
+    assert_eq!(report.reply_faults, [Fault::MissingEntry]);
     assert_eq!(
         rows(
             &w,
