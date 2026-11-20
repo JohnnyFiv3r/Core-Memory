@@ -145,3 +145,24 @@ schema above; nothing else changed):
 - **The reader's repeated misses:** the sarcastic "ship it on Friday at
   5pm" (`action`, twice), the vendor's unconfirmed guess about an outage
   (`incident`, twice) and "I might move to Denver" (`hypothesis`, twice).
+
+**2026-11-20, rubric revisions 2 and 3, three runs each** ($1.05 and
+$1.01):
+
+| Pair | Revision 2 | Revision 3 |
+|---|---|---|
+| all 26 pairs, 3 runs | 68 of 78 | 71 of 78 |
+| J01, a goal withdrawn | 1 of 3 | 3 of 3 |
+| J02, a correction | 2 of 3 | 1 of 3 |
+| J04, a contradiction | 0 of 3 | 0 of 3 |
+| J10, a decision reversed | 2 of 3 | 3 of 3 |
+| J13, a move nobody calls a correction | 0 of 3 | 1 of 3 |
+
+- Revision 3 did not mend the contradiction: `express` in all three runs,
+  as in two of revision 2's. No run of either joined it into one memory.
+- What must not change did not: the description that replaces nothing
+  (J11), the question and its answer (J05), the unrelated budgets (J07)
+  and the split list (J12) were right in every run of both.
+- The reader was the same in both, 194 of 201, as it should be.
+- Three runs a side is still few: J02's fall and J13's rise are within
+  what one pair does from run to run.
