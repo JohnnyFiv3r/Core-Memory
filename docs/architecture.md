@@ -139,7 +139,9 @@ of the directory's, of that arrow's type. Only a group bead `consists` of
 members; every other arrow joins two beads of source content. A bead is
 replaced or withdrawn at most once, a statement ends at most two beads and
 with one arrow, and only a current statement ends a current bead, so a
-chain grows at its head and no circle can close.
+chain grows at its head and no circle can close. Two writers that end beads
+at once are put one after the other: each locks the two beads of its edge,
+in one order, before it looks, so the second sees what the first wrote.
 
 `work` is the one table the engine changes in place. It is a queue, not a
 record: a row says what is still owed and is deleted when it is done.
@@ -947,9 +949,9 @@ engine reads them back.
 
 A chain grows at its head. When a read is stored, an arrow that ends
 currency is written only if its source and each bead it ends are still
-current, and its source ends no beads with the other arrow and has room for
-these. Otherwise the verdict is kept and noted: `not_current`, or
-`chain_taken`.
+current, and its source ends no beads with the other arrow, has room for
+these, and does not already wait with another held arrow. Otherwise the
+verdict is kept and noted: `not_current`, or `chain_taken`.
 
 An arrow that ends currency changes what a reader takes as current, so it
 is not written by the read that gives it. It is held, its verdict is noted

@@ -142,7 +142,7 @@ pub struct JudgeReport {
     pub held: u32,
     /// Arrows that replace or withdraw and were not written: one of their
     /// beads was no longer current, or the source already ended beads with
-    /// an arrow this one could not join.
+    /// an arrow this one could not join, or waited with another held one.
     pub chains_dropped: u32,
     /// Groups made or added to.
     pub groups: u32,

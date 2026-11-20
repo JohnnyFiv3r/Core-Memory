@@ -848,7 +848,7 @@ pub struct JudgmentFinished {
     pub held: u32,
     /// Arrows that end currency not written: one of their beads was no
     /// longer current, or the source already ended beads with an arrow
-    /// this one could not join.
+    /// this one could not join, or waited with another held one.
     pub chains_dropped: u32,
     /// Group beads made or added to.
     pub groups: u32,

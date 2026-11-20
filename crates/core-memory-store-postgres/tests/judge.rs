@@ -1005,6 +1005,46 @@ fn a_part_of_a_whole_is_an_edge_and_makes_no_group() {
 }
 
 #[test]
+fn two_writers_at_once_cannot_give_one_statement_two_arrows() {
+    let mut w = judging("");
+    let first_head = bead(&mut w, &said("1", 0, "The launch is on Thursday."));
+    let second_head = bead(&mut w, &said("2", 1, "The budget is forty thousand."));
+    let source = bead(&mut w, &said("3", 2, "Launch Friday, budget fifty."));
+    handled(round(&mut w, &FnTransport(nothing)));
+    let insert = |seq: i64, arrow: &str, to: BeadId| {
+        format!(
+            "INSERT INTO core_memory.edges (workspace_id, seq, edge_type, arrow, from_bead,
+                 to_bead, call_id, created_at)
+             SELECT 'w1', {seq}, 'leadsto', '{arrow}', '{}', '{}', r.call_id, now()
+               FROM core_memory.judge_reads AS r LIMIT 1",
+            source.0, to.0
+        )
+    };
+    // The owner writes one arrow and has not committed. Another writer,
+    // without the workspace's lock, gives the same statement the other.
+    let mut first = postgres::Client::connect(&w.db.url, postgres::NoTls).unwrap();
+    let mut tx = first.transaction().unwrap();
+    tx.batch_execute(&insert(900001, "repl", first_head))
+        .unwrap();
+    let url = w.db.url.clone();
+    let other = insert(900002, "withdraws", second_head);
+    let second = std::thread::spawn(move || {
+        let mut client = postgres::Client::connect(&url, postgres::NoTls).unwrap();
+        client
+            .batch_execute(&other)
+            .map_err(|e| e.as_db_error().unwrap().message().to_string())
+    });
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    tx.commit().unwrap();
+    // It waited for the first, and then saw it.
+    let refused = second.join().unwrap().unwrap_err();
+    assert!(
+        refused.contains("ends at most two beads, with one arrow"),
+        "{refused}"
+    );
+}
+
+#[test]
 fn a_name_link_is_two_ranges_and_points_into_both_chunks() {
     let mut w = judging("");
     let first = bead(&mut w, &said("1", 0, "Ask Priya Raman about the export."));

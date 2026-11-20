@@ -531,7 +531,8 @@ CREATE TABLE core_memory.verdicts (
     --   not_current: one of its beads was no longer current when the read
     --     was stored.
     --   chain_taken: the later statement already ends one or two beads
-    --     with an arrow this one could not join.
+    --     with an arrow this one could not join, or already waits with
+    --     another held arrow.
     --   awaits_second_read: the arrow is held until a second read agrees.
     --   second_read_differs: this second read did not agree with the first.
     note text CHECK (note IN (
@@ -976,6 +977,16 @@ BEGIN
             USING ERRCODE = 'check_violation';
     END IF;
     IF NEW.arrow IN ('repl', 'withdraws') THEN
+        -- Two writers that each saw these beads current could otherwise
+        -- both end one, close a circle between them, or give a statement
+        -- two arrows. The two beads are locked first, always in one order,
+        -- so the second writer waits and then sees what the first wrote.
+        -- The engine holds the workspace's lock already and never waits
+        -- here; this is for whoever else writes.
+        PERFORM pg_catalog.pg_advisory_xact_lock(
+            1667788398, pg_catalog.hashtext(LEAST(NEW.from_bead, NEW.to_bead)::text));
+        PERFORM pg_catalog.pg_advisory_xact_lock(
+            1667788398, pg_catalog.hashtext(GREATEST(NEW.from_bead, NEW.to_bead)::text));
         -- A chain grows at its head: both ends are current, so no circle
         -- can close, as every bead of a circle would have been ended.
         IF EXISTS (

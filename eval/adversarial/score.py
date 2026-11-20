@@ -182,9 +182,12 @@ def token(v, a_bead):
 
 def matches(tok, answers):
     """Whether a token is one of the answers: an arrow from a's side, a type
-    (any arrow of it, either way), `ends` (an arrow that ends currency,
-    either way), `none` or `unsure`."""
-    return tok in answers or TYPE_OF.get(tok) in answers or ("ends" in answers and tok in ENDS)
+    (any arrow of it, either way, but a negative one), `ends` (an arrow that
+    ends currency, either way), `none` or `unsure`. A negative arrow, `!`
+    and all, says the two are not alike or cannot both hold, so it is only
+    ever an answer by its own name."""
+    positive_type = None if tok.startswith("!") else TYPE_OF.get(tok)
+    return tok in answers or positive_type in answers or ("ends" in answers and tok in ENDS)
 
 
 def read_right(case, said):

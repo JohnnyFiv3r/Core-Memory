@@ -270,8 +270,8 @@ named! {
         /// the later statement, or one it would have ended.
         NotCurrent => "not_current",
         /// The later statement already ends one or two others with an
-        /// arrow this one could not join: the other arrow, or two beads
-        /// already.
+        /// arrow this one could not join (the other arrow, or two beads
+        /// already), or already waits with another held arrow.
         ChainTaken => "chain_taken",
         /// The arrow changes what a reader takes as current, so it is held
         /// until a second read of the same beads agrees.
@@ -524,6 +524,32 @@ mod tests {
         // A negative nearness is marked as his files mark it.
         assert!(Arrow::DontConfuseWith.as_str().starts_with('!'));
         assert!(Arrow::Contradicts.as_str().starts_with('!'));
+    }
+
+    #[test]
+    fn two_arrows_of_one_type_between_two_beads_are_two_records() {
+        let edge = |arrow: Arrow| EdgeRecord {
+            workspace: "w1".into(),
+            seq: 1,
+            edge_type: arrow.edge_type(),
+            arrow,
+            from_bead: "018f3b0c-0000-8000-8000-000000000001".parse().unwrap(),
+            to_bead: "018f3b0c-0000-8000-8000-000000000002".parse().unwrap(),
+            call_id: "018f3b0c-0000-8000-8000-000000000003".parse().unwrap(),
+            created_at: Timestamp::from_unix_millis(0),
+        };
+        // A consumer drops a second record with a key it has taken, so a
+        // cause written before a replacement must not hide it.
+        for (one, other) in [
+            (Arrow::Causes, Arrow::Replaces),
+            (Arrow::SeeAlso, Arrow::Contradicts),
+        ] {
+            assert_eq!(one.edge_type(), other.edge_type());
+            assert_ne!(
+                crate::record::Record::edge(edge(one)).record_key,
+                crate::record::Record::edge(edge(other)).record_key
+            );
+        }
     }
 
     #[test]

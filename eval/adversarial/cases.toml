@@ -13,7 +13,9 @@
 #     `repl-by` (a is replaced by b), `withdraws`, `cause`, `result`,
 #     `confirms`, `answers`, `same-memory`, `!contradicts`, ... as the
 #     engine's arrow directory names them
-#   a type, near, leadsto, contains or express: any arrow of it, either way
+#   a type, near, leadsto, contains or express: any arrow of it, either
+#     way, but a negative one (`!confuse`, `!contradicts`), which is only
+#     ever an answer by its own name
 #   ends: an arrow that replaces or withdraws, either way
 #   none, unsure
 # A pair may give `not` in place of `expect`: any answer but these is right.
@@ -538,7 +540,7 @@ why = "The goal is withdrawn. A reader should no longer take it as current."
 [[thread.pair]]
 a = "J01.2"
 b = "J01.1"
-not = ["none", "unsure"]
+not = ["none", "unsure", "!contradicts", "!confuse"]
 why = "The training plan is how the goal is pursued."
 
 [[thread]]
@@ -717,7 +719,7 @@ why = "Two different people who share a name."
 [[thread.pair]]
 a = "J06.1"
 b = "J06.3"
-not = ["none", "ends"]
+not = ["none", "ends", "!confuse", "!contradicts"]
 why = "The lunch is for the colleague who is leaving."
 
 [[thread.names]]
@@ -928,7 +930,7 @@ text = "Confirmed: giving each test its own temp dir fixed the flakiness. 200 ru
 [[thread.pair]]
 a = "J14.2"
 b = "J14.1"
-not = ["none", "unsure"]
+not = ["none", "unsure", "!contradicts", "!confuse"]
 why = "The result bears on the hypothesis, whether as a confirmation or as its outcome."
 
 [[thread]]
