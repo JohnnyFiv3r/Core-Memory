@@ -37,17 +37,22 @@ These are the owner's settings; a contributor cannot change them.
 
 1. Set the version in `[workspace.package]` and the `=` pins under
    `[workspace.dependencies]` in [`Cargo.toml`](Cargo.toml), run
-   `cargo check --workspace` so `Cargo.lock` follows, and merge that through
-   a pull request. Cargo's `2.0.0-alpha.1` is published to PyPI as
-   `2.0.0a1`, `2.0.0-rc.1` as `2.0.0rc1`, and `2.0.0` as itself.
-2. Tag the merged commit with `v` and the Cargo version, and push the tag:
+   `cargo update --workspace` so `Cargo.lock` follows, and merge that
+   through a pull request. A Cargo pre-release is published to PyPI in its
+   Python form: `2.1.0-alpha.1` as `2.1.0a1`, `2.1.0-rc.1` as `2.1.0rc1`;
+   `2.1.0` is published as itself.
+2. Tag the merged commit with `v` and the Cargo version. Either publish a
+   GitHub release that creates the tag (Releases → Draft a new release,
+   tag `v2.1.0`, target the branch holding the merged commit, "Set as a
+   pre-release" ticked only for a pre-release), or push the tag:
 
    ```bash
-   git tag -a v2.0.0-alpha.1 -m "Core Memory 2.0.0-alpha.1"
-   git push origin v2.0.0-alpha.1
+   git tag -a v2.1.0 -m "Core Memory 2.1.0"
+   git push origin v2.1.0
    ```
 
-   The workflow refuses a tag that does not match the Cargo version.
+   The workflow refuses a tag that does not match the Cargo version. A
+   GitHub release only names the tag; the tag is what starts the workflow.
 3. The workflow builds:
    - Linux wheels (manylinux, x86_64 and aarch64);
    - macOS wheels (Apple silicon and Intel);
@@ -61,19 +66,19 @@ These are the owner's settings; a contributor cannot change them.
 5. Check the release:
 
    ```bash
-   uv tool install core-memory==2.0.0a1
+   uv tool install core-memory==2.1.0
    core-memory --version
    ```
 
 A pre-release (`a`, `b`, `rc`) is installed only by someone who names it or
-asks for pre-releases. `pip install core-memory` keeps installing the newest
-final release, which is 1.1.2 until 2.0.0 is out.
+asks for pre-releases. `pip install core-memory` installs the newest final
+release.
 
 ## If something goes wrong
 
 - **A build fails:** nothing was uploaded. Fix it through a pull request,
-  delete the tag (`git push --delete origin v2.0.0-alpha.1`), and tag the
-  fixed commit with the same version.
+  delete the tag (`git push --delete origin v2.1.0`, or the tag's "…" menu
+  on the Tags page), and tag the fixed commit with the same version.
 - **An upload stopped part way:** PyPI keeps the files that arrived and
   never takes a file of that version again. Move the version on and
   release again.

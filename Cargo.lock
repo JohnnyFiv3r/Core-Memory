@@ -341,7 +341,7 @@ checksum = "a6ef517f0926dd24a1582492c791b6a4818a4d94e789a334894aa15b0d12f55c"
 
 [[package]]
 name = "core-memory"
-version = "2.0.0-alpha.1"
+version = "2.0.0"
 dependencies = [
  "core-memory-chunker",
  "core-memory-contract",
@@ -352,7 +352,7 @@ dependencies = [
 
 [[package]]
 name = "core-memory-chunker"
-version = "2.0.0-alpha.1"
+version = "2.0.0"
 dependencies = [
  "proptest",
  "serde",
@@ -362,7 +362,7 @@ dependencies = [
 
 [[package]]
 name = "core-memory-contract"
-version = "2.0.0-alpha.1"
+version = "2.0.0"
 dependencies = [
  "hmac",
  "schemars",
@@ -377,7 +377,7 @@ dependencies = [
 
 [[package]]
 name = "core-memory-core"
-version = "2.0.0-alpha.1"
+version = "2.0.0"
 dependencies = [
  "core-memory-chunker",
  "core-memory-contract",
@@ -393,7 +393,7 @@ dependencies = [
 
 [[package]]
 name = "core-memory-model-anthropic"
-version = "2.0.0-alpha.1"
+version = "2.0.0"
 dependencies = [
  "core-memory-core",
  "core-memory-model-http",
@@ -402,7 +402,7 @@ dependencies = [
 
 [[package]]
 name = "core-memory-model-http"
-version = "2.0.0-alpha.1"
+version = "2.0.0"
 dependencies = [
  "core-memory-core",
  "rustls",
@@ -414,7 +414,7 @@ dependencies = [
 
 [[package]]
 name = "core-memory-model-openai"
-version = "2.0.0-alpha.1"
+version = "2.0.0"
 dependencies = [
  "core-memory-core",
  "core-memory-model-http",
@@ -423,7 +423,7 @@ dependencies = [
 
 [[package]]
 name = "core-memory-sidecar"
-version = "2.0.0-alpha.1"
+version = "2.0.0"
 dependencies = [
  "axum",
  "clap",
@@ -452,7 +452,7 @@ dependencies = [
 
 [[package]]
 name = "core-memory-source-jsonl"
-version = "2.0.0-alpha.1"
+version = "2.0.0"
 dependencies = [
  "core-memory-contract",
  "serde_json",
@@ -461,7 +461,7 @@ dependencies = [
 
 [[package]]
 name = "core-memory-store-postgres"
-version = "2.0.0-alpha.1"
+version = "2.0.0"
 dependencies = [
  "core-memory-contract",
  "core-memory-core",
@@ -1179,7 +1179,7 @@ dependencies = [
 
 [[package]]
 name = "reader-probe"
-version = "2.0.0-alpha.1"
+version = "2.0.0"
 dependencies = [
  "core-memory-contract",
  "core-memory-core",

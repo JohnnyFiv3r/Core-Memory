@@ -475,9 +475,8 @@ would run as the migrating role.
 A migration never changes once released. The runner records a checksum of
 each one it applies and refuses a database whose history differs.
 
-Until 2.0.0 is released, the first migration still changes as the engine is
-built. A database created by a pre-release build must be recreated, not
-migrated.
+2.0.0 released migrations 1 and 2, and they no longer change. A database
+created by a build from before 2.0.0 must be recreated, not migrated.
 
 Migration 2 builds the [recall](#recall) index over the text of every
 chunk stored. Admissions wait while it is built, as they wait for any

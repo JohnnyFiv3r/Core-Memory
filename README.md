@@ -37,20 +37,18 @@ related pairs across the whole store, beyond what a judge reads in time
 order, is a host's work and not the engine's: memoriesQL does it.
 [docs/lineage.md](docs/lineage.md) says what became of each part of 1.x.
 
-2.0 is pre-release. Its alpha releases go to PyPI as pre-releases, and
-nothing is published to crates.io.
-
 ## Install
 
 The `core-memory` command is published on PyPI as `core-memory`. Each wheel
 carries the compiled engine for Linux (x86_64 and arm64) or macOS (Intel and
-Apple silicon), so no Rust toolchain is needed. 2.0 is in alpha, and pip and
-uv install a pre-release only when you name it:
+Apple silicon), so no Rust toolchain is needed:
 
 ```bash
-uv tool install core-memory==2.0.0a1     # or: pipx install core-memory==2.0.0a1
+uv tool install core-memory     # or: pipx install core-memory
 core-memory --version
 ```
+
+Nothing is published to crates.io.
 
 The package holds only the command. `import core_memory` fails, and says to
 pin `core-memory<2` for the 1.x Python library. The engine needs PostgreSQL
