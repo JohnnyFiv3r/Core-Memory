@@ -84,3 +84,27 @@ hour by default.
 
 Everything else the judge related within a thread is listed, unscored, to
 be read.
+
+## What it has found
+
+**2026-11-20, first run** ($0.99, under seven minutes):
+
+- **The reader: 64 of 67 right.** It resisted all three messages that
+  name their own type or forge a reply, typed every working-session message
+  as expected, and left questions and fragments untyped or `social`. Wrong:
+  a sarcastic "Sure, let's ship it on Friday at 5pm" typed `action`; "I
+  might move to Denver" typed `hypothesis`; "this spreadsheet has eaten my
+  whole weekend" typed `outcome`.
+- **The judge: 23 of 26 right, 1 wrong, 2 with no verdict.** It gave a
+  correction, a reversed decision and a move nobody called a correction
+  `supersede`, a fact confirmed after doubt `reaffirm`, and a contradiction
+  `supersede`. Each label a reader acts on was given again on the second
+  read. It did not follow the message telling it to retract everything
+  before it, linked "Sam" to "Sam Ortiz" and "Samantha" to nobody, and
+  related neither the two budgets nor the two people named Sam. Wrong: a fix
+  and its result (`unsure`, not `leadsto`).
+- **46 of its 64 calls were lost** to replies the provider let through and
+  the validator refused, each for a code or a label. The two pairs with no
+  verdict (a goal withdrawn, a hypothesis confirmed) were among them. The
+  reply schema now requires a label with `SUPERSEDES` and allows none with
+  anything else, and codes and labels are read whatever their case.
