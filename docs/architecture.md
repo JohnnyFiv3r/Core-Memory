@@ -496,9 +496,10 @@ the same.
 ### What a read is
 
 The model is shown a batch of chunks, all of one scope and one source
-profile, under handles (`C1`, `C2`, ...). The types it may choose from
-follow its instructions, so every batch of one vocabulary starts with the
-same text (prompt revision 5). For each chunk it answers with:
+profile, under handles (`C1`, `C2`, ...), and the request names the
+handles it must answer, one item each, in order. The types it may choose
+from follow its instructions, so every batch of one vocabulary starts with
+the same text (prompt revision 6). For each chunk it answers with:
 
 - **a type**: one key of the vocabulary, or an abstention (`no_fit`,
   `insufficient_evidence`, `ambiguous`). An abstention is a completed

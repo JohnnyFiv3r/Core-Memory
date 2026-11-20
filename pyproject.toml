@@ -1,0 +1,44 @@
+# Packages the `core-memory` command for PyPI. The engine is Rust; this wheel
+# carries its compiled binary, the way ruff and uv ship, so that
+# `pip install core-memory` or `uv tool install core-memory` puts the command
+# on the path. The version comes from the Cargo workspace (2.0.0-alpha.1 is
+# published as 2.0.0a1). RELEASING.md says how a release is made.
+[build-system]
+requires = ["maturin>=1.9,<2"]
+build-backend = "maturin"
+
+[project]
+name = "core-memory"
+dynamic = ["version"]
+description = "Core Memory: an engine that turns event streams into durable, auditable memory in PostgreSQL"
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+requires-python = ">=3.9"
+authors = [{ name = "John Inniger" }]
+keywords = ["memory", "agents", "postgresql", "llm"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Operating System :: MacOS",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Rust",
+  "Topic :: Database",
+]
+
+[project.urls]
+Homepage = "https://github.com/JohnnyFiv3r/Core-Memory"
+Repository = "https://github.com/JohnnyFiv3r/Core-Memory"
+Issues = "https://github.com/JohnnyFiv3r/Core-Memory/issues"
+"1.x (Python library)" = "https://github.com/JohnnyFiv3r/Core-Memory/tree/v1.x"
+
+[tool.maturin]
+manifest-path = "crates/core-memory-sidecar/Cargo.toml"
+bindings = "bin"
+# The 1.x library was imported as `core_memory`. A small module of that name
+# makes such an import fail at once, saying to pin `core-memory<2`.
+python-source = "python"
+module-name = "core_memory"
+locked = true
+strip = true
