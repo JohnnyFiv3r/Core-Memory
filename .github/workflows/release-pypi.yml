@@ -1,0 +1,160 @@
+# Publishes the `core-memory` command to PyPI as wheels that carry the
+# compiled engine. RELEASING.md says how a release is made.
+#
+# A pushed tag v2... builds every wheel and the sdist, then waits for the
+# owner: the publish job runs in the `pypi-v2` environment, which requires
+# his approval, and uploads through PyPI trusted publishing, with no token.
+# A pull request that changes the packaging builds everything and publishes
+# nothing.
+#
+# The 1.x line published from publish-pypi.yml on any GitHub release. That
+# workflow is disabled; this one never runs on a release event.
+name: release-pypi
+
+on:
+  push:
+    tags: ["v2*"]
+  pull_request:
+    paths:
+      - pyproject.toml
+      - python/**
+      - .github/workflows/release-pypi.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # A release in flight is never cancelled by a later push.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  version:
+    name: check the version
+    runs-on: ubuntu-latest
+    outputs:
+      cargo: ${{ steps.cargo.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: cargo
+        name: Read the workspace version
+        run: |
+          version=$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["workspace"]["package"]["version"])')
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Cargo workspace version: $version"
+      - name: The tag must name that version
+        if: github.event_name == 'push'
+        env:
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ steps.cargo.outputs.version }}
+        run: |
+          if [ "$TAG" != "v$VERSION" ]; then
+            echo "::error::Tag $TAG does not match the Cargo workspace version $VERSION. Tag the commit as v$VERSION, or bump the version first."
+            exit 1
+          fi
+
+  linux:
+    name: wheel (linux ${{ matrix.target }})
+    needs: version
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [x86_64, aarch64]
+    steps:
+      - uses: actions/checkout@v4
+      # manylinux2014 (glibc 2.17) for x86_64; aarch64 is cross-compiled in
+      # maturin's cross image. TLS is rustls with ring, which builds there
+      # with the image's C compiler: no OpenSSL, no aws-lc, no cmake.
+      - uses: PyO3/maturin-action@v1.51.0
+        with:
+          target: ${{ matrix.target }}
+          manylinux: auto
+          args: --release --out dist
+      - name: Install the wheel and run the command
+        if: matrix.target == 'x86_64'
+        run: |
+          python3 -m venv /tmp/try
+          /tmp/try/bin/pip install --no-index dist/*.whl
+          /tmp/try/bin/core-memory --version
+          /tmp/try/bin/core-memory --version | grep -qx "core-memory ${{ needs.version.outputs.cargo }}"
+          if /tmp/try/bin/python -I -c "import core_memory" 2> err.txt; then
+            echo "::error::import core_memory should fail with the pin message"; exit 1
+          fi
+          grep -q 'core-memory<2' err.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-linux-${{ matrix.target }}
+          path: dist
+          if-no-files-found: error
+
+  macos:
+    name: wheel (macos ${{ matrix.target }})
+    needs: version
+    # Apple silicon runner; the Intel wheel is cross-compiled on it.
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [aarch64, x86_64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: PyO3/maturin-action@v1.51.0
+        with:
+          target: ${{ matrix.target }}
+          args: --release --out dist
+      - name: Install the wheel and run the command
+        if: matrix.target == 'aarch64'
+        run: |
+          python3 -m venv /tmp/try
+          /tmp/try/bin/pip install --no-index dist/*.whl
+          /tmp/try/bin/core-memory --version
+          /tmp/try/bin/core-memory --version | grep -qx "core-memory ${{ needs.version.outputs.cargo }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-macos-${{ matrix.target }}
+          path: dist
+          if-no-files-found: error
+
+  sdist:
+    name: sdist
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: PyO3/maturin-action@v1.51.0
+        with:
+          command: sdist
+          args: --out dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-sdist
+          path: dist
+          if-no-files-found: error
+
+  publish:
+    name: publish to PyPI
+    needs: [version, linux, macos, sdist]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v2')
+    runs-on: ubuntu-latest
+    # Requires the owner's approval before this job starts.
+    environment:
+      name: pypi-v2
+      url: https://pypi.org/project/core-memory/
+    permissions:
+      # PyPI trusted publishing: no token is stored anywhere.
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wheels-*
+          merge-multiple: true
+          path: dist
+      - name: What will be uploaded
+        run: ls -l dist
+      - uses: pypa/gh-action-pypi-publish@v1.14.3
+        with:
+          packages-dir: dist
