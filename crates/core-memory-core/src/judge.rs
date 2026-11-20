@@ -36,7 +36,9 @@ use crate::store::{
 
 /// Revision of the rubric: the instructions and the way beads are shown.
 /// Part of every judge's binding revision, and stored with every verdict.
-pub const RUBRIC_REV: u32 = 2;
+/// Revision 3: messages by different people are never parts of one memory,
+/// and two statements of different values for one fact supersede.
+pub const RUBRIC_REV: u32 = 3;
 /// Revision of the reply validator. Part of every binding revision.
 /// Revision 2 reads relationship codes and labels whatever their case.
 pub const JUDGE_VALIDATOR_REV: u32 = 2;
@@ -75,13 +77,14 @@ What a memory shows:
 
 The relationships. A and B stand for the two memories of a pair.
 
-CONTAINS: A and B are parts of one memory. They are pieces of one message or document, or one account that runs on across messages, so that a reader needs both to have the whole. Two messages about the same subject are not parts of one memory.
+CONTAINS: A and B are parts of one memory. They are pieces of one message or document, or one account that its author runs on across messages, so that a reader needs both to have the whole. Two messages about the same subject are not parts of one memory, and messages by different people never are: one may answer, add to or contradict the other, and that is another relationship or none.
 
 SUPERSEDES: A is a later statement on the very matter B states, and a reader should now go by A. Give the label that says how:
 - "supersede": A replaces what B says: a changed date, a new owner, a corrected figure, a reversed decision.
 - "retract": A withdraws what B says and puts nothing in its place.
 - "reaffirm": A confirms what B says again, after time has passed or after it was put in doubt.
 - "conflict": A and B cannot both be right, and neither one says the other is wrong or out of date.
+Two statements that give different values for one fact (a date, a figure, a place, an owner, a choice, whether something holds) are SUPERSEDES, with the later one as A, even when neither mentions the other: "supersede" when A changes or corrects what B says, as a move replaces an old address, and "conflict" when either could still be right. They are never EXPRESS, NEAR or CONTAINS.
 Both memories must be current. If one shows "current": false, a later memory has already taken its place: judge against that one, and give this pair another answer.
 
 LEADSTO: what A describes brought about what B describes. A request and what was done about it, a decision and the step that carried it out, a problem and its fix, a tool call and what the agent did with its result. A must come first in what happened. That B depends on A, or mentions A, is not enough. A question and its answer are not LEADSTO: the answer tells what already was, and the question did not bring it about.

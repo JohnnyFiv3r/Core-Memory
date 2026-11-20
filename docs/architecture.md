@@ -780,6 +780,16 @@ by itself: a question and its answer are not `leadsto`. The first live run
 (`eval/locomo-smoke`) showed why: without that rule, most of what the judge
 wrote joined a message to the reply next to it.
 
+Since rubric revision 3, messages by different people are never parts of
+one memory (`CONTAINS`), and two statements that give different values for
+one fact are `supersedes`, with the later one superseding, whether or not
+either mentions the other: `supersede` when the later one changes or
+corrects the earlier, `conflict` when either could still be right. In
+three runs of `eval/adversarial` under revision 2, a contradiction between
+two people came back `supersede`, `express` and `contains`, the last
+joining both into one memory, and a move that no message called a
+correction came back `supersede`, `express` and `leadsto`.
+
 The provider holds the reply to its shape, and the shape requires a label
 with a `SUPERSEDES` code and allows none with another: the two are two
 branches of an `anyOf`, since a provider's schema cannot make one field
