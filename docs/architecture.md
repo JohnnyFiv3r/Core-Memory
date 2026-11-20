@@ -850,7 +850,7 @@ account than one already signed in. The server renews the tokens from then on.
 - *Requests from a runtime only that user controls, for their own activity.*
   The engine runs where its owner runs it. A scope's text goes to the binding
   only after `scope allow` grants `signed-in@api.openai.com`, and the
-  question at sign-in, the README and the example config tell the owner to
+  question at sign-in, the guide and the example config tell the owner to
   grant it only to scopes that hold their own activity. The grant is the
   plan's own: a scope allowed for an `openai` API-key binding
   (`api.openai.com`) is not allowed for this, so switching a reader to the
