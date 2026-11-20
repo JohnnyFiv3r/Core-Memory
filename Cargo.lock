@@ -406,7 +406,9 @@ version = "2.0.0-alpha.1"
 dependencies = [
  "core-memory-core",
  "serde_json",
+ "tempfile",
  "ureq",
+ "webpki-root-certs",
 ]
 
 [[package]]
@@ -427,6 +429,7 @@ dependencies = [
  "core-memory-contract",
  "core-memory-core",
  "core-memory-model-anthropic",
+ "core-memory-model-http",
  "core-memory-model-openai",
  "core-memory-source-jsonl",
  "core-memory-store-postgres",
@@ -2062,6 +2065,15 @@ checksum = "88261b9deccee56594c11a3460c462c41f58d148598fe70ad77070126a68aba4"
 dependencies = [
  "js-sys",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "webpki-root-certs"
+version = "1.0.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "293198dcebfb821155b5092ab94b5a82ff180eddd7241df3bd6e66a4ffd1a585"
+dependencies = [
+ "rustls-pki-types",
 ]
 
 [[package]]

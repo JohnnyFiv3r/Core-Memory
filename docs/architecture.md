@@ -565,7 +565,10 @@ permitted, no receipt is written, and the work is set aside.
    `outbound_calls`. A refusal sends nothing and writes no receipt. The
    receipt is committed before any text leaves the engine.
 2. **Call** the model through `ModelTransport`: one request, with no hidden
-   retry or fallback.
+   retry or fallback. The adapters send over HTTPS, through the proxy that
+   `HTTPS_PROXY` names unless `NO_PROXY` lists the host, and check the
+   server against the public web roots plus an optional private CA
+   (`[models] ca_file`).
 3. **Validate** the reply against the closed shape above.
 4. **Finish.** One transaction records how the call ended in
    `outbound_results`, stores the reads and their spans, or the tool

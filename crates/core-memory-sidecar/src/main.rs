@@ -18,7 +18,7 @@ use core_memory_core::{Clock, EngineError, ScopeGrants, StoreError, SystemClock}
 use core_memory_sidecar::config::Loaded;
 use core_memory_sidecar::reading::{self, Reader};
 use core_memory_sidecar::report::{self, Stop};
-use core_memory_sidecar::runtime::{Runtime, build_engine, check_binding, open_store};
+use core_memory_sidecar::runtime::{Runtime, build_engine, check_binding, model_roots, open_store};
 use core_memory_sidecar::{openapi, server};
 use core_memory_source_jsonl::{JsonlSource, SourceItem};
 use core_memory_store_postgres::{Enrollment, EraseOutcome, QueuedReads, Reread};
@@ -846,6 +846,9 @@ async fn shutdown_signal() {
 fn check(config_path: &Path) -> Result<ExitCode, Stop> {
     let loaded = Loaded::read(config_path)?;
     let engine = build_engine(&loaded)?;
+    if let Some(roots) = model_roots(&loaded)? {
+        report::print(json!({"models": {"private_certificates": roots.private()}}))?;
+    }
     for binding in &loaded.config.bindings {
         check_binding(binding)?;
         report::print(json!({

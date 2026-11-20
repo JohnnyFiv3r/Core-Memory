@@ -51,6 +51,7 @@ tower-service = "0.3"
 unicode-segmentation = "1.13"
 ureq = "3.5"
 uuid = { version = "1", features = ["serde", "v8"] }
+webpki-root-certs = "1"
 webpki-roots = "1"
 whatlang = "0.18"
 

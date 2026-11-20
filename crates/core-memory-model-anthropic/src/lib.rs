@@ -42,8 +42,14 @@ impl fmt::Debug for AnthropicTransport {
 
 impl AnthropicTransport {
     pub fn new(api_key: impl Into<String>, timeout: Duration) -> Self {
+        Self::with_client(api_key, HttpClient::new(timeout))
+    }
+
+    /// A transport that sends through `client`, such as one that trusts a
+    /// private certificate authority.
+    pub fn with_client(api_key: impl Into<String>, client: HttpClient) -> Self {
         Self {
-            client: HttpClient::new(timeout),
+            client,
             api_key: api_key.into(),
         }
     }
