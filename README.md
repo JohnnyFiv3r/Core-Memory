@@ -225,6 +225,8 @@ destination and the chunks sent, and holds no text. Calls that fail are tried
 again; after `max_attempts` a chunk is set aside until `core-memory read
 retry`. No call is made more often than that for one chunk, whatever fails,
 and a chunk the model declines when it is sent alone is set aside at once.
+When the provider turns a binding down, as it does a wrong key or model, the
+command makes no other call of that kind for ten minutes.
 Logs and receipts never hold chunk text or what a model said.
 
 Model calls go through the proxy that `HTTPS_PROXY` names, except to the

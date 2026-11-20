@@ -36,7 +36,7 @@ use crate::store::{
 
 /// Revision of the rubric: the instructions and the way beads are shown.
 /// Part of every judge's binding revision, and stored with every verdict.
-pub const RUBRIC_REV: u32 = 1;
+pub const RUBRIC_REV: u32 = 2;
 /// Revision of the reply validator. Part of every binding revision.
 pub const JUDGE_VALIDATOR_REV: u32 = 1;
 
@@ -83,11 +83,13 @@ SUPERSEDES: A is a later statement on the very matter B states, and a reader sho
 - "conflict": A and B cannot both be right, and neither one says the other is wrong or out of date.
 Both memories must be current. If one shows "current": false, a later memory has already taken its place: judge against that one, and give this pair another answer.
 
-LEADSTO: what A describes brought about what B describes. A request and what was done about it, a decision and the step that carried it out, a problem and its fix, a tool call and what the agent did with its result. A must come first in what happened. That B depends on A, or mentions A, is not enough.
+LEADSTO: what A describes brought about what B describes. A request and what was done about it, a decision and the step that carried it out, a problem and its fix, a tool call and what the agent did with its result. A must come first in what happened. That B depends on A, or mentions A, is not enough. A question and its answer are not LEADSTO: the answer tells what already was, and the question did not bring it about.
 
 EXPRESS: A states an attribute, a description, a definition, an example or the source of something B is about, without being a part of B and without changing what B says.
 
 NEAR: A and B call each other up, because they are about the same matter, thing or occasion, and none of the relationships above holds. NEAR claims no cause and has no direction.
+
+A conversation is not a chain of relationships. That one message answers, thanks, praises or reacts to another, or comes next in the same conversation, is already recorded ("reply_to", "thread", "session") and is not a relationship by itself. Relate two messages of one conversation only for what they say: one replaces or confirms what the other states, what one describes brought about what the other describes, one describes something the other is about, or both are about one particular matter that someone recalling either would want the other for.
 
 Settle the direction first. SUPERSEDES, LEADSTO and EXPRESS run from A to B, so before you choose one, decide which memory is A: which is the later statement, which came first in what happened, which describes the other. Then write it from the new memory's side:
 - "SUPERSEDES<", "LEADSTO<", "EXPRESS<": the new memory is A.
