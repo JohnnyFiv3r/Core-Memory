@@ -780,6 +780,16 @@ by itself: a question and its answer are not `leadsto`. The first live run
 (`eval/locomo-smoke`) showed why: without that rule, most of what the judge
 wrote joined a message to the reply next to it.
 
+The provider holds the reply to its shape, and the shape requires a label
+with a `SUPERSEDES` code and allows none with another: the two are two
+branches of an `anyOf`, since a provider's schema cannot make one field
+depend on another. A provider holds an enum value to its list but not to
+its case, so codes and labels are read whatever their case, as a tool
+call's status is. The adversarial run of 2026-11-20 (`eval/adversarial`)
+lost 46 of its 64 judge calls to replies the provider let through and the
+validator refused, each of them for a code or a label (four also for a
+handle the entry could not answer about).
+
 A reply is rejected whole, and repaired once, if it is not of that shape,
 if a new bead has no entry or a pair two answers, or if what it says would
 break a rule of the store:
@@ -798,6 +808,14 @@ that are the same, fail the first reply. On the repair they are dropped and
 counted (`names_rejected`), as an unfound quote of a chunk read is. If the
 repair is rejected too, nothing is written, the pairs stay unjudged, and
 the beads are tried again alone.
+
+The problems quote the reply, so they go back to the model and nowhere
+else. What kind each one was is a code from a fixed set, and the round's
+log line lists the kinds its rejected replies had (`reply_faults`), a first
+reply that the repair put right included: `not_json`, `shape`,
+`unknown_memory` (a handle the entry may not answer for or about),
+`relationship` (a code or label not allowed there), `answered_twice`,
+`missing_entry`, `not_current`, `chain`, `group` and `name`.
 
 ### What a read stores
 

@@ -308,6 +308,10 @@ impl Connector {
             } else if cause.contains("CaUsedAsEndEntity") {
                 // What `openssl req -x509` makes unless it is told otherwise.
                 ". The server's own certificate is marked as a certificate authority, which is not accepted even when ca_file names it. Give the server a certificate with basicConstraints=CA:FALSE, or one signed by the authority"
+            } else if cause.contains("UnknownIssuer") {
+                // What a server on this machine has too, when it offers TLS
+                // with the certificate its installer made.
+                ". No authority the engine trusts signed the server's certificate. Name the one that did, or the server's own certificate, in [store] ca_file; or add sslmode=disable to the database URL, only if the network between the engine and the database is trusted"
             } else {
                 ""
             };

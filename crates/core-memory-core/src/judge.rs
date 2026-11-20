@@ -38,7 +38,8 @@ use crate::store::{
 /// Part of every judge's binding revision, and stored with every verdict.
 pub const RUBRIC_REV: u32 = 2;
 /// Revision of the reply validator. Part of every binding revision.
-pub const JUDGE_VALIDATOR_REV: u32 = 1;
+/// Revision 2 reads relationship codes and labels whatever their case.
+pub const JUDGE_VALIDATOR_REV: u32 = 2;
 
 const BINDING_REV_DOMAIN: &str = "core-memory/judge-binding-rev/v1";
 const MAX_REPORTED_ERRORS: usize = 20;
@@ -462,8 +463,15 @@ pub fn content_bytes(shown: &Shown) -> u64 {
     shown.listed().map(|bead| bead.content.bytes()).sum()
 }
 
+/// The reply's shape, which the provider holds a reply to. A `label` is
+/// required with a `SUPERSEDES` code and allowed with no other: as two
+/// branches, since a provider's schema cannot make one field depend on
+/// another.
 fn reply_schema() -> Value {
     let labels: Vec<&str> = Label::ALL.iter().map(|l| l.as_str()).collect();
+    let (superseding, other): (Vec<&str>, Vec<&str>) = REL_CODES
+        .iter()
+        .partition(|code| code.starts_with("SUPERSEDES"));
     json!({
         "type": "object",
         "additionalProperties": false,
@@ -479,16 +487,27 @@ fn reply_schema() -> Value {
                         "id": {"type": "string"},
                         "related": {
                             "type": "array",
-                            "items": {
-                                "type": "object",
-                                "additionalProperties": false,
-                                "required": ["to", "rel"],
-                                "properties": {
-                                    "to": {"type": "string"},
-                                    "rel": {"type": "string", "enum": REL_CODES},
-                                    "label": {"type": "string", "enum": labels},
+                            "items": {"anyOf": [
+                                {
+                                    "type": "object",
+                                    "additionalProperties": false,
+                                    "required": ["to", "rel"],
+                                    "properties": {
+                                        "to": {"type": "string"},
+                                        "rel": {"type": "string", "enum": other},
+                                    },
                                 },
-                            },
+                                {
+                                    "type": "object",
+                                    "additionalProperties": false,
+                                    "required": ["to", "rel", "label"],
+                                    "properties": {
+                                        "to": {"type": "string"},
+                                        "rel": {"type": "string", "enum": superseding},
+                                        "label": {"type": "string", "enum": labels},
+                                    },
+                                },
+                            ]},
                         },
                         "unsure": {"type": "array", "items": {"type": "string"}},
                     },
@@ -512,8 +531,10 @@ fn reply_schema() -> Value {
     })
 }
 
+/// What a relationship code says, whatever its case: a provider that holds a
+/// reply to its schema does not hold an enum value to its case.
 fn relationship(code: &str) -> Option<(Verdict, bool)> {
-    Some(match code {
+    Some(match code.to_ascii_uppercase().as_str() {
         "CONTAINS" => (Verdict::Contains, false),
         "NEAR" => (Verdict::Near, false),
         "SUPERSEDES>" => (Verdict::Supersedes, true),
@@ -606,19 +627,95 @@ pub enum Names {
     DropUnfound,
 }
 
-/// Problems found in a reply, kept to a bounded number.
+/// What kind of thing was wrong with a rejected reply. A fixed set of codes,
+/// so that why a reply was rejected can be logged and counted where the
+/// problems themselves, which quote the reply, may not go.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Fault {
+    /// The reply is not JSON.
+    NotJson,
+    /// A field is missing, unexpected or of the wrong kind.
+    Shape,
+    /// A handle names no memory the entry may answer for or about.
+    UnknownMemory,
+    /// A relationship code or a label is not one of those allowed, or is
+    /// given where it does not belong.
+    Relationship,
+    /// A memory or a pair is answered more than once.
+    AnsweredTwice,
+    /// A new memory has no entry.
+    MissingEntry,
+    /// A memory that is no longer current supersedes or is superseded.
+    NotCurrent,
+    /// The labels break the rules of a chain: a memory superseded twice,
+    /// two labels from one memory, more than two followed, or a circle.
+    Chain,
+    /// The CONTAINS answers break the rules of a group.
+    Group,
+    /// A name link that cannot be kept.
+    Name,
+}
+
+impl Fault {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Fault::NotJson => "not_json",
+            Fault::Shape => "shape",
+            Fault::UnknownMemory => "unknown_memory",
+            Fault::Relationship => "relationship",
+            Fault::AnsweredTwice => "answered_twice",
+            Fault::MissingEntry => "missing_entry",
+            Fault::NotCurrent => "not_current",
+            Fault::Chain => "chain",
+            Fault::Group => "group",
+            Fault::Name => "name",
+        }
+    }
+}
+
+/// Why a reply was rejected: the problems, which go back to the model in
+/// the repair and nowhere else, and their kinds, which may be logged.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Rejected {
+    pub problems: Vec<String>,
+    /// Each kind found, once, in order.
+    pub faults: Vec<Fault>,
+}
+
+impl Rejected {
+    fn one(fault: Fault, problem: String) -> Self {
+        Rejected {
+            problems: vec![crate::model::bounded(problem)],
+            faults: vec![fault],
+        }
+    }
+}
+
+/// Problems found in a reply, kept to a bounded number, and every kind of
+/// problem found, whether or not its message was kept.
 #[derive(Default)]
-struct Problems(Vec<String>);
+struct Problems {
+    messages: Vec<String>,
+    faults: BTreeSet<Fault>,
+}
 
 impl Problems {
-    fn push(&mut self, problem: String) {
-        if self.0.len() < MAX_REPORTED_ERRORS {
-            self.0.push(crate::model::bounded(problem));
+    fn push(&mut self, fault: Fault, problem: String) {
+        self.faults.insert(fault);
+        if self.messages.len() < MAX_REPORTED_ERRORS {
+            self.messages.push(crate::model::bounded(problem));
         }
     }
 
     fn is_empty(&self) -> bool {
-        self.0.is_empty()
+        self.messages.is_empty()
+    }
+
+    fn rejected(self) -> Rejected {
+        Rejected {
+            problems: self.messages,
+            faults: self.faults.into_iter().collect(),
+        }
     }
 }
 
@@ -641,24 +738,28 @@ fn unexpected(fields: &serde_json::Map<String, Value>, allowed: &[&str]) -> Opti
 
 /// Validates a reply for the beads of one call. Returns what it says, or
 /// every problem found. The problems name handles and codes and quote the
-/// model's reply, so they go back to the model and nowhere else.
-pub fn validate(reply: &str, shown: &Shown, names: Names) -> Result<Judged, Vec<String>> {
+/// model's reply, so they go back to the model and nowhere else; their
+/// kinds may be logged.
+pub fn validate(reply: &str, shown: &Shown, names: Names) -> Result<Judged, Rejected> {
     let listing = Listing::of(shown);
     let new_count = listing.new_count();
     let mut problems = Problems::default();
     let value: Value = match crate::model::reply_json(strip_fence(reply)) {
         Ok(value) => value,
-        Err(problem) => return Err(vec![problem]),
+        Err(problem) => return Err(Rejected::one(Fault::NotJson, problem)),
     };
     let Some(object) = value.as_object() else {
-        return Err(vec!["reply must be a JSON object".into()]);
+        return Err(Rejected::one(
+            Fault::Shape,
+            "reply must be a JSON object".into(),
+        ));
     };
     if let Some(problem) = unexpected(object, &["new", "names"]) {
-        problems.push(format!("{problem} at the top level"));
+        problems.push(Fault::Shape, format!("{problem} at the top level"));
     }
     let Some(entries) = object.get("new").and_then(Value::as_array) else {
-        problems.push("`new` must be an array".into());
-        return Err(problems.0);
+        problems.push(Fault::Shape, "`new` must be an array".into());
+        return Err(problems.rejected());
     };
 
     // What each new bead's entry says of the beads before it.
@@ -666,11 +767,11 @@ pub fn validate(reply: &str, shown: &Shown, names: Names) -> Result<Judged, Vec<
     let mut said: Vec<Option<BTreeMap<usize, Said>>> = vec![None; new_count];
     for (n, entry) in entries.iter().enumerate() {
         let Some(entry) = entry.as_object() else {
-            problems.push(format!("new[{n}] must be an object"));
+            problems.push(Fault::Shape, format!("new[{n}] must be an object"));
             continue;
         };
         if let Some(problem) = unexpected(entry, &["id", "related", "unsure"]) {
-            problems.push(format!("new[{n}]: {problem}"));
+            problems.push(Fault::Shape, format!("new[{n}]: {problem}"));
         }
         let Some(index) = entry
             .get("id")
@@ -678,7 +779,10 @@ pub fn validate(reply: &str, shown: &Shown, names: Names) -> Result<Judged, Vec<
             .and_then(|handle| listing.index(handle))
             .filter(|index| listing.is_new(*index))
         else {
-            problems.push(format!("new[{n}].id must be one of N1..N{new_count}"));
+            problems.push(
+                Fault::UnknownMemory,
+                format!("new[{n}].id must be one of N1..N{new_count}"),
+            );
             continue;
         };
         let name = listing.handle(index);
@@ -707,14 +811,17 @@ pub fn validate(reply: &str, shown: &Shown, names: Names) -> Result<Judged, Vec<
                 for (k, item) in items.iter().enumerate() {
                     let at = format!("{name} related[{k}]");
                     let Some(item) = item.as_object() else {
-                        problems.push(format!("{at} must be an object"));
+                        problems.push(Fault::Shape, format!("{at} must be an object"));
                         continue;
                     };
                     if let Some(problem) = unexpected(item, &["to", "rel", "label"]) {
-                        problems.push(format!("{at}: {problem}"));
+                        problems.push(Fault::Shape, format!("{at}: {problem}"));
                     }
                     let Some(other) = other_of(item.get("to")) else {
-                        problems.push(format!("{at}: `to` must be {compared}"));
+                        problems.push(
+                            Fault::UnknownMemory,
+                            format!("{at}: `to` must be {compared}"),
+                        );
                         continue;
                     };
                     let Some((verdict, from_other)) = item
@@ -722,28 +829,31 @@ pub fn validate(reply: &str, shown: &Shown, names: Names) -> Result<Judged, Vec<
                         .and_then(Value::as_str)
                         .and_then(relationship)
                     else {
-                        problems.push(format!(
-                            "{at}: `rel` must be one of {}",
-                            REL_CODES.join(", ")
-                        ));
+                        problems.push(
+                            Fault::Relationship,
+                            format!("{at}: `rel` must be one of {}", REL_CODES.join(", ")),
+                        );
                         continue;
                     };
                     let label = match (verdict, item.get("label")) {
                         (Verdict::Supersedes, Some(Value::String(label))) => {
-                            match Label::from_name(label) {
+                            match Label::from_name(&label.to_ascii_lowercase()) {
                                 Some(label) => Some(label),
                                 None => {
-                                    problems.push(format!(
-                                        "{at}: {} is not a label; give supersede, retract, \
+                                    problems.push(
+                                        Fault::Relationship,
+                                        format!(
+                                            "{at}: {} is not a label; give supersede, retract, \
                                          reaffirm or conflict",
-                                        quoted(label)
-                                    ));
+                                            quoted(label)
+                                        ),
+                                    );
                                     continue;
                                 }
                             }
                         }
                         (Verdict::Supersedes, _) => {
-                            problems.push(format!(
+                            problems.push(Fault::Relationship, format!(
                                 "{at}: SUPERSEDES needs a `label`: supersede, retract, reaffirm \
                                  or conflict"
                             ));
@@ -751,7 +861,10 @@ pub fn validate(reply: &str, shown: &Shown, names: Names) -> Result<Judged, Vec<
                         }
                         (_, None | Some(Value::Null)) => None,
                         (_, Some(_)) => {
-                            problems.push(format!("{at}: only SUPERSEDES takes a `label`"));
+                            problems.push(
+                                Fault::Relationship,
+                                format!("{at}: only SUPERSEDES takes a `label`"),
+                            );
                             continue;
                         }
                     };
@@ -759,38 +872,44 @@ pub fn validate(reply: &str, shown: &Shown, names: Names) -> Result<Judged, Vec<
                         .insert(other, (verdict, from_other, label))
                         .is_some()
                     {
-                        problems.push(format!(
-                            "{name} answers {} more than once",
-                            listing.handle(other)
-                        ));
+                        problems.push(
+                            Fault::AnsweredTwice,
+                            format!("{name} answers {} more than once", listing.handle(other)),
+                        );
                     }
                 }
             }
-            _ => problems.push(format!("{name}: `related` must be an array")),
+            _ => problems.push(Fault::Shape, format!("{name}: `related` must be an array")),
         }
         match entry.get("unsure") {
             Some(Value::Array(items)) => {
                 for (k, item) in items.iter().enumerate() {
                     let Some(other) = other_of(Some(item)) else {
-                        problems.push(format!("{name} unsure[{k}] must be {compared}"));
+                        problems.push(
+                            Fault::UnknownMemory,
+                            format!("{name} unsure[{k}] must be {compared}"),
+                        );
                         continue;
                     };
                     if answers
                         .insert(other, (Verdict::Unsure, false, None))
                         .is_some()
                     {
-                        problems.push(format!(
-                            "{name} answers {} more than once",
-                            listing.handle(other)
-                        ));
+                        problems.push(
+                            Fault::AnsweredTwice,
+                            format!("{name} answers {} more than once", listing.handle(other)),
+                        );
                     }
                 }
             }
-            _ => problems.push(format!("{name}: `unsure` must be an array")),
+            _ => problems.push(Fault::Shape, format!("{name}: `unsure` must be an array")),
         }
         let slot = &mut said[index - listing.window];
         if slot.is_some() {
-            problems.push(format!("{name} is answered more than once"));
+            problems.push(
+                Fault::AnsweredTwice,
+                format!("{name} is answered more than once"),
+            );
         } else {
             *slot = Some(answers);
         }
@@ -800,7 +919,7 @@ pub fn validate(reply: &str, shown: &Shown, names: Names) -> Result<Judged, Vec<
         .map(|position| listing.window + position)
         .collect();
     if !missing.is_empty() {
-        problems.push(format!(
+        problems.push(Fault::MissingEntry, format!(
             "no entry for {}; give every new memory an entry, with empty lists if it relates to \
              nothing",
             listing.handles(missing)
@@ -809,7 +928,7 @@ pub fn validate(reply: &str, shown: &Shown, names: Names) -> Result<Judged, Vec<
     // The rules of chains and groups are about the reply as a whole, so
     // they are checked once every entry reads.
     if !problems.is_empty() {
-        return Err(problems.0);
+        return Err(problems.rejected());
     }
 
     let mut pairs = Vec::new();
@@ -843,7 +962,7 @@ pub fn validate(reply: &str, shown: &Shown, names: Names) -> Result<Judged, Vec<
             names_rejected,
         })
     } else {
-        Err(problems.0)
+        Err(problems.rejected())
     }
 }
 
@@ -862,37 +981,49 @@ fn labels_of(listing: &Listing<'_>, pairs: &[PairSaid], problems: &mut Problems)
         // follows: a chain grows at its head.
         for index in [source, head] {
             if !listing.beads[index].is_head && stale.insert(index) {
-                problems.push(format!(
-                    "{} is no longer current, so it can neither supersede nor be superseded; \
+                problems.push(
+                    Fault::NotCurrent,
+                    format!(
+                        "{} is no longer current, so it can neither supersede nor be superseded; \
                      judge against the memory that took its place, and give this pair another \
                      answer",
-                    listing.handle(index)
-                ));
+                        listing.handle(index)
+                    ),
+                );
             }
         }
         if let Some(first) = superseded_by.insert(head, source)
             && first != source
         {
-            problems.push(format!(
-                "{} is superseded by both {} and {}; a memory is superseded at most once",
-                listing.handle(head),
-                listing.handle(first),
-                listing.handle(source)
-            ));
+            problems.push(
+                Fault::Chain,
+                format!(
+                    "{} is superseded by both {} and {}; a memory is superseded at most once",
+                    listing.handle(head),
+                    listing.handle(first),
+                    listing.handle(source)
+                ),
+            );
         }
         let (given, heads) = by_source.entry(source).or_insert((label, Vec::new()));
         if *given != label {
-            problems.push(format!(
-                "{} supersedes with two different labels; a memory supersedes with one",
-                listing.handle(source)
-            ));
+            problems.push(
+                Fault::Chain,
+                format!(
+                    "{} supersedes with two different labels; a memory supersedes with one",
+                    listing.handle(source)
+                ),
+            );
         }
         heads.push(head);
         if heads.len() == 3 {
-            problems.push(format!(
-                "{} supersedes more than two memories; a memory supersedes at most two",
-                listing.handle(source)
-            ));
+            problems.push(
+                Fault::Chain,
+                format!(
+                    "{} supersedes more than two memories; a memory supersedes at most two",
+                    listing.handle(source)
+                ),
+            );
         }
     }
     // A label is written while its source is current, so before any label
@@ -921,10 +1052,13 @@ fn labels_of(listing: &Listing<'_>, pairs: &[PairSaid], problems: &mut Problems)
             .keys()
             .copied()
             .filter(|source| !written.contains(source));
-        problems.push(format!(
-            "{} supersede each other in a circle; decide which statement is the latest",
-            listing.handles(circle)
-        ));
+        problems.push(
+            Fault::Chain,
+            format!(
+                "{} supersede each other in a circle; decide which statement is the latest",
+                listing.handles(circle)
+            ),
+        );
     }
     ordered
         .into_iter()
@@ -1010,12 +1144,15 @@ fn groups_of(listing: &Listing<'_>, pairs: &[PairSaid], problems: &mut Problems)
         }
         if !apart.is_empty() {
             apart.truncate(4);
-            problems.push(format!(
-                "{} are tied into one memory by other CONTAINS answers, but are not CONTAINS \
+            problems.push(
+                Fault::Group,
+                format!(
+                    "{} are tied into one memory by other CONTAINS answers, but are not CONTAINS \
                  with each other; answer them CONTAINS as well, or change the answers that tie \
                  them",
-                apart.join("; ")
-            ));
+                    apart.join("; ")
+                ),
+            );
         }
         let existing: BTreeSet<BeadId> = members
             .iter()
@@ -1027,10 +1164,13 @@ fn groups_of(listing: &Listing<'_>, pairs: &[PairSaid], problems: &mut Problems)
             .filter(|member| !listing.is_new(*member))
             .collect();
         if existing.len() > 1 {
-            problems.push(format!(
-                "{} already belong to different groups and cannot be made one memory",
-                listing.handles(members.iter().copied())
-            ));
+            problems.push(
+                Fault::Group,
+                format!(
+                    "{} already belong to different groups and cannot be made one memory",
+                    listing.handles(members.iter().copied())
+                ),
+            );
         } else if listed.len() > 1
             && listed
                 .iter()
@@ -1038,7 +1178,7 @@ fn groups_of(listing: &Listing<'_>, pairs: &[PairSaid], problems: &mut Problems)
         {
             // Two listed beads were not compared here, so nothing says
             // they are one memory unless a group already does.
-            problems.push(format!(
+            problems.push(Fault::Group, format!(
                 "{} are not recorded as parts of one memory, so a new memory cannot be CONTAINS \
                  with all of them; keep the one it belongs with",
                 listing.handles(listed)
@@ -1063,7 +1203,7 @@ fn names_of(
         None | Some(Value::Null) => return (Vec::new(), 0),
         Some(Value::Array(items)) => items,
         Some(_) => {
-            problems.push("`names` must be an array".into());
+            problems.push(Fault::Shape, "`names` must be an array".into());
             return (Vec::new(), 0);
         }
     };
@@ -1072,11 +1212,11 @@ fn names_of(
     for (n, item) in items.iter().enumerate() {
         let at = format!("names[{n}]");
         let Some(item) = item.as_object() else {
-            problems.push(format!("{at} must be an object"));
+            problems.push(Fault::Shape, format!("{at} must be an object"));
             continue;
         };
         if let Some(problem) = unexpected(item, &["a", "a_name", "b", "b_name"]) {
-            problems.push(format!("{at}: {problem}"));
+            problems.push(Fault::Shape, format!("{at}: {problem}"));
         }
         let side = |bead: &str, name: &str| -> Option<(usize, &str)> {
             let index = item
@@ -1086,21 +1226,27 @@ fn names_of(
             Some((index, item.get(name).and_then(Value::as_str)?))
         };
         let (Some(a), Some(b)) = (side("a", "a_name"), side("b", "b_name")) else {
-            problems.push(format!(
-                "{at}: `a` and `b` must be memories of the lists, and `a_name` and `b_name` \
+            problems.push(
+                Fault::Name,
+                format!(
+                    "{at}: `a` and `b` must be memories of the lists, and `a_name` and `b_name` \
                  strings"
-            ));
+                ),
+            );
             continue;
         };
         let ((other, other_name), (new, new_name)) = if a.0 <= b.0 { (a, b) } else { (b, a) };
         // Only a pair that was read: a new bead and a bead before it.
         if other == new || !listing.is_new(new) {
-            problems.push(format!(
-                "{at}: {} and {} were not compared; link names only between a new memory and a \
+            problems.push(
+                Fault::Name,
+                format!(
+                    "{at}: {} and {} were not compared; link names only between a new memory and a \
                  memory it was compared with",
-                listing.handle(a.0),
-                listing.handle(b.0)
-            ));
+                    listing.handle(a.0),
+                    listing.handle(b.0)
+                ),
+            );
             continue;
         }
         let text_of = |index: usize| match &listing.beads[index].content {
@@ -1108,10 +1254,13 @@ fn names_of(
             ShownContent::ToolCall { .. } => None,
         };
         let (Some(other_text), Some(new_text)) = (text_of(other), text_of(new)) else {
-            problems.push(format!(
-                "{at}: a tool call has no text to copy a name from; link names only between \
+            problems.push(
+                Fault::Name,
+                format!(
+                    "{at}: a tool call has no text to copy a name from; link names only between \
                  memories that show \"text\""
-            ));
+                ),
+            );
             continue;
         };
         // From here a problem is with the names themselves, which the last
@@ -1161,7 +1310,9 @@ fn names_of(
                 kept.insert(link);
             }
             (Err(_), Names::DropUnfound) => rejected += 1,
-            (Err(problem), Names::MustBeFound) => problems.push(format!("{at}: {problem}")),
+            (Err(problem), Names::MustBeFound) => {
+                problems.push(Fault::Name, format!("{at}: {problem}"))
+            }
         }
     }
     (kept.into_iter().collect(), rejected)
@@ -1559,6 +1710,7 @@ mod tests {
 
     fn judged(reply: &Value, shown: &Shown) -> Result<Judged, Vec<String>> {
         validate(&reply.to_string(), shown, Names::MustBeFound)
+            .map_err(|rejected| rejected.problems)
     }
 
     fn problems(reply: &Value, shown: &Shown) -> String {
@@ -1715,11 +1867,91 @@ mod tests {
     }
 
     #[test]
+    fn codes_and_labels_are_read_whatever_their_case() {
+        // A provider holds a reply to the enums of its schema, but not to
+        // their case.
+        let shown = four();
+        let said = reply(
+            &shown,
+            vec![
+                json!({"id": "N1", "related": [{"to": "B1", "rel": "supersedes<", "label": "Supersede"}], "unsure": []}),
+                json!({"id": "N2", "related": [{"to": "B2", "rel": "Leadsto>"}], "unsure": []}),
+            ],
+        );
+        let judged = judged(&said, &shown).unwrap();
+        let at = |other: usize, new: usize| {
+            judged
+                .pairs
+                .iter()
+                .find(|p| p.other == other && p.new == new)
+                .copied()
+                .unwrap()
+        };
+        assert_eq!(
+            (at(0, 2).verdict, at(0, 2).label),
+            (Verdict::Supersedes, Some(Label::Supersede))
+        );
+        assert_eq!(
+            (at(1, 3).verdict, at(1, 3).from_other),
+            (Verdict::Leadsto, true)
+        );
+        // A code that is no code in any case is still refused.
+        let wrong = reply(
+            &shown,
+            vec![json!({"id": "N1", "related": [{"to": "B1", "rel": "supersedes"}], "unsure": []})],
+        );
+        assert!(problems(&wrong, &shown).contains("`rel` must be one of"));
+    }
+
+    #[test]
+    fn a_rejected_reply_says_what_kind_of_thing_was_wrong() {
+        let shown = four();
+        let faults = |reply: &str| {
+            validate(reply, &shown, Names::MustBeFound)
+                .unwrap_err()
+                .faults
+        };
+        assert_eq!(faults("not json"), [Fault::NotJson]);
+        assert_eq!(faults("[]"), [Fault::Shape]);
+        let only_n1 = json!({"new": [{"id": "N1", "related": [], "unsure": []}], "names": []});
+        assert_eq!(faults(&only_n1.to_string()), [Fault::MissingEntry]);
+        let unknown = reply(
+            &shown,
+            vec![json!({"id": "N1", "related": [{"to": "B9", "rel": "NEAR"}], "unsure": []})],
+        );
+        assert_eq!(faults(&unknown.to_string()), [Fault::UnknownMemory]);
+        let superseded_twice = reply(
+            &shown,
+            vec![
+                json!({"id": "N1", "related": [{"to": "B1", "rel": "SUPERSEDES<", "label": "supersede"}], "unsure": []}),
+                json!({"id": "N2", "related": [{"to": "B1", "rel": "SUPERSEDES<", "label": "supersede"}], "unsure": []}),
+            ],
+        );
+        assert_eq!(faults(&superseded_twice.to_string()), [Fault::Chain]);
+        // Every kind found is named once, in a fixed order, however many
+        // problems of a kind there were.
+        let several = json!({"new": [
+            {"id": "N1", "related": [{"to": "B1", "rel": "CAUSES"}, {"to": "B2", "rel": "BEFORE"}],
+             "unsure": []},
+        ], "names": []});
+        assert_eq!(
+            faults(&several.to_string()),
+            [Fault::Relationship, Fault::MissingEntry]
+        );
+        assert_eq!(
+            [Fault::Relationship, Fault::MissingEntry].map(Fault::as_str),
+            ["relationship", "missing_entry"]
+        );
+    }
+
+    #[test]
     fn a_reply_answers_for_every_new_bead_and_only_for_pairs_it_was_shown() {
         let shown = four();
         let wrong = |value: Value| problems(&value, &shown);
         assert!(
-            validate("not json", &shown, Names::MustBeFound).unwrap_err()[0]
+            validate("not json", &shown, Names::MustBeFound)
+                .unwrap_err()
+                .problems[0]
                 .starts_with("reply is not JSON")
         );
         assert!(wrong(json!([])).contains("must be a JSON object"));
@@ -2132,7 +2364,7 @@ mod tests {
         let named = |names: Value, policy| {
             let mut said = reply(&shown, vec![]);
             said["names"] = names;
-            validate(&said.to_string(), &shown, policy)
+            validate(&said.to_string(), &shown, policy).map_err(|rejected| rejected.problems)
         };
         let link = json!({"a": "N2", "a_name": "Priya", "b": "B2", "b_name": "Priya Raman"});
         let kept = named(json!([link, link]), Names::MustBeFound).unwrap();
@@ -2238,7 +2470,7 @@ mod tests {
         let named = |names: Value, policy| {
             let mut said = reply(&shown, vec![]);
             said["names"] = names;
-            validate(&said.to_string(), &shown, policy)
+            validate(&said.to_string(), &shown, policy).map_err(|rejected| rejected.problems)
         };
         // The same name, spaced otherwise, is no link: the model has found
         // one name twice, not two names for one person.
@@ -2290,7 +2522,9 @@ mod tests {
             {"id": "N1", "related": [{"to": "B1", "rel": "NEAR", "rel": "SUPERSEDES<",
                                       "label": "supersede"}], "unsure": []},
             {"id": "N2", "related": [], "unsure": []}], "names": []}"#;
-        let told = validate(twice, &shown, Names::MustBeFound).unwrap_err();
+        let told = validate(twice, &shown, Names::MustBeFound)
+            .unwrap_err()
+            .problems;
         assert_eq!(told.len(), 1);
         assert!(told[0].contains("cannot be read one way"), "{told:?}");
         assert!(told[0].contains("duplicate key `rel`"), "{told:?}");
@@ -2343,7 +2577,9 @@ mod tests {
         // However long what the model wrote, a problem quoting it is short.
         let long_key = "k".repeat(10_000);
         let said = format!(r#"{{"new": [], "names": [], "{long_key}": 1, "{long_key}": 2}}"#);
-        let told = validate(&said, &shown, Names::MustBeFound).unwrap_err();
+        let told = validate(&said, &shown, Names::MustBeFound)
+            .unwrap_err()
+            .problems;
         assert!(
             told[0].len() <= crate::model::MAX_PROBLEM_BYTES,
             "{}",
@@ -2794,11 +3030,43 @@ mod tests {
         let mut tuned = binding;
         tuned.timeout_ms = 5_000;
         assert_eq!(rev, judge_binding_rev(&tuned).unwrap());
-        // The reply shape lists every code and label the validator reads.
+        // The reply shape lists every code and label the validator reads,
+        // and a label only with a SUPERSEDES code, where it is required.
         let schema = reply_schema();
-        let rels = &schema["properties"]["new"]["items"]["properties"]["related"]["items"]["properties"]
-            ["rel"]["enum"];
-        assert_eq!(rels.as_array().unwrap().len(), REL_CODES.len());
+        let branches =
+            schema["properties"]["new"]["items"]["properties"]["related"]["items"]["anyOf"]
+                .as_array()
+                .unwrap()
+                .clone();
+        let codes = |branch: &Value| -> Vec<String> {
+            branch["properties"]["rel"]["enum"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|code| code.as_str().unwrap().to_string())
+                .collect()
+        };
+        let [plain, superseding] = [&branches[0], &branches[1]];
+        assert_eq!(
+            codes(plain).len() + codes(superseding).len(),
+            REL_CODES.len()
+        );
+        assert!(
+            codes(superseding)
+                .iter()
+                .all(|c| c.starts_with("SUPERSEDES"))
+        );
+        assert!(codes(plain).iter().all(|c| !c.starts_with("SUPERSEDES")));
+        assert_eq!(plain["required"], json!(["to", "rel"]));
+        assert!(plain["properties"].get("label").is_none());
+        assert_eq!(superseding["required"], json!(["to", "rel", "label"]));
+        assert_eq!(
+            superseding["properties"]["label"]["enum"]
+                .as_array()
+                .unwrap()
+                .len(),
+            Label::ALL.len()
+        );
         for code in REL_CODES {
             assert!(relationship(code).is_some(), "{code}");
             assert!(

@@ -417,8 +417,12 @@ The URL is read from `CORE_MEMORY_DATABASE_URL`, or from the variable named
 by `[store] url_env`. It is never printed.
 
 A connection to another machine always uses TLS and checks the server's
-certificate and host name. For a server whose certificate comes from a
-private CA, such as Amazon RDS, set `ca_file`:
+certificate and host name. A connection to this machine uses TLS whenever
+the server offers it, and checks the certificate the same way: a server
+whose installer gave it a self-signed certificate, as Ubuntu's
+`pg_createcluster` does, is refused until `ca_file` names that certificate
+or the URL says `sslmode=disable`. For a server whose certificate comes
+from a private CA, such as Amazon RDS, set `ca_file`:
 
 ```toml
 [store]
