@@ -1,65 +1,48 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/JohnnyFiv3r/Core-Memory/v2.0.0/docs/assets/core-memory-hero-banner.jpg" alt="Core Memory banner" />
+  <img src="https://raw.githubusercontent.com/JohnnyFiv3r/Core-Memory/main/docs/assets/core-memory-hero-banner.jpg" alt="Core Memory banner" />
 </p>
 
-# Core Memory
+<p align="center">
+  <a href="https://github.com/JohnnyFiv3r/Core-Memory/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="Apache-2.0 License"></a>
+  <a href="https://pypi.org/project/core-memory/"><img src="https://img.shields.io/pypi/v/core-memory.svg" alt="PyPI version"></a>
+  <a href="#quick-start"><img src="https://img.shields.io/badge/PostgreSQL-15%2B-336791.svg" alt="PostgreSQL 15+"></a>
+</p>
 
-**2.0.1** is released: `pip install core-memory` ·
-[PyPI](https://pypi.org/project/core-memory/) ·
-[release notes](https://github.com/JohnnyFiv3r/Core-Memory/releases/tag/v2.0.1)
+<p align="center">
+  <b>Durable, auditable memory for AI agents.</b><br>
+  Every event kept verbatim in PostgreSQL, read by a model you choose and related by a judge, so agents recall <i>what was said</i> and <i>what still holds</i>.
+</p>
 
-Core Memory 2 is a ground-up rewrite in Rust. It turns any stream of source
-events (messages, documents, record changes, an agent's tool calls) into
-durable, auditable memory in PostgreSQL. For each event it:
+<p align="center">
+  <a href="#quick-start">Quickstart</a> · <a href="#features">Features</a> · <a href="#supported-providers-and-hosts">Supported Providers</a> · <a href="#contributing">Contributing</a>
+</p>
 
-1. admits the event with its exact bytes and a stable identity;
-2. cuts it into deterministic chunks and attaches deterministic facets;
-3. commits the event, its chunks and their text in one transaction;
-4. if you configure a model, has it read each chunk: its type, and where
-   its entities, actions and outcomes are;
-5. if you configure a model for tool calls, has it say of each call what it
-   did and what came of it;
-6. if you configure a judge, has it say how each new memory relates to the
-   ones near it in time: what follows from what, what replaces what, and
-   which pieces are parts of one memory.
+## Core Memory
 
-The full chunk text is the memory. The engine never writes summaries or other
-generated text in its place. What a model reads in a chunk is stored as a type
-from your vocabulary and as ranges of the chunk's own text. A tool call is the
-one exception: beside its full text, the engine keeps two short lines a model
-wrote about it, because a later reader is better served by those than by
-thousands of lines of output. What a judge says is stored as relationships
-between IDs, and as a record of every pair it looked at.
+Give your AI agents memory that keeps the record straight. Core Memory 2 is a self-hosted memory engine, rewritten from the ground up in Rust. It turns any stream of source events into durable, auditable memory in PostgreSQL: chat messages, documents, CRM record changes and an agent's tool calls. Run it as a command, as an HTTP service, or inside your own database.
 
-Ask it to **recall** and it returns the stored text that holds some words,
-verbatim, with what a judge said of it: what replaced a match, what is in
-dispute, and what the judge's arrows lead to. Recall is a query over the
-same tables, not a second store.
+Most memory layers summarize what they are given and keep the summary. Core Memory keeps the original. The full text of every event is the memory. What models add is structure on top of that text, never a rewrite in its place.
 
-[docs/architecture.md](docs/architecture.md) describes the design. Finding
-related pairs across the whole store, beyond what a judge reads in time
-order, is a host's work and not the engine's: memoriesQL does it.
-[docs/lineage.md](docs/lineage.md) says what became of each part of 1.x.
+**Keep every event, exactly:** Each event is admitted with its exact bytes and a stable identity, cut into deterministic chunks, and committed in one transaction. Offer it again and the answer is `replay`, never a duplicate.
 
-## Install
+**Read by the model you choose:** A model gives each chunk a type from your vocabulary and marks where its entities, actions and outcomes are, as ranges of the chunk's own text. Nothing the model writes is stored in place of the source.
 
-The `core-memory` command is on PyPI as `core-memory`. Each wheel carries
-the compiled engine for Linux (x86_64 and arm64) or macOS (Intel and Apple
-silicon), so no Rust toolchain is needed:
+**Related by a judge:** A judge model says how each new memory relates to the ones near it in time: what caused what, what replaced what, and what cannot both hold. It answers in the arrows of Mark Burgess's Semantic Spacetime. A replacement is written only after a second read gives it again, and a contradiction keeps both sides.
+
+**Recall what still holds:** `recall` returns the stored text that holds your words, verbatim. With it comes what replaced that text, what disputes it and what the judge's arrows lead to. All of it comes from the same tables, with no second store.
+
+---
+
+## Quick Start
+
+Install the command. Each wheel carries the compiled engine for Linux or macOS, so no Rust toolchain is needed:
 
 ```bash
 uv tool install core-memory     # or: pipx install core-memory
 core-memory --version           # core-memory 2.0.1
 ```
 
-The engine needs PostgreSQL 15 or newer. The package holds only the command:
-`import core_memory` fails, and says to pin `core-memory<2` for the 1.x
-Python library. There are no Windows wheels and nothing on crates.io; to
-build the command from source, see [Developing](#developing).
-
-## Try it
-
-Start a local PostgreSQL with Docker:
+Start PostgreSQL 15 or newer:
 
 ```bash
 docker run -d --name core-memory-pg -e POSTGRES_PASSWORD=secret \
@@ -67,7 +50,7 @@ docker run -d --name core-memory-pg -e POSTGRES_PASSWORD=secret \
 export CORE_MEMORY_DATABASE_URL=postgresql://postgres:secret@127.0.0.1:5432/postgres
 ```
 
-Then get the example events and their config, and run them:
+Store the example events and recall from them:
 
 ```bash
 git clone https://github.com/JohnnyFiv3r/Core-Memory
@@ -75,646 +58,257 @@ cd Core-Memory/examples/quickstart
 
 core-memory migrate                            # create the core_memory schema
 core-memory scope add acme --workspace demo    # allow events for scope "acme"
-core-memory ingest --input events.jsonl        # one outcome per input line
-core-memory export                             # what is stored, as JSON Lines
-core-memory recall Northwind renewal           # the text that holds those words
+core-memory ingest --input events.jsonl        # one typed outcome per event
+core-memory recall phased cutover              # the stored text that holds those words
 ```
 
-`ingest` prints one typed outcome per line: `accepted`, `replay`,
-`identity_conflict`, `checkpoint_conflict`, `refused` or `busy`. Run it again
-and every line comes back as `replay`, with nothing new stored. It stops at
-the first event the database cannot take, so that no later event is stored
-ahead of it; running it again resumes there.
+That stores four events: two Slack messages, a Salesforce opportunity and a planning doc. The recall returns the two that mention the phased cutover, word for word.
 
-`core-memory schema record` prints the record contract as JSON Schema.
-
-## Workspaces and scopes
-
-A **scope** is one connection to one source, such as one agent harness or one
-Slack workspace. Events are admitted only for a scope that is enrolled and
-active.
-
-A **workspace** is a set of scopes that belong together. Each workspace has a
-secret key that event and chunk IDs are derived from, so IDs are stable
-across replays and reveal nothing about the event they name.
+To have a model read what is stored, add a `[reader]` and a `[[binding]]` to `core-memory.toml`. Then let the scope send its text to that model:
 
 ```bash
-core-memory scope list
-core-memory scope pause acme     # refuse events until resumed
-core-memory scope resume acme
-core-memory scope revoke acme    # withdraw; `scope add` reconnects it
+core-memory scope allow acme --binding small   # consent, for this scope and this model's host
+core-memory read run                           # read what is due now, then stop
 ```
 
-A change of state applies to the next event: the engine reads the scope's
-state inside the transaction that stores the event.
+See the [full guide](https://github.com/JohnnyFiv3r/Core-Memory/blob/main/docs/guide.md) for:
+- the HTTP service;
+- model providers, including your ChatGPT plan;
+- tool calls, the judge, recall and erasure;
+- running the engine inside your own database.
 
-## Over HTTP
+---
 
-`core-memory serve` runs the engine as a service. Generate a token for each
-caller; the config keeps only its SHA-256:
+## Features
 
-```bash
-core-memory token --id slack-ingest   # prints the token and a [[http.token]] block
-```
+**Verbatim memory:** The full chunk text is the memory. The engine writes no summaries, gists or framing text in its place. What a model reads in a chunk is stored as a type and as byte ranges of the chunk itself. The one exception is a tool call: beside its full text, the engine keeps two short lines a model wrote about it.
 
-```toml
-[http]
-listen = "127.0.0.1:7600"
+**Stable identity:** An event is known by its scope, source, external ID and revision, never by its position or ingest order. Event and chunk IDs are derived from that key under each workspace's secret key, so they are the same on every replay and reveal nothing about what they name.
 
-[[http.token]]
-id = "slack-ingest"
-sha256 = "<from core-memory token>"
-scopes = ["acme"]
+**Typed outcomes, never guesses:** Every event gets one of `accepted`, `replay`, `identity_conflict`, `checkpoint_conflict`, `refused` or `busy`. Input that could be read two ways is refused, not interpreted. `busy` means keep the event and send it again.
 
-[[http.token]]
-id = "assistant"
-sha256 = "<from core-memory token>"
-recall = ["acme"]
-```
+**Consent before any model call:** A scope's text goes to a model only after that scope allows the model's destination. Every call is permitted in the same transaction that reads the text, and held to the binding's daily budget if it has one. Its receipt is committed before anything is sent.
 
-A token writes to the scopes in `scopes` and recalls from those in `recall`.
-Either may be `["*"]` for every scope. A token that writes does not read
-back unless it is given `recall`.
+**Models you choose:** Anthropic, OpenAI, OpenAI-compatible servers such as a local model, or OpenAI's models on your own ChatGPT Plus or Pro plan. Any of them can be the reader, the tool reader or the judge.
 
-| Endpoint | |
-|---|---|
-| `POST /v1/events` | Admit one SourceEvent. The body is the typed outcome. An accepted event is committed before the answer is sent. |
-| `POST /v1/events/batch` | `{"events": [...]}`. One outcome per event, in order. Read each one. |
-| `GET /v1/checkpoints?scope=&key=` | A reader's stored position. |
-| `POST /v1/recall` | `{"query": "..."}`. The stored text that holds the words, with what a judge said of it. See [Recalling](#recalling). |
-| `GET /v1/ready` | 503 with the kind of problem: `store_unavailable`, `store_refused` (the database will not let the engine in as it is configured) or `schema_mismatch`. |
-| `GET /v1/health` | 200 while the process is up. |
-| `GET /v1/openapi.json` | OpenAPI 3.1, generated from the contract types. |
+**Tool calls as memory:** An agent's tool call is stored whole. Before a model reads it, fixed rules shorten it. The model writes two short lines about it: what the call did and what came of it.
 
-| Outcome | Status |
-|---|---|
-| `accepted`, `replay` | 200 |
-| `refused: malformed` | 400 |
-| `refused: scope_denied`, `refused: scope_not_active` | 403 |
-| `identity_conflict`, `checkpoint_conflict` | 409 |
-| `refused: tombstoned` | 410 |
-| `refused: oversize` | 413 |
-| `refused: invalid_profile` | 422 |
-| `busy` | 503 with `Retry-After` |
+**Judged, never inferred:** No relationship is made from similarity, chronology or shared keys alone. Code only chooses what the judge is shown, and it chooses by time. Every pair the judge sees gets a verdict, and "cannot tell" is never a no.
 
-`busy` means the event was not stored and the request is not at fault: keep
-the event and send it again. Sending an event again is always safe: an event
-that was stored comes back as `replay`. Most often the database was busy or
-out of reach for a moment. It is also the answer while the database refuses
-the engine's login or is at another schema version, which someone has to
-fix: `/v1/ready` and the log say which.
+**Recall with provenance:** Every match comes back with its event key and its time, and says where that time came from. It also says whether the match is still current and whether another statement disputes it.
 
-An event that could be read two ways is refused as `malformed`: a duplicate
-key at any depth, an unknown field inside a known one such as `actor` or
-`structure`, or an integer too large to survive canonical JSON. So is JSON
-nested more than 64 levels deep. Unknown top-level fields are kept. A
-refusal lists at most 32 problems and says how many more there were.
+**Erasure that reaches everything:** Erasing a message removes its text and everything derived from it, in one transaction. Its ID stays as a tombstone, and the erasure is written to a journal.
 
-The service speaks plain HTTP. Keep it on the loopback interface, or put a
-proxy that terminates TLS in front of it. It checks the token before it
-reads any of the body, and these settings bound what a connection may do:
+**Built to live in your database:** The engine uses one PostgreSQL schema. Row security is on for every table, and the engine's own role is least-privilege. Hosts govern it through SQL functions. Rows commit in a fixed order, so a reader that pages through them never misses one.
 
-```toml
-[http]
-max_body_bytes = 16777216     # larger bodies are refused
-max_batch_events = 256
-read_timeout_ms = 30000       # to send headers or a body; also how long an idle connection is kept
-write_timeout_ms = 30000      # for a client to read an answer before its connection is closed
-max_connections = 1024
-shutdown_grace_ms = 10000     # for requests in flight when the service is stopped
-```
+**Authenticated HTTP service:** Per-token scope grants, readiness and health checks, and an OpenAPI 3.1 document.
 
-A caller may close its side of the connection once it has sent a request;
-the request is still answered. An answer sent before the request's body was
-read, such as a 401, closes the connection.
+**Export everything:** Events, chunks, reads, tool outcomes, verdicts, edges, name links and erasures, as `core_memory.record.v2` JSON Lines.
 
-A connection is kept open for further requests only while they carry a
-valid token. The answer to a request without one, `/v1/health` and
-`/v1/ready` included, ends its connection.
+**Measured with live models:** 104 messages were written to mislead a reader or a judge. Over three runs, the reader got 193 of 201 answers right and the judge 86 to 87 of 87. See [the evaluations](https://github.com/JohnnyFiv3r/Core-Memory/tree/main/eval).
 
-A client is taken to have stopped reading when a response makes no progress
-for `write_timeout_ms`. Progress shows in steps of up to about 64 kB, so a
-client must read at least that much of a long answer in each such period:
-about 2 kB a second with the default.
+---
 
-## Checkpoints
+## Supported Providers and Hosts
 
-A reader that tails a source can store its position with the event it just
-read. Add a `checkpoint` to the event:
+**Model providers**
 
-```json
-"checkpoint": {"key": "session-1", "expected_sequence": 4, "next_sequence": 5, "hash": "<sha256 of the reader's position>"}
-```
+| Provider | `provider` | Paid with | Guide |
+|---|---|---|---|
+| Anthropic | `anthropic` | An API key | [Reading with a model](https://github.com/JohnnyFiv3r/Core-Memory/blob/main/docs/guide.md#reading-with-a-model) |
+| OpenAI | `openai` | An API key | [Reading with a model](https://github.com/JohnnyFiv3r/Core-Memory/blob/main/docs/guide.md#reading-with-a-model) |
+| OpenAI-compatible servers (a local model, a gateway) | `openai-compatible` | Your own server | [Reading with a model](https://github.com/JohnnyFiv3r/Core-Memory/blob/main/docs/guide.md#reading-with-a-model) |
+| OpenAI on your ChatGPT plan | `openai-chatgpt` | Your Plus or Pro plan | [Using your ChatGPT plan](https://github.com/JohnnyFiv3r/Core-Memory/blob/main/docs/guide.md#using-your-chatgpt-plan) |
 
-The position advances in the same transaction as the event, and only from
-`expected_sequence`. If another reader moved it first, the outcome is
-`checkpoint_conflict` with the stored sequence, and the event is not stored.
-After a restart the reader asks `GET /v1/checkpoints` where to resume.
+**Ways to run it**
 
-## Reading with a model
-
-The engine calls no model until you configure one. Add a reader and the
-binding it uses:
-
-```toml
-[reader]
-binding = "small"
-
-[[binding]]
-id = "small"
-provider = "anthropic"                # or "openai", or "openai-compatible" for a local server
-endpoint = "https://api.anthropic.com"
-model = "<a pinned model snapshot>"
-max_output_tokens = 4096
-api_key_env = "ANTHROPIC_API_KEY"     # the variable that holds the key; never the key itself
-budget = { max_requests_per_day = 2000, max_tokens_per_day = 5000000 }
-```
-
-A scope's text is sent to a model only after that scope allows the model's
-destination, which is the host of the binding's endpoint (for a binding paid
-by your own ChatGPT plan, `signed-in@` and the host):
-
-```bash
-core-memory check                                 # prints each binding and its destination
-core-memory scope allow acme --binding small      # consent, for this scope and this destination
-core-memory read run                              # read what is due now, then stop
-core-memory read status                           # queued, being read, failed
-core-memory scope disallow acme --binding small   # no later call is permitted
-```
-
-`core-memory serve` reads in the background while it serves. Chunks admitted
-while a reader is configured are queued by themselves. For what was stored
-before, run `core-memory read queue <scope>`. Reading, reading tool calls and
-judging each run on threads of their own, so a slow judge never holds reading
-back. To read a backlog faster, give the reader more workers, as many batches
-at once as your provider's rate limits allow:
-
-```toml
-[reader]
-binding = "small"
-workers = 4          # 1 by default, at most 16
-```
-
-For each chunk the model picks one type from your vocabulary, or abstains and
-says why, and quotes the chunk's entities, actions and outcomes. A quote is
-kept only as the byte range where it was found in the chunk, so nothing the
-model wrote is stored and a quote that is not in the chunk is dropped. The
-result is exported as a `chunk_read` record.
-
-Every call is permitted first, in the transaction that reads the text: the
-scope must be active, it must have allowed the destination, and the day's
-budget must not be spent. The permit writes a receipt that names the
-destination and the chunks sent, and holds no text. Calls that fail are tried
-again; after `max_attempts` a chunk is set aside until `core-memory read
-retry`. No call is made more often than that for one chunk, whatever fails,
-and a chunk the model declines when it is sent alone is set aside at once.
-When the provider turns a binding down, as it does a wrong key or model, the
-command makes no other call of that kind for ten minutes.
-Logs and receipts never hold chunk text or what a model said.
-
-Model calls go through the proxy that `HTTPS_PROXY` names, except to the
-hosts `NO_PROXY` lists. If that proxy re-signs what it passes on, or a model
-server of your own has a private certificate authority, name its
-certificates:
-
-```toml
-[models]
-ca_file = "proxy-ca.pem"   # trusted as well as the public roots
-```
-
-Without it, a call to a server whose certificate is not trusted sends
-nothing: `core-memory read status` shows its work put off with the problem
-`endpoint_untrusted`, and no call of that kind is tried for ten minutes.
-
-### Using your ChatGPT plan
-
-With a ChatGPT Plus or Pro account, the reader, the tool reader and the judge
-can use your plan instead of API credits. This works with OpenAI's models only;
-an Anthropic binding still needs an API key.
-
-Sign in once, on the machine that runs Core Memory:
-
-```bash
-core-memory login chatgpt
-```
-
-It first asks whether Core Memory may use your plan in the background, and
-signs nothing in unless you answer `yes`. Then it opens your browser at
-OpenAI's sign-in, where Core Memory registers under its own name, and waits
-for the browser to come back. It saves the sign-in to
-`~/.config/core-memory/chatgpt.json`, readable by you only, and shows the
-account and whether you let it use your plan. Then point a binding at it:
-
-```toml
-[[binding]]
-id = "plan"
-provider = "openai-chatgpt"
-endpoint = "https://api.openai.com/v1"   # the only endpoint it takes
-model = "<a model from `core-memory login chatgpt --models`>"
-max_output_tokens = 4096                 # reserved against a budget, never sent
-# credentials_file = "chatgpt.json"      # beside the config; default above
-```
-
-and name it in `[reader]`, `[tool_reader]` or `[judge]`. The binding takes no
-`temperature`, `seed` or `api_key_env`. `reasoning_effort` is sent.
-
-```bash
-core-memory login chatgpt --status    # who is signed in, plan and consent; sends nothing
-core-memory login chatgpt --models    # the models your account may use
-core-memory login chatgpt --consent   # sign in again and allow plan use, after declining it
-core-memory logout chatgpt            # end the session with OpenAI and clear the tokens here
-```
-
-What this is bound by, from OpenAI's Sign in with ChatGPT terms:
-
-- **Your own activity only.** Your plan may serve only requests that come from
-  your own activity. Allow the binding's destination (`core-memory scope allow
-  <scope> --binding plan`) only for scopes that hold your own conversations,
-  notes and tool runs, never another person's. The plan is a destination of
-  its own, `signed-in@api.openai.com`: a scope allowed for an `openai` API-key
-  binding (`api.openai.com`) is not thereby allowed for your plan, so
-  switching a reader to it sends nothing until you allow each scope again.
-- **Your consent to background use.** Core Memory reads and judges in the
-  background without asking each time, so `login` asks you first and records
-  your answer and when you gave it. Without it, or on another machine than the
-  one you gave it on, no call is made.
-- **Tokens stay with you.** The sign-in is kept only in that file, on your
-  machine, written whole and readable by you only; a file others can read is
-  refused. Tokens are never logged, never put in a URL, and never in an error,
-  a receipt or a work queue. They go only to OpenAI, at fixed addresses
-  nothing in the config can change. Core Memory hands them to no other program
-  and offers no API on top of them.
-- **Your plan's limits apply.** Plus has a five-hour limit shared by every app
-  that uses your plan. When it is reached, `core-memory read status` shows
-  work put off with the problem `plan_limit_reached`, and no call of that
-  kind is made for ten minutes. A call your plan turned away costs the work
-  none of its attempts, so it waits for the limit to reset and is read then,
-  with nothing for you to do. See and change what Core Memory may use at
-  [ChatGPT settings, Usage](https://chatgpt.com/settings/usage). A sign-in
-  that has ended shows as `signin_required`: run `core-memory login chatgpt`,
-  then `core-memory read retry` for any work set aside meanwhile.
-
-On a server with no browser, sign in where your browser is, into a file kept
-apart from your own sign-in, copy it over SSH, and import it on the server.
-The import keeps the server's own host ID and asks for your consent there:
-
-```bash
-# on your computer
-core-memory login chatgpt --credentials ~/core-memory-server/chatgpt.json
-scp ~/core-memory-server/chatgpt.json server:/tmp/chatgpt.json
-rm -r ~/core-memory-server       # the server renews it from now on, not this computer
-# on the server
-core-memory login chatgpt --import /tmp/chatgpt.json && rm /tmp/chatgpt.json
-```
-
-Each renewal replaces the refresh token, so only one machine may renew a
-sign-in: that is why the copy on your computer is deleted. Use a server only
-you control.
-Sign-in was built from OpenAI's documentation and tested against a stand-in
-for OpenAI's servers; it has not yet been tried against OpenAI's own.
-
-### Tool calls
-
-An agent's call of a tool is an event like any other, with the call as its
-content:
-
-```json
-{"scope": "acme", "source_ns": "agent/session-7f3a", "external_id": "toolu_01HqPz",
- "profile_id": "core.tool_call", "media_type": "application/json",
- "content": {"tool_call": {"tool": "Bash", "input": {"command": "cargo test"},
-                           "output": "running 51 tests\n...", "is_error": true}},
- "parser_contract_version": "agent-log/1"}
-```
-
-Its text is stored whole: the arguments, then the output. To have a model
-read tool calls, add a tool reader. It may use the same binding as the
-reader of chunks or another one:
-
-```toml
-[tool_reader]
-binding = "small"
-```
-
-The engine first shortens the call's text by fixed rules: repeated lines
-become one line and a count, the middle of a long output is left out except
-for lines that report trouble, and very long lines keep their start and
-end. A line that reports trouble is never counted in with lines that do
-not, and what is shown is never longer than what is stored. The model is
-shown what is left and writes an action of at most 120
-characters, an outcome of at most 200, and whether the call succeeded,
-failed, partly succeeded or cannot be told. That is exported as a
-`tool_outcome` record, and it is erased with the call it is about.
-
-Consent, receipts, budgets and retries work as they do for chunks.
-`read status` and `read queue` print one line for each kind of work.
-
-## Judging how memories relate
-
-A judge is a model that compares each new memory with the memories near it
-in time, from every scope of the workspace that allows it. Add a judge. It
-may use the same binding as the readers or one of its own: it reads more
-text in one call than they do, and a wrong relationship does more harm than
-a wrong type.
-
-```toml
-[judge]
-binding = "small"
-# window_ms = 604800000      # how far apart in time two memories may be: 7 days
-# max_new_beads = 8          # new memories in one read
-# max_window_beads = 40      # memories shown beside them
-# second_read = true         # read a replacement twice before it is written
-```
-
-The judge needs each scope's consent to its destination, as a reader does,
-and `core-memory read run`, `read status`, `read queue` and `serve` work for
-it as they do for readers. A memory of a scope that has not allowed the
-judge is not shown to it, and the others are still judged.
-
-For each pair it compares, the judge answers with an arrow, or none, or that
-it cannot tell. The arrows are those of Mark Burgess's Semantic Spacetime,
-as his SSTorytime names them, each of one of his four types:
-
-| Type | Arrows | Meaning |
+| Host | How | Guide |
 |---|---|---|
-| `leadsto` | `cause`, `result`, `enables`, `implem`, `repl`, `withdraws` | One follows from the other: it caused it, came of it, made it possible, carried it out, or, as a later statement, replaces or withdraws it. |
-| `contains` | `same-memory`, `has-pt` | Pieces of one memory, in one message or across several; or one is an item of a whole. |
-| `express` | `note`, `e.g.`, `i.e.`, `attr`, `def`, `source`, `solution`, `answers`, `confirms` | One states something of the other: a note, an example, an attribute, a definition, its source, an answer, a confirmation. |
-| `near` | `see`, `sim`, `!contradicts`, `!confuse` | They are about one matter, say much the same, cannot both hold, or are easily confused and are not one. |
+| Command line | `core-memory ingest`, `read run`, `recall`, `erase` and `export` | [Try it](https://github.com/JohnnyFiv3r/Core-Memory/blob/main/docs/guide.md#try-it) |
+| HTTP service | `core-memory serve`: `POST /v1/events`, `POST /v1/recall`, `GET /v1/openapi.json` | [Over HTTP](https://github.com/JohnnyFiv3r/Core-Memory/blob/main/docs/guide.md#over-http) |
+| Inside your own PostgreSQL | The engine owns one `core_memory` schema. Your system governs it through SQL functions and reads its tables through grants of its own. | [Running inside another system's database](https://github.com/JohnnyFiv3r/Core-Memory/blob/main/docs/guide.md#running-inside-another-systems-database) |
 
-Each arrow but the symmetric ones has an inverse (`cause-by`, `repl-by`,
-...), and the name the judge gives says which way it runs.
-`docs/architecture.md` lists them all, with which are Burgess's names and
-which this engine adds.
+---
 
-What it says is stored as IDs and fixed words, never as text:
+```mermaid
+flowchart LR
+    S[Source events] --> A[Admit<br/>identity, chunks, facets]
+    A --> P[(PostgreSQL<br/>core_memory)]
+    P --> R[Reader<br/>type and spans]
+    P --> T[Tool reader<br/>action and outcome]
+    P --> J[Judge<br/>arrows between memories]
+    R --> P
+    T --> P
+    J --> P
+    P --> Q[Recall and export]
+```
 
-- a **verdict** for every pair it was shown, whatever it said. "None" is a
-  judgment and is kept. "Cannot tell", and a pair that was never shown, are
-  not a no;
-- an **edge** for each arrow, from one memory to the other. A memory is
-  current until a later statement replaces or withdraws it, and it is
-  replaced or withdrawn at most once, so a chain of statements has one
-  current end and never branches. A contradiction ends nothing: both
-  statements stay current, and the judge is shown both first while they do;
-- a **group bead** for memories that are parts of one;
-- a **name link** when two memories use different names for one thing, kept
-  as the place of each name in its own text.
+## How It Works
 
-Code decides nothing here but what the judge is shown, and it goes by time
-alone. It never proposes a pair or an edge.
+Core Memory keeps its writes deterministic and puts every model call behind a gate. Each event follows the same path:
 
-A replacement or a withdrawal changes what a reader takes as current, so it
-is not written on one reading. The two statements are read a second time,
-alone, without the first answer, and the arrow is written only if the
-second reading gives it again. Either way both verdicts are kept. Those
-that share a statement are settled in the order they were given, so a chain
-given in one reading is written from its oldest statement on. Turn this off
-with `second_read = false`.
+**Admit:** An event arrives from the command, the HTTP service or a reader that tails a source. The engine checks its identity before cutting it into chunks, so a change to the chunker never looks like a conflict. It then cuts the text into chunks that reproduce it byte for byte and attaches deterministic facets. The event, its chunks, their text and its beads commit in one transaction, and only while the scope is active.
 
-A memory with no other near it to be compared with is not sent: there is
-no pair to read. Its pairs are read when memories near it arrive.
+**Read:** With a reader configured, each chunk is queued for a model. The model picks one type from your vocabulary, or abstains and says why. It also quotes the chunk's entities, actions and outcomes. Each quote is kept only as the byte range where it was found, so a quote that is not in the chunk is dropped. With a tool reader configured, each tool call goes to a model that writes what the call did and what came of it.
 
-All of it is exported, as `verdict`, `bead`, `edge` and `name_link` records.
-`export --scope` leaves out what joins that scope's memories to another
-scope's.
+**Judge:** With a judge configured, each new memory is shown beside the memories near it in time, from every scope of the workspace that allows it. The judge answers each pair with an arrow, with none, or with "cannot tell". A memory stays current until a later statement replaces or withdraws it. Such a chain never branches, and a contradiction ends neither side. Finding related pairs across the whole store, beyond what the judge reads in time order, is a host's work and not the engine's: memoriesQL does it.
 
-## Recalling
+**Recall:** Recall uses PostgreSQL's full-text search over the stored text and makes no model call. A match that was replaced is answered by its successor. Disputed statements are marked, and the judge's arrows are followed up to two steps.
+
+**Erase:** Erasing removes a message's text and everything derived from it in one transaction. The message's ID stays as a tombstone, so links to it never dangle and the same message is refused if it is offered again.
+
+**Core Concepts**
+
+**SourceEvent**
+One thing a source said or changed: a message, a document revision, a record change or a tool call. It is known by `(scope, source_ns, external_id, revision)` and stored with its exact bytes.
+
+**Scope and Workspace**
+A scope is one connection to one source, such as one Slack workspace or one agent harness. Events are admitted only for a scope that is enrolled and active. A workspace is a set of scopes that belong together. Its secret key is what event and chunk IDs are derived from.
+
+**Chunk and Bead**
+A chunk is a deterministic piece of an event's text, and the chunks of an event concatenate back to it exactly. A bead is a unit of memory: a chunk, a tool call as a whole, or a group the judge made of memories that are parts of one.
+
+**Destination and Consent**
+A destination is where a model call sends text, taken from the binding's endpoint and never written by hand. A binding paid by one person's ChatGPT plan is a destination of its own. Consent is given per scope and per destination, and only through a governance function.
+
+**Permit and Receipt**
+Every model call is permitted first. The permit checks that the scope is active and has allowed the destination, and that the day's budget is not spent. It then reads the text and commits a receipt naming the destination and what was sent. A refusal sends nothing. Receipts, queues and logs hold IDs, counts and problem codes, never text.
+
+**Verdict, Edge and Arrow**
+A verdict is recorded for every pair the judge was shown, whatever it said. An edge records an arrow from one memory to another. Arrows come from a fixed directory of four types: `leadsto`, `contains`, `express` and `near`. Edges have no weight and are never changed.
+
+Learn more in the [architecture docs](https://github.com/JohnnyFiv3r/Core-Memory/blob/main/docs/architecture.md).
+
+---
+
+## Recall Example
+
+**Request**
 
 ```bash
-core-memory recall launch date                    # every scope
-core-memory recall '"launch date"' -- -draft      # a phrase, and not "draft"
-core-memory recall budget --scope acme --follow 2 --include-ended
+core-memory recall phased cutover
 ```
+
+Or over HTTP, with a token that may recall from the scope:
 
 ```bash
 curl -s localhost:7600/v1/recall -H "Authorization: Bearer $TOKEN" \
-    -d '{"query": "launch date", "scopes": ["acme"], "limit": 5}'
+    -d '{"query": "phased cutover", "scopes": ["acme"]}'
 ```
 
-Recall finds the chunks whose text holds the words, with PostgreSQL's own
-full-text search: words are compared as English stems, all are required,
-`"quoted words"` stand together, `or` takes either and `-word` leaves out
-what holds it. It makes no model call. The answer says `matched`,
-`no_match`, or `no_terms` when the query held no word to look for: only
-words too common to search for, or only words to leave out.
+**Response**
 
-What comes back is what was stored, verbatim, chunk by chunk, with each
-bead's event key, and what a judge said of it:
+This is the real answer for the Quick Start's events. The IDs are the ones the engine derived for them.
 
-- **What is current.** A match that a later statement replaced or withdrew
-  is answered by that later statement, marked as its successor. Ask with
-  `include_ended` to see the old one too, marked `current: false`.
-- **Disputes.** A bead is `disputed` while the judge says another current
-  statement contradicts it.
-- **Arrows.** Beads the judge related to the matches, up to `follow` steps
-  away (1 unless asked, at most 2), and every arrow between the beads
-  returned. Arrows never lead into a scope the caller may not read.
-
-At most 50 matches (10 unless asked), 100 beads reached along arrows and
-1 MiB of text come in one answer; a bead past the text limit comes without
-its text, marked `text_omitted`.
-
-Recall reads paused and revoked scopes too: they stop capture, not reading.
-Erasing a message removes it from recall in the same transaction.
-
-## Erasing
-
-```bash
-core-memory erase --reason user_request event <event_id>
-core-memory erase --reason user_request key --scope acme --source-ns docs/drive \
-    --external-id cutover-plan.md               # every revision of that object
-core-memory erase --reason user_request key --scope acme --source-ns docs/drive \
-    --external-id cutover-plan.md --revision v3  # that revision only
-core-memory erase --reason account_closed scope acme
+```json
+{
+  "found": "matched",
+  "beads": [
+    {
+      "bead_id": "73ceb7ed-819d-8b25-bbf4-5d75246c2737",
+      "kind": "chunk",
+      "event": {
+        "event_id": "cf46e316-4904-8189-b529-b79110b490d1",
+        "key": {
+          "scope": "acme",
+          "source_ns": "slack/T01",
+          "external_id": "C042/1730000001.000100"
+        }
+      },
+      "time_at": "2026-10-20T15:02:11Z",
+      "time_basis": "source",
+      "via": "match",
+      "rank": 0.1,
+      "current": true,
+      "disputed": false,
+      "chunks": [
+        {
+          "chunk_id": "73ceb7ed-819d-8b25-bbf4-5d75246c2737",
+          "ordinal": 0,
+          "text": "Billing migration: we're going with the phased cutover. Big bang is too risky with the ledger export as slow as it is."
+        }
+      ]
+    },
+    {
+      "bead_id": "b2415cab-a7e2-8027-a6dc-8dfb56042f9a",
+      "kind": "chunk",
+      "event": {
+        "event_id": "0b0c1451-1eb8-856f-aa04-b0f5471114b7",
+        "key": {
+          "scope": "acme",
+          "source_ns": "docs/drive",
+          "external_id": "cutover-plan.md",
+          "revision": "v3"
+        }
+      },
+      "time_at": "2026-10-21T00:00:00Z",
+      "time_basis": "source_bucket",
+      "via": "match",
+      "rank": 0.05,
+      "current": true,
+      "disputed": false,
+      "chunks": [
+        {
+          "chunk_id": "b2415cab-a7e2-8027-a6dc-8dfb56042f9a",
+          "ordinal": 0,
+          "text": "# Billing cutover plan\n\nPhase one moves read traffic to the new ledger on November 3.\n\nPhase two moves writes once the export runs in under an hour. Owner: OPS-412.\n"
+        }
+      ]
+    }
+  ],
+  "arrows": [],
+  "linked_omitted": 0
+}
 ```
 
-Erasing removes a whole message: its text, its facets, its key, its hashes,
-its metadata and what a model read in it or wrote about it, in one
-transaction. Every verdict a judge gave about it goes too, and every name
-link to it. Its IDs stay as a tombstone, so links to it do not dangle and
-the same message is refused if it is offered again. Edges to it stay, as two
-IDs. A statement it had replaced does not become current again. Each erasure
-is written to a journal with the reason and who asked, and exported as an
-`erasure` record.
+With a judge configured, the answer carries what the judge said:
+- `arrows` lists the judge's arrows between the beads returned.
+- A match that a later statement replaced is answered by that statement.
+- `disputed` marks a statement that another current statement contradicts.
 
-`erase scope` works in batches. Pause or revoke the scope first if nothing
-more should be admitted to it while it is erased.
+---
 
-PostgreSQL keeps deleted rows' bytes in table pages until the space is
-reused or the table is rewritten (`VACUUM` frees the space but does not
-overwrite it; `VACUUM FULL` or `pg_repack` rewrites the table), erased keys
-and words in index pages until `REINDEX`, and both in WAL and backups until
-those expire. To remove erased text from disk, rewrite `chunk_text` and
-reindex `events_key_idx` and `chunk_text_search_idx` after erasing, and
-treat your backup retention as the longest that erased text can survive.
+## Documentation
 
-`erase key` without `--revision` succeeds when no revision is left to erase,
-and prints how many it erased: an erased event keeps no key, so the command
-cannot tell an object that was erased before from one that was never stored.
-
-Every command's exit status is 0 when done, 1 on failure, 2 for wrong usage,
-3 when no event is stored under the ID given, and 75 when the database was
-busy or unreachable and the same command will work later. A database that
-refuses the login, has no such database or fails the TLS check is a failure
-(1): running the command again would end the same way. So is a result that
-could not be written because nothing reads the command's output any more.
-
-## Running inside another system's database
-
-The engine owns one schema, `core_memory`, and can share a database with the
-system that uses it. That system:
-
-- **governs** by calling SQL functions inside its own transactions:
-  `core_memory.create_workspace`, `enroll_scope`, `set_scope_state`,
-  `grant_destination`, `revoke_destination`, `erase_event`, `erase_events`,
-  `erase_key` and `erase_scope`. The `core-memory` command calls the same
-  functions. They need the default `READ COMMITTED` isolation, and are best
-  called before the transaction reads the engine's tables itself.
-- **reads** the engine's tables directly. Row security is on for every table
-  and nothing is granted to `PUBLIC`, so a role sees rows only after it is
-  given a grant and a policy. A verdict and a name link can be about
-  memories of two scopes, so each carries both scopes on the row for a
-  policy to decide by.
-- **never writes** the engine's tables.
-
-Two roles are created by the first migration:
-
-| Role | May |
-|---|---|
-| `core_memory_engine` | Read and insert events, chunks, beads, receipts, reads and what a judge said. It cannot change or delete them, change a scope's state, give model consent, or erase. Give it to the engine's login role. |
-| `core_memory_governor` | Call the governance functions. It reads no table. |
-
-Both roles belong to the database cluster. If one cluster holds several Core
-Memory databases with different operators, revoke `CONNECT` on each database
-from the logins of the others.
-
-Every row in `events`, `beads`, `erasures`, `chunk_reads`, `tool_outcomes`,
-`verdicts`, `edges` and `name_links` has a `seq`. Within a workspace, rows
-commit in `seq` order, so a reader that pages by
-`workspace_id = $1 AND seq > $2` never misses a row.
-
-## Connecting to the database
-
-The URL is read from `CORE_MEMORY_DATABASE_URL`, or from the variable named
-by `[store] url_env`. It is never printed.
-
-A connection to another machine always uses TLS and checks the server's
-certificate and host name. A connection to this machine uses TLS whenever
-the server offers it, and checks the certificate the same way: a server
-whose installer gave it a self-signed certificate, as Ubuntu's
-`pg_createcluster` does, is refused until `ca_file` names that certificate
-or the URL says `sslmode=disable`. For a server whose certificate comes
-from a private CA, such as Amazon RDS, set `ca_file`:
-
-```toml
-[store]
-ca_file = "rds-ca.pem"
-pool_size = 4            # connections `serve` keeps
+**Repo Map**
 ```
-
-`ca_file` may also hold a server's self-signed certificate, as long as that
-certificate is not itself marked as a certificate authority. `openssl req
--x509` marks it as one unless it is given `-addext
-basicConstraints=critical,CA:FALSE`.
-
-Add `sslmode=disable` to the URL only if the network between the engine and
-the database is trusted.
-
-```toml
-[store]
-connect_timeout_ms = 10000     # to reach the server, for each address its name resolves to
-statement_timeout_ms = 30000   # for one statement
+crates/
+├── core-memory-contract/         SourceEvent, outcomes, IDs and records
+├── core-memory-chunker/          deterministic, lossless chunking
+├── core-memory-core/             the pipeline, and the Store and ModelTransport traits
+├── core-memory-store-postgres/   the PostgreSQL store, its schema and migrations
+├── core-memory-source-jsonl/     SourceEvents read from JSON Lines
+├── core-memory-model-http/       what the model transports share
+├── core-memory-model-anthropic/  Anthropic
+├── core-memory-model-openai/     OpenAI and OpenAI-compatible servers
+├── core-memory-model-chatgpt/    OpenAI on your ChatGPT plan
+├── core-memory-sidecar/          the core-memory command and HTTP service
+└── core-memory/                  facade re-exporting the above
 ```
+Other useful folders:
 
-Opening a connection, from looking up the server's name to a session that
-is ready, is given three times `connect_timeout_ms` for each host the URL
-names. A server that accepts the connection and then says nothing is given
-up on after that, and reported as unreachable.
+* examples/ the quickstart's events and config
+* eval/ the live-model evaluations and their results
+* fixtures/ golden exports the tests compare against
+* docs/ the guide, the architecture and what became of 1.x
+* scripts/ the crate layering check CI runs
 
-## Upgrading
+Useful docs:
 
-Upgrade the command (`uv tool upgrade core-memory`, or
-`pipx upgrade core-memory`). Run `core-memory migrate` from the new build,
-as the database role that owns the `core_memory` schema, then replace the
-running engines. An engine writes only to the schema version it was built
-for. After the migration, engines from the old build answer `busy` until
-they are replaced, so nothing is written by code that does not know the new
-schema.
+[Guide](https://github.com/JohnnyFiv3r/Core-Memory/blob/main/docs/guide.md)
+[Architecture](https://github.com/JohnnyFiv3r/Core-Memory/blob/main/docs/architecture.md)
+[What became of 1.x](https://github.com/JohnnyFiv3r/Core-Memory/blob/main/docs/lineage.md)
+[Releasing](https://github.com/JohnnyFiv3r/Core-Memory/blob/main/RELEASING.md)
 
-2.0.0 released migrations 1 and 2, and a released migration never changes.
-A database created by a build from before 2.0.0 must be recreated, not
-migrated.
+---
 
-## What Core Memory 2 does
-
-- **Admission** with stable identity: `(scope, source_ns, external_id,
-  revision)`. Replays, identity conflicts, tombstones, scope grants and
-  states, size limits and reader checkpoints all return typed outcomes.
-- **Deterministic chunking** that partitions the source exactly, and
-  versioned facets (lengths, language, URLs, identifier patterns).
-- **One PostgreSQL store** with immutable rows, row security, a least-privilege
-  engine role and migrations.
-- **Erasure** of whole messages, with a journal.
-- **Reading by a model**: each chunk's type and the places of its entities,
-  actions and outcomes, behind per-scope consent, a receipt for every call
-  and a daily budget. Transports for Anthropic, OpenAI and OpenAI-compatible
-  servers, and for OpenAI's models on your own ChatGPT plan through Sign in
-  with ChatGPT.
-- **Tool calls**: stored whole as one bead, shortened by fixed rules, and
-  read by a model that records what each call did and what came of it.
-- **Judging**: a model says how each new memory relates to the ones near
-  it in time, in the arrows of Mark Burgess's Semantic Spacetime. Every
-  pair it reads is recorded. A statement is replaced or withdrawn at most
-  once, and only after a second read gives the same arrow; a contradiction
-  keeps both sides current.
-- **Recall**: the stored text that holds some words, verbatim, with what
-  replaced it, what disputes it and what the judge's arrows lead to. A query
-  over the same tables, with no second store.
-- **Throughput and cost**: reading, tool calls and judging each run in
-  lanes of their own, with as many reader workers as you configure, and
-  every call's instructions are sent first so the provider can cache them.
-- **An authenticated HTTP service** with per-token scope grants, readiness and
-  an OpenAPI document.
-- **Export** of events, chunks, reads, tool outcomes, verdicts, the beads a
-  judge made, edges, name links and erasures as `core_memory.record.v2` JSON
-  Lines.
-
-## Measured
-
-Every result below was measured with live models: Claude Haiku 5.5 reading,
-and Claude Opus 5.5 judging.
-
-- **[Hard cases](eval/adversarial/)** are 104 messages written to mislead
-  a reader or a judge, each with the answers we count as right. Over three
-  runs, the reader was right on 193 of 201 and the judge on 86 to 87 of 87.
-  It closes a settled dispute, keeps an unsettled one open, and does not
-  follow a message that tells it what to do. Three runs cost $0.40 and take
-  3½ minutes.
-- **[LoCoMo](eval/locomo-smoke/)**: one 419-turn conversation is read and
-  judged in about 6 minutes, for about $1.35. All ten conversations would
-  cost about $17–19.
-- **[Judges compared](eval/compare/)**: Claude Sonnet 5.5 costs about 42%
-  less as the judge. It missed replacements and groups that Opus got right,
-  so Opus stays the judge.
-
-## Crates
-
-| Crate | Role |
-|---|---|
-| `core-memory-contract` | SourceEvent, outcomes, IDs and the `core_memory.record.v2` records |
-| `core-memory-chunker` | Deterministic, lossless text chunking |
-| `core-memory-core` | The pipeline: admission, facets and the `Store` trait |
-| `core-memory-store-postgres` | The PostgreSQL store, its schema and migrations |
-| `core-memory-source-jsonl` | Reads SourceEvents from JSON Lines |
-| `core-memory-model-anthropic`, `core-memory-model-openai` | Model transports (`core-memory-model-http` holds their shared plumbing) |
-| `core-memory-sidecar` | The `core-memory` command |
-| `core-memory` | Facade re-exporting the above |
-
-## Developing
+## Contributing
 
 To build the command from source you need Rust 1.89 or newer:
 
 ```bash
+git clone https://github.com/JohnnyFiv3r/Core-Memory.git
+cd Core-Memory
 cargo build --release      # the command is target/release/core-memory
 ```
 
@@ -727,30 +321,46 @@ cargo test --workspace                 # tests that need no database
 python3 scripts/check_layering.py
 ```
 
-Tests that touch the store run against a real PostgreSQL server. Each test
-creates and drops its own database:
+Tests that touch the store run against a real PostgreSQL server. Each test creates and drops its own database:
 
 ```bash
 export CORE_MEMORY_TEST_DATABASE_URL=postgresql://postgres:secret@127.0.0.1:5432/postgres
 cargo test --workspace --all-features
 ```
 
-[RELEASING.md](RELEASING.md) says how a release is made.
+---
+
+## Maintainers
+
+Core Memory is maintained by:
+
+[John Inniger](https://github.com/JohnnyFiv3r) (@JohnnyFiv3r)
+[Chris Dedow](https://github.com/chrisdedow) (@chrisdedow)
+
+For bugs and feature requests, please open an issue. For anything else related to the project, feel free to reach out to the maintainers directly.
+
+---
 
 ## Looking for Core Memory 1.x?
 
-The Python implementation is frozen at 1.1.2. Its code is on the
-[`v1.x`](https://github.com/JohnnyFiv3r/Core-Memory/tree/v1.x) branch, and
-it stays on PyPI:
+The Python implementation is frozen at 1.1.2. Its code is on the [`v1.x`](https://github.com/JohnnyFiv3r/Core-Memory/tree/v1.x) branch, and it stays on PyPI:
 
 ```bash
 pip install "core-memory<2"
 ```
 
-Releases up to 1.1.2 are tagged on `v1.x`. 1.x gets security fixes only, made
-there. [docs/lineage.md](docs/lineage.md) goes through each 1.x module
-and says what 2.0 kept, replaced, dropped or left to the host.
+1.x gets security fixes only, made on `v1.x`. [What became of 1.x](https://github.com/JohnnyFiv3r/Core-Memory/blob/main/docs/lineage.md) goes through each 1.x module and says what 2.0 kept, replaced, dropped or left to the host.
 
-## License
+---
 
-Apache-2.0. See [LICENSE](LICENSE).
+## Inspiration
+
+Inspired in part by Steve Yegge's writing on beads and memory systems: https://github.com/steveyegge/beads
+
+The judge's relationships are the arrows of Mark Burgess's Semantic Spacetime, as his SSTorytime names them: https://github.com/markburgess/sstorytime
+
+---
+
+<p align="center">
+  <a href="https://github.com/JohnnyFiv3r/Core-Memory/blob/main/LICENSE">Apache-2.0 License</a> · <a href="https://github.com/JohnnyFiv3r/Core-Memory/blob/main/CODE_OF_CONDUCT.md">Code of Conduct</a> · <a href="https://github.com/JohnnyFiv3r/Core-Memory/releases">Releases</a>
+</p>
