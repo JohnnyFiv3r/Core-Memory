@@ -105,10 +105,21 @@ pub struct ReaderConfig {
     /// two calls take, since a rejected reply is repaired once.
     #[serde(default = "default_lease_ms")]
     pub lease_ms: u64,
+    /// Batches read at once, each by a worker with a store connection of
+    /// its own. A backlog is read that many times as fast, as far as the
+    /// provider's rate limits allow. It changes nothing a model says.
+    #[serde(default = "default_workers")]
+    pub workers: u32,
 }
+
+/// Most workers a reader may have.
+pub const MAX_WORKERS: u32 = 16;
 
 fn default_batch_size() -> u32 {
     8
+}
+fn default_workers() -> u32 {
+    1
 }
 fn default_max_attempts() -> u32 {
     5

@@ -626,8 +626,17 @@ configured one or, for chunks, with another vocabulary.
 A reader claims a batch of chunks, or one tool call, with `FOR UPDATE SKIP
 LOCKED`, so readers never wait for each other, and holds it under a lease.
 A reader that dies leaves its work to be claimed again when the lease runs
-out. Where more than one kind of work is due (chunks, tool calls, beads to
-judge), each kind goes first in its turn.
+out.
+
+Each kind of work (chunks, tool calls, beads to judge) is done in a lane of
+its own: a thread with its own store connection and transport, so a slow
+call of one kind holds no other back. Chunks get `reader.workers` lanes (1
+by default, at most 16), each reading a batch at a time, so a backlog is
+read that many times as fast, as far as the provider's rate limits allow.
+Lanes share nothing but the store. Two lanes never get one item, and a
+day's budget is checked under the workspace's lock, so lanes together
+spend no more than one would. Changing the number of workers changes no
+read's identity.
 
 | What happened | What becomes of the work | `problem` |
 |---|---|---|
@@ -641,7 +650,7 @@ judge), each kind goes first in its turn.
 | The request did not fit the model's context, or the reply was cut off at `max_output_tokens` | Tried again alone, as above. | `did_not_fit` |
 | The reply was invalid twice | Tried again alone. | `reply_invalid` |
 | A chunk of the batch was erased before the repair | Nothing more is sent. The rest is tried again after `retry_backoff_ms`. | `batch_changed` |
-| The provider turned the request itself down | Tried again after ten minutes. An operator has to fix the binding. The command makes no other call of that kind (chunks, tool calls or judging) for those ten minutes: a wrong key or model fails every call alike. | `binding_rejected` |
+| The provider turned the request itself down | Tried again after ten minutes. An operator has to fix the binding. No lane of that kind (chunks, tool calls or judging) makes another call for those ten minutes: a wrong key or model fails every call alike. | `binding_rejected` |
 | A tool call's stored text does not hold what its event says | Set aside at once. Nothing is sent. | `text_unreadable` |
 | The work was handed out `max_attempts` times and never settled | Set aside, when it would have been handed out again. | `attempts_spent` |
 
@@ -659,9 +668,10 @@ call is made more than `max_attempts` times for one item, whatever fails.
 `core-memory read status` shows the counts, one line for each kind of
 work: chunks, tool calls, beads to judge and arrows to read a second time.
 
-`core-memory serve` runs the configured readers and the judge beside the
-server, on a thread and a store connection of their own. `core-memory read
-run` does what is due and stops.
+`core-memory serve` runs the lanes beside the server for as long as it
+serves. `core-memory read run` runs them all at once and stops when no lane
+has anything due. A lane that finds nothing waits while others work, since
+reading a chunk can make its bead due to be judged.
 
 ### What is never written down
 

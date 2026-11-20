@@ -26,8 +26,8 @@ use crate::model::{
     BindingConfig, ModelRequest, ModelResponse, ModelTransport, TransportError, Usage,
 };
 use crate::read::{
-    ChunkInput, ChunkReading, PROMPT_REV, Quotes, ReadChoice, ReaderConfig, TypeOption,
-    binding_rev, render, repair, validate,
+    ChunkInput, ChunkReading, MAX_WORKERS, PROMPT_REV, Quotes, ReadChoice, ReaderConfig,
+    TypeOption, binding_rev, render, repair, validate,
 };
 use crate::store::{
     CallFinish, CallFinished, CallResult, LeasedChunk, Permit, PermitRequest, PermittedChunk,
@@ -175,6 +175,11 @@ impl CompiledReader {
         }
         if settings.max_attempts == 0 {
             return Err(ConfigError::new("reader.max_attempts must be 1 or more"));
+        }
+        if !(1..=MAX_WORKERS).contains(&settings.workers) {
+            return Err(ConfigError::new(format!(
+                "reader.workers must be 1 to {MAX_WORKERS}"
+            )));
         }
         let needed = binding
             .timeout_ms
