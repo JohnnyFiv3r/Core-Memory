@@ -82,7 +82,7 @@ Line counts are of the Python in `core_memory/` at 1.1.2. A file is counted in o
 
 | 1.x | Lines | In 2.0 |
 |---|---|---|
-| `retrieval` (semantic index, Qdrant, rerank, causal recall, agent) | 11,200 | **Moved to the host.** memoriesQL reads the engine's tables. Search over raw text needs no index the engine owns. |
+| `retrieval` (semantic index, Qdrant, rerank, causal recall, agent) | 11,200 | **Replaced in part; the rest moved to the host.** The engine's recall finds stored text by its words with PostgreSQL's full-text search and returns it verbatim. It leaves out what a judge marked replaced or withdrawn, marks what is disputed, and follows the judge's arrows. It keeps one index on `chunk_text` and no second store: no embeddings, no reranking. Retrieval strategies beyond that are a host's: memoriesQL reads the engine's tables. |
 | `soul` (agent identity, tensions, injection) | 3,500 | **Moved to the host application.** An agent's identity is the application's, not the memory's. |
 | `runtime/goals` | 900 | **Split.** A goal and its updates are one bead type of the host's vocabulary (`goal`). The judge relates an update to its goal: `implem`, `withdraws`, `repl`. Tracking progress is a host view. |
 | Agent-authored memory: `policy/turn_memory_authoring`, `schema/agent_authored_updates`, `runtime/turn/reauthoring`, `policy/rationale` | 2,600 | **Dropped.** The engine never stores generated text in place of what was said. A host that lets agents author memory governs that itself; memoriesQL does. |
@@ -107,6 +107,9 @@ Line counts are of the Python in `core_memory/` at 1.1.2. A file is counted in o
   under the workspace's secret key, not from a counter.
 - **A fenced schema.** An engine writes only to the schema version it was
   built for, and waits, holding nothing, while a migration runs.
+- **Recall that knows what is current.** A search over the stored text that
+  leaves out a statement a judge marked replaced and gives what replaced
+  it, and marks a disputed one, from the same tables in one read.
 - **Typed outcomes everywhere.** Examples: `replay`, `identity_conflict`,
   `scope_not_active`, `call_in_doubt`, `endpoint_untrusted`.
 - **Measured quality.** The hard cases in [`eval/adversarial`](../eval/adversarial/)
