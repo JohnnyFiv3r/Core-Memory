@@ -17,7 +17,10 @@ left in the queue, and the report says so.
 - `core-memory`, built from this tree (`cargo build --release -p
   core-memory-sidecar`), on `PATH` or named by `CORE_MEMORY_BIN`;
 - an empty PostgreSQL 15 or newer database the test may fill, in
-  `CORE_MEMORY_DATABASE_URL`;
+  `CORE_MEMORY_DATABASE_URL`. A server that offers TLS must have a
+  certificate the engine trusts, even on this machine: for a local server
+  with the self-signed certificate Ubuntu gives it, add `?sslmode=disable`
+  to the URL;
 - an Anthropic API key in `CORE_MEMORY_ANTHROPIC_KEY`. The usual
   `ANTHROPIC_API_KEY` is not read, so that other tools on the machine do not
   start using the key;
