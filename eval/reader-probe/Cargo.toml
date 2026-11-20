@@ -1,0 +1,20 @@
+[package]
+name = "reader-probe"
+description = "Sends the engine's chunk reader the same LoCoMo turns under a few settings, to see why it types small talk"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[dependencies]
+core-memory-core.workspace = true
+core-memory-model-anthropic.workspace = true
+core-memory-model-http.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true
