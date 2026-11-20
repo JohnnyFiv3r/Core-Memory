@@ -493,7 +493,16 @@ same text (prompt revision 5). For each chunk it answers with:
 A quote is looked up in the chunk and kept as the byte range where it was
 found. Nothing the model wrote is stored: a type is a key of the
 vocabulary, and a span is a range of text the source wrote. A quote that is
-not in the chunk is not a finding.
+not in the chunk is not a finding. A quote that is nowhere in the chunk
+exactly is looked for again loosely (validator revision 2):
+
+- runs of whitespace are read as one space;
+- curly quotation marks and apostrophes, dashes and an ellipsis are read as
+  `"`, `'`, `-` and `...`;
+- invisible characters are left out.
+
+Models write a straight apostrophe for a curly one, and a space for a line
+break. Either way the range kept is of what the source wrote.
 
 A reply that breaks the shape is rejected whole and repaired once: the
 model gets its reply back with what was wrong. On that second attempt a

@@ -39,7 +39,10 @@ pub const PROMPT_REV: u32 = 5;
 /// What comes between the instructions and the listed types.
 const TYPES_FOLLOW: &str = "\n\nThe listed types:\n";
 /// Revision of the reply validator. Part of every binding revision.
-pub const VALIDATOR_REV: u32 = 1;
+///
+/// 2: a quote is also found when only its quotation marks, apostrophes,
+/// dashes, ellipses or invisible characters differ from the chunk's.
+pub const VALIDATOR_REV: u32 = 2;
 
 const BINDING_REV_DOMAIN: &str = "core-memory/binding-rev/v2";
 const MAX_REPORTED_ERRORS: usize = 20;
@@ -657,9 +660,11 @@ fn span_of(quoted: &Value, chunk: &str, field: &str, entity: bool) -> Result<Pla
 /// Where the `occurrence`-th appearance of `quote` is in `text`.
 ///
 /// The quote is matched exactly. If it does not appear exactly at all, it
-/// is matched again with every run of whitespace, in both, read as one
-/// space: models tend to turn a line break inside a quote into a space.
-/// The range returned is always of `text` itself.
+/// is matched again loosely, in both: every run of whitespace read as one
+/// space, typographic quotation marks, apostrophes, dashes and ellipses read
+/// as their plain forms, and invisible characters left out. Models tend to
+/// turn a line break inside a quote into a space, and a curly apostrophe
+/// into a straight one. The range returned is always of `text` itself.
 pub fn locate(text: &str, quote: &str, occurrence: usize) -> Option<Range<usize>> {
     if quote.trim().is_empty() || occurrence == 0 {
         return None;
@@ -670,32 +675,74 @@ pub fn locate(text: &str, quote: &str, occurrence: usize) -> Option<Range<usize>
             .nth(occurrence - 1)
             .map(|(start, found)| start..start + found.len());
     }
-    let wanted = quote.split_whitespace().collect::<Vec<_>>().join(" ");
-    // `spaced` is `text` with each whitespace run as one space, and
-    // `origin[i]` is where byte `i` of it came from.
-    let mut spaced = String::with_capacity(text.len());
-    let mut origin = Vec::with_capacity(text.len());
-    let mut in_run = false;
-    for (at, c) in text.char_indices() {
-        if c.is_whitespace() {
-            if !in_run {
-                spaced.push(' ');
-                origin.push(at);
-            }
-            in_run = true;
-        } else {
-            in_run = false;
-            for offset in 0..c.len_utf8() {
-                origin.push(at + offset);
-            }
-            spaced.push(c);
+    let wanted = Loose::of(quote);
+    let wanted = wanted.text.trim();
+    if wanted.is_empty() {
+        return None;
+    }
+    let loose = Loose::of(text);
+    let (start, found) = loose.text.match_indices(wanted).nth(occurrence - 1)?;
+    // The quote starts and ends with something that is not a space, so
+    // both ends map to characters of `text`.
+    Some(loose.starts[start]..loose.ends[start + found.len() - 1])
+}
+
+/// A text as it is matched loosely, with, for each byte of it, where the
+/// character it came from starts and ends in the original.
+struct Loose {
+    text: String,
+    starts: Vec<usize>,
+    ends: Vec<usize>,
+}
+
+impl Loose {
+    fn of(original: &str) -> Self {
+        let mut loose = Loose {
+            text: String::with_capacity(original.len()),
+            starts: Vec::with_capacity(original.len()),
+            ends: Vec::with_capacity(original.len()),
+        };
+        let mut in_space = false;
+        for (at, c) in original.char_indices() {
+            let end = at + c.len_utf8();
+            let plain: &str = match c {
+                c if c.is_whitespace() => {
+                    if !in_space {
+                        loose.push(" ", at, end);
+                    }
+                    in_space = true;
+                    continue;
+                }
+                // Invisible: zero-width spaces and joiners, a byte order
+                // mark, a soft hyphen.
+                '\u{200B}' | '\u{200C}' | '\u{200D}' | '\u{2060}' | '\u{FEFF}' | '\u{00AD}' => {
+                    continue;
+                }
+                '\u{2018}' | '\u{2019}' | '\u{201A}' | '\u{201B}' | '\u{2032}' | '\u{02BC}' => "'",
+                '\u{201C}' | '\u{201D}' | '\u{201E}' | '\u{201F}' | '\u{2033}' => "\"",
+                '\u{2010}' | '\u{2011}' | '\u{2012}' | '\u{2013}' | '\u{2014}' | '\u{2015}'
+                | '\u{2212}' => "-",
+                '\u{2026}' => "...",
+                _ => {
+                    in_space = false;
+                    let mut buf = [0u8; 4];
+                    loose.push(c.encode_utf8(&mut buf), at, end);
+                    continue;
+                }
+            };
+            in_space = false;
+            loose.push(plain, at, end);
+        }
+        loose
+    }
+
+    fn push(&mut self, plain: &str, start: usize, end: usize) {
+        self.text.push_str(plain);
+        for _ in 0..plain.len() {
+            self.starts.push(start);
+            self.ends.push(end);
         }
     }
-    let (start, found) = spaced.match_indices(&wanted).nth(occurrence - 1)?;
-    // The quote starts and ends with a word, so both ends map to bytes of
-    // words in `text`, and the last byte's successor ends its character.
-    let last = start + found.len() - 1;
-    Some(origin[start]..origin[last] + 1)
 }
 
 fn parse_handle(h: &str, count: usize) -> Option<usize> {
@@ -974,6 +1021,44 @@ mod tests {
             assert_eq!(locate(text, missing, 1), None, "{missing:?}");
         }
         assert_eq!(locate(text, "Ça", 0), None);
+    }
+
+    #[test]
+    fn a_quote_is_found_whatever_its_quotation_marks() {
+        let text =
+            "Don\u{2019}t ship \u{201C}v2\u{201D} \u{2014} it\u{2019}s not ready\u{2026} yet.";
+        // Straight marks for curly ones, a hyphen for a dash, three dots
+        // for an ellipsis: the range is of the text as it was written.
+        for (quote, written) in [
+            ("Don't ship", "Don\u{2019}t ship"),
+            (
+                "\"v2\" - it's not ready...",
+                "\u{201C}v2\u{201D} \u{2014} it\u{2019}s not ready\u{2026}",
+            ),
+            ("ready... yet", "ready\u{2026} yet"),
+            ("it's", "it\u{2019}s"),
+        ] {
+            let found = locate(text, quote, 1).unwrap_or_else(|| panic!("{quote}"));
+            assert_eq!(&text[found], written, "{quote}");
+        }
+        // And the other way round.
+        assert_eq!(
+            &"Don't ship"[locate("Don't ship", "Don\u{2019}t", 1).unwrap()],
+            "Don't"
+        );
+        // Invisible characters are left out, and a word is still a word.
+        let hidden = "The re\u{00AD}lease is on\u{200B} Friday.";
+        assert_eq!(
+            &hidden[locate(hidden, "release is on Friday", 1).unwrap()],
+            "re\u{00AD}lease is on\u{200B} Friday"
+        );
+        assert_eq!(locate(text, "Dont ship", 1), None);
+        let second = text.rfind('\u{2019}').unwrap();
+        assert_eq!(locate(text, "\u{2019}", 2), Some(second..second + 3));
+        assert_eq!(
+            locate(text, "\u{2026}", 1).map(|r| &text[r]),
+            Some("\u{2026}")
+        );
     }
 
     #[test]
