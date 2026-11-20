@@ -76,7 +76,10 @@ fn stderr(output: &Output) -> String {
 #[test]
 fn the_quickstart_stores_once_and_replays_after() {
     let q = Quickstart::new();
-    assert_eq!(q.ok(&["migrate"])[0]["schema_version"], 1);
+    assert_eq!(
+        q.ok(&["migrate"])[0]["schema_version"],
+        core_memory_store_postgres::SCHEMA_VERSION
+    );
     assert_eq!(
         q.ok(&["scope", "add", "acme", "--workspace", "demo"])[0]["result"],
         "enrolled"
@@ -176,6 +179,40 @@ fn the_quickstart_stores_once_and_replays_after() {
     assert_eq!(scopes.len(), 1);
     assert_eq!(scopes[0]["scope"], "acme");
     assert_eq!(scopes[0]["live_events"], 4);
+}
+
+#[test]
+fn recall_prints_the_text_that_holds_the_words() {
+    let q = Quickstart::ready();
+    q.ok(&["ingest", "--input", "events.jsonl"]);
+    let answer = &q.ok(&["recall", "Northwind", "renewal", "--scope", "acme"])[0];
+    assert_eq!(answer["found"], "matched");
+    let bead = &answer["beads"][0];
+    assert_eq!(bead["event"]["key"]["source_ns"], "salesforce/prod");
+    assert!(
+        bead["chunks"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("Northwind renewal"),
+        "{answer}"
+    );
+    assert_eq!(q.ok(&["recall", "zeppelin"])[0]["found"], "no_match");
+    for (args, problem) in [
+        (
+            &["recall", "Northwind", "--scope", "elsewhere"][..],
+            "not enrolled",
+        ),
+        (&["recall", "Northwind", "--limit", "0"], "limit must be"),
+        (&["recall", "Northwind", "--follow", "3"], "follow must be"),
+    ] {
+        let refused = q.run(args);
+        assert_eq!(refused.status.code(), Some(1), "{args:?}");
+        assert!(
+            stderr(&refused).contains(problem),
+            "{args:?}: {}",
+            stderr(&refused)
+        );
+    }
 }
 
 #[test]
@@ -771,6 +808,7 @@ fn a_command_whose_output_no_one_reads_fails_without_a_crash() {
         &["scope", "list"],
         &["scope", "pause", "acme"],
         &["export"],
+        &["recall", "Northwind"],
     ] {
         // A pipe whose reading end is already closed.
         let (reader, writer) = std::io::pipe().unwrap();

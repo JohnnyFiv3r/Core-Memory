@@ -13,6 +13,7 @@ mod error;
 mod judge;
 pub mod migrate;
 mod pool;
+mod recall;
 mod store;
 #[cfg(feature = "testing")]
 pub mod testing;

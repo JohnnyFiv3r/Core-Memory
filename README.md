@@ -27,6 +27,11 @@ wrote about it, because a later reader is better served by those than by
 thousands of lines of output. What a judge says is stored as relationships
 between IDs, and as a record of every pair it looked at.
 
+Ask it to **recall** and it returns the stored text that holds some words,
+verbatim, with what a judge said of it: what replaced a match, what is in
+dispute, and what the judge's arrows lead to. Recall is a query over the
+same tables, not a second store.
+
 [docs/architecture.md](docs/architecture.md) describes the design. Finding
 related pairs across the whole store, beyond what a judge reads in time
 order, is a host's work and not the engine's: memoriesQL does it.
@@ -74,6 +79,7 @@ core-memory migrate                            # create the core_memory schema
 core-memory scope add acme --workspace demo    # allow events for scope "acme"
 core-memory ingest --input events.jsonl        # one outcome per input line
 core-memory export                             # what is stored, as JSON Lines
+core-memory recall Northwind renewal           # the text that holds those words
 ```
 
 `ingest` prints one typed outcome per line: `accepted`, `replay`,
@@ -121,13 +127,23 @@ listen = "127.0.0.1:7600"
 id = "slack-ingest"
 sha256 = "<from core-memory token>"
 scopes = ["acme"]
+
+[[http.token]]
+id = "assistant"
+sha256 = "<from core-memory token>"
+recall = ["acme"]
 ```
+
+A token writes to the scopes in `scopes` and recalls from those in `recall`.
+Either may be `["*"]` for every scope. A token that writes does not read
+back unless it is given `recall`.
 
 | Endpoint | |
 |---|---|
 | `POST /v1/events` | Admit one SourceEvent. The body is the typed outcome. An accepted event is committed before the answer is sent. |
 | `POST /v1/events/batch` | `{"events": [...]}`. One outcome per event, in order. Read each one. |
 | `GET /v1/checkpoints?scope=&key=` | A reader's stored position. |
+| `POST /v1/recall` | `{"query": "..."}`. The stored text that holds the words, with what a judge said of it. See [Recalling](#recalling). |
 | `GET /v1/ready` | 503 with the kind of problem: `store_unavailable`, `store_refused` (the database will not let the engine in as it is configured) or `schema_mismatch`. |
 | `GET /v1/health` | 200 while the process is up. |
 | `GET /v1/openapi.json` | OpenAPI 3.1, generated from the contract types. |
@@ -376,6 +392,45 @@ All of it is exported, as `verdict`, `bead`, `edge` and `name_link` records.
 `export --scope` leaves out what joins that scope's memories to another
 scope's.
 
+## Recalling
+
+```bash
+core-memory recall launch date                    # every scope
+core-memory recall '"launch date"' -- -draft      # a phrase, and not "draft"
+core-memory recall budget --scope acme --follow 2 --include-ended
+```
+
+```bash
+curl -s localhost:7600/v1/recall -H "Authorization: Bearer $TOKEN" \
+    -d '{"query": "launch date", "scopes": ["acme"], "limit": 5}'
+```
+
+Recall finds the chunks whose text holds the words, with PostgreSQL's own
+full-text search: words are compared as English stems, all are required,
+`"quoted words"` stand together, `or` takes either and `-word` leaves out
+what holds it. It makes no model call. The answer says `matched`,
+`no_match`, or `no_terms` when the query held no word to look for: only
+words too common to search for, or only words to leave out.
+
+What comes back is what was stored, verbatim, chunk by chunk, with each
+bead's event key, and what a judge said of it:
+
+- **What is current.** A match that a later statement replaced or withdrew
+  is answered by that later statement, marked as its successor. Ask with
+  `include_ended` to see the old one too, marked `current: false`.
+- **Disputes.** A bead is `disputed` while the judge says another current
+  statement contradicts it.
+- **Arrows.** Beads the judge related to the matches, up to `follow` steps
+  away (1 unless asked, at most 2), and every arrow between the beads
+  returned. Arrows never lead into a scope the caller may not read.
+
+At most 50 matches (10 unless asked), 100 beads reached along arrows and
+1 MiB of text come in one answer; a bead past the text limit comes without
+its text, marked `text_omitted`.
+
+Recall reads paused and revoked scopes too: they stop capture, not reading.
+Erasing a message removes it from recall in the same transaction.
+
 ## Erasing
 
 ```bash
@@ -399,10 +454,13 @@ is written to a journal with the reason and who asked, and exported as an
 `erase scope` works in batches. Pause or revoke the scope first if nothing
 more should be admitted to it while it is erased.
 
-PostgreSQL keeps deleted rows on disk until `VACUUM`, erased keys in index
-pages until `REINDEX`, and both in WAL and backups until those expire. Vacuum
-and reindex after erasing, and treat your backup retention as the longest
-that erased text can survive.
+PostgreSQL keeps deleted rows' bytes in table pages until the space is
+reused or the table is rewritten (`VACUUM` frees the space but does not
+overwrite it; `VACUUM FULL` or `pg_repack` rewrites the table), erased keys
+and words in index pages until `REINDEX`, and both in WAL and backups until
+those expire. To remove erased text from disk, rewrite `chunk_text` and
+reindex `events_key_idx` and `chunk_text_search_idx` after erasing, and
+treat your backup retention as the longest that erased text can survive.
 
 `erase key` without `--revision` succeeds when no revision is left to erase,
 and prints how many it erased: an erased event keeps no key, so the command
@@ -514,6 +572,9 @@ written by code that does not know the new schema.
 - **Judging**: a model says how each new memory relates to the ones near
   it in time. Every pair it reads is recorded, a statement is replaced at
   most once, and a replacement is read twice before it is written.
+- **Recall**: the stored text that holds some words, verbatim, with what
+  replaced it, what disputes it and what the judge's arrows lead to. A query
+  over the same tables, with no second store.
 - **An authenticated HTTP service** with per-token scope grants, readiness and
   an OpenAPI document.
 - **Export** of events, chunks, reads, tool outcomes, verdicts, the beads a

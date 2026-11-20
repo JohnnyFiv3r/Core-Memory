@@ -28,6 +28,10 @@ auditable memory in PostgreSQL. For each SourceEvent it:
    time, across the scopes of its workspace, when a judge is configured and
    each bead's scope allows the model's destination.
 
+It also answers recall: the stored text that holds some words, verbatim,
+with what a judge said of it. Recall is a read of the same tables. It keeps
+nothing of its own and calls no model.
+
 PostgreSQL is the only store and the system of record. The engine owns the
 `core_memory` schema. A host such as memoriesQL runs the engine against its
 own database, governs it through SQL functions, and reads its tables.

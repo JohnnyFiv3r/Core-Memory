@@ -10,6 +10,7 @@ pub mod hash;
 pub mod ids;
 pub mod json;
 pub mod outcome;
+pub mod recall;
 pub mod record;
 pub mod relation;
 pub mod schema;
@@ -24,6 +25,12 @@ pub use hash::{FieldHasher, Sha256Digest};
 pub use ids::{BeadId, CallId, ChunkId, EventId, IdKey};
 pub use outcome::{
     Abstention, AdmissionOutcome, BusyCause, CheckpointReceipt, RefusalReason, TypeRef,
+};
+pub use recall::{
+    RECALL_DEFAULT_FOLLOW, RECALL_DEFAULT_LIMIT, RECALL_MAX_FOLLOW, RECALL_MAX_LIMIT,
+    RECALL_MAX_LINKED, RECALL_MAX_QUERY_BYTES, RECALL_MAX_SCOPES, RECALL_MAX_TEXT_BYTES,
+    RecallAnswer, RecallFound, RecallRequest, RecallVia, RecalledArrow, RecalledBead,
+    RecalledChunk, RecalledEvent,
 };
 pub use record::{
     CatalogRef, ChunkFacets, ChunkReadRecord, ChunkRecord, ChunkerRef, CompressorRef, EntityKind,

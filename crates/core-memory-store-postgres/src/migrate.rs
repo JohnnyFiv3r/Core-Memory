@@ -17,11 +17,18 @@ struct Migration {
     sql: &'static str,
 }
 
-const MIGRATIONS: &[Migration] = &[Migration {
-    version: 1,
-    name: "init",
-    sql: include_str!("../sql/0001_init.sql"),
-}];
+const MIGRATIONS: &[Migration] = &[
+    Migration {
+        version: 1,
+        name: "init",
+        sql: include_str!("../sql/0001_init.sql"),
+    },
+    Migration {
+        version: 2,
+        name: "recall",
+        sql: include_str!("../sql/0002_recall.sql"),
+    },
+];
 
 /// The schema version this build reads and writes.
 pub const SCHEMA_VERSION: u32 = MIGRATIONS[MIGRATIONS.len() - 1].version;
@@ -273,15 +280,18 @@ mod tests {
         // Left out, pg_temp is searched first for types and tables, and a
         // caller's temporary objects shadow the built-in ones inside a
         // function that runs as the schema owner.
+        let mut all = 0;
         for migration in MIGRATIONS {
-            let functions = migration.sql.matches("CREATE FUNCTION").count();
+            let functions = migration.sql.matches("CREATE FUNCTION").count()
+                + migration.sql.matches("CREATE OR REPLACE FUNCTION").count();
             let pinned = migration
                 .sql
                 .matches("SET search_path = pg_catalog, pg_temp\nAS $$")
                 .count();
-            assert!(functions > 0);
             assert_eq!(functions, pinned, "{}", migration.name);
+            all += functions;
         }
+        assert!(all > 0);
     }
 
     #[test]
