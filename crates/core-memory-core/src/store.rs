@@ -11,8 +11,9 @@
 
 use core_memory_contract::{
     CallId, CatalogRef, Checkpoint, CheckpointReceipt, ChunkFacets, ChunkId, ChunkReadRecord,
-    ChunkRecord, ChunkerRef, ErasureRecord, EventDetails, EventId, EventKey, EventRecord, IdKey,
-    ProfileRef, ReadDecision, ReadSpan, ReaderRef, Sha256Digest, TimeBasis, Timestamp,
+    ChunkRecord, ChunkerRef, CompressorRef, ErasureRecord, EventDetails, EventId, EventKey,
+    EventRecord, IdKey, ProfileRef, ReadDecision, ReadSpan, ReaderRef, Sha256Digest, TimeBasis,
+    Timestamp, ToolCallDetails, ToolOutcomeRecord, ToolStatus,
 };
 
 use crate::error::StoreError;
@@ -84,8 +85,31 @@ pub struct AdmissionWrite<'a> {
     /// The first version of the record this event is an edit of. The edit
     /// is stored only if that event is still live when it commits.
     pub revises: Option<EventId>,
-    /// Whether to queue each chunk to be read by a model.
-    pub queue_reads: bool,
+    /// How the event is represented among beads.
+    pub beads: BeadsOf,
+    /// What a model is still to read in the event, if a reader for it is
+    /// configured: each chunk, or the tool call as a whole.
+    pub queue: Option<Purpose>,
+}
+
+/// How an event is represented among beads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BeadsOf {
+    /// Each chunk is a bead, with the chunk's ID. A message, a document or
+    /// a record.
+    Chunks,
+    /// The event is one bead, with the event's ID. A tool call.
+    Event,
+}
+
+impl BeadsOf {
+    /// How many beads an event of `chunks` chunks has.
+    pub fn count(self, chunks: usize) -> usize {
+        match self {
+            BeadsOf::Chunks => chunks,
+            BeadsOf::Event => 1,
+        }
+    }
 }
 
 /// One chunk of an admission, with its text.
@@ -154,6 +178,11 @@ pub enum Change {
         scope: String,
         read: Box<ChunkReadRecord>,
     },
+    /// A model read a tool call. Outcomes of erased events are not exported.
+    ToolOutcome {
+        scope: String,
+        outcome: Box<ToolOutcomeRecord>,
+    },
     /// An event was erased.
     Erasure {
         scope: String,
@@ -166,6 +195,7 @@ impl Change {
         match self {
             Change::Event(e) => e.event.seq,
             Change::Read { read, .. } => read.seq,
+            Change::ToolOutcome { outcome, .. } => outcome.seq,
             Change::Erasure { erasure, .. } => erasure.seq,
         }
     }
@@ -190,23 +220,40 @@ pub struct LeasedChunk {
     pub attempts: u32,
 }
 
+/// A tool call reserved for one worker until the lease runs out.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LeasedToolCall {
+    pub scope: String,
+    pub workspace: String,
+    pub event_id: EventId,
+    /// The event's chunks, in order. Together their text is the call's.
+    pub chunk_ids: Vec<ChunkId>,
+    /// The tool, and where its arguments end in the text.
+    pub tool_call: ToolCallDetails,
+    /// Times the call has been handed to a worker, this one included.
+    pub attempts: u32,
+}
+
 /// What a model call is for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Purpose {
     /// Reading chunks: their type, entities, actions and outcomes.
     ChunkRead,
+    /// Reading one tool call: what it did and what came of it.
+    ToolRead,
 }
 
 impl Purpose {
     pub fn as_str(self) -> &'static str {
         match self {
             Purpose::ChunkRead => "chunk_read",
+            Purpose::ToolRead => "tool_read",
         }
     }
 }
 
 /// Asks to send chunks of one scope to a model.
-#[derive(Debug, Clone)]
+#[derive(Clone, Copy)]
 pub struct PermitRequest<'a> {
     pub scope: &'a str,
     pub chunk_ids: &'a [ChunkId],
@@ -218,19 +265,43 @@ pub struct PermitRequest<'a> {
     pub attempt: u8,
     /// The call a repair repairs.
     pub repairs: Option<CallId>,
-    /// The tokens to count against the budget apart from the chunks' own
-    /// text: the instructions, and the most the reply may use.
-    pub reserved_tokens: u64,
+    /// What a call that sends these chunks will send and may cost. The
+    /// store asks once it has read the text, inside the transaction that
+    /// permits the call, and writes the answer on the receipt. `None`
+    /// means the text cannot be sent as it is: nothing is permitted then,
+    /// and no receipt is written.
+    pub sending: &'a (dyn Fn(&[PermittedChunk]) -> Option<Sending> + Sync),
     pub budget: Option<BudgetConfig>,
     pub at: Timestamp,
 }
 
-impl PermitRequest<'_> {
-    /// What a call is counted as against the budget: its fixed part plus
-    /// an estimate for the text it carries, at three bytes to a token.
-    pub fn reserved_for(&self, text_bytes: u64) -> u64 {
-        self.reserved_tokens.saturating_add(text_bytes / 3)
+impl std::fmt::Debug for PermitRequest<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PermitRequest")
+            .field("scope", &self.scope)
+            .field("chunk_ids", &self.chunk_ids)
+            .field("purpose", &self.purpose)
+            .field("destination", &self.destination)
+            .field("attempt", &self.attempt)
+            .finish_non_exhaustive()
     }
+}
+
+/// What a model call will send of the chunks it is permitted, and what it
+/// may cost.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Sending {
+    /// Bytes of the chunks' text as it will be sent: all of it, or what is
+    /// left of it once code has shortened it.
+    pub bytes: u64,
+    /// The tokens to count against the budget: the instructions, the text
+    /// as it will be sent, and the most the reply may use.
+    pub reserved_tokens: u64,
+}
+
+/// An estimate of the tokens in `bytes` of text, at three bytes to a token.
+pub fn tokens_in(bytes: u64) -> u64 {
+    bytes / 3
 }
 
 /// The answer to a [`PermitRequest`]. Only `Granted` wrote a receipt, and
@@ -252,6 +323,9 @@ pub enum Permit {
     OverBudget,
     /// None of the chunks has text any more.
     NothingToSend,
+    /// The text is stored and cannot be made into a request: it does not
+    /// hold what its event says it holds. Asking again would find the same.
+    Unsendable,
 }
 
 /// One chunk a permit hands out.
@@ -302,10 +376,41 @@ pub struct ReadWrite {
     pub spans_rejected: u32,
 }
 
-/// What becomes of a chunk's queued work.
+/// What a model read in one tool call, to be stored.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolOutcomeWrite {
+    pub event_id: EventId,
+    pub status: ToolStatus,
+    pub action: String,
+    pub outcome: String,
+    pub compressor: CompressorRef,
+    /// Bytes of the shortened text the model was shown.
+    pub compressed_bytes: u64,
+}
+
+/// What a piece of queued work is about.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum WorkItem {
+    /// A chunk to be read.
+    Chunk(ChunkId),
+    /// A tool-call event to be read.
+    ToolCall(EventId),
+}
+
+impl WorkItem {
+    /// The kind of work the item is queued for.
+    pub fn purpose(self) -> Purpose {
+        match self {
+            WorkItem::Chunk(_) => Purpose::ChunkRead,
+            WorkItem::ToolCall(_) => Purpose::ToolRead,
+        }
+    }
+}
+
+/// What becomes of an item's queued work.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkUpdate {
-    pub chunk_id: ChunkId,
+    pub item: WorkItem,
     pub next: WorkNext,
     /// A short code for why. Never model or source text.
     pub problem: &'static str,
@@ -330,9 +435,13 @@ pub struct CallFinish<'a> {
     pub scope: &'a str,
     pub result: CallResult,
     pub usage: Option<Usage>,
-    /// What to store. Empty unless the reply was valid.
+    /// What to store of chunks read. Empty unless the reply was valid.
     pub reads: &'a [ReadWrite],
-    pub vocabulary: &'a CatalogRef,
+    /// What to store of a tool call read. `None` unless the reply was valid.
+    pub tool_outcome: Option<&'a ToolOutcomeWrite>,
+    /// The vocabulary the reads' types were chosen from. `None` only when
+    /// there are no reads to store.
+    pub vocabulary: Option<&'a CatalogRef>,
     pub reader: &'a ReaderRef,
     /// What to do with the work of chunks that were not read.
     pub work: &'a [WorkUpdate],
@@ -342,10 +451,10 @@ pub struct CallFinish<'a> {
 /// What [`Store::finish_call`] did.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct CallFinished {
-    /// Reads stored.
+    /// Reads and tool outcomes stored.
     pub stored: u32,
-    /// Reads not stored: the chunk was erased, or the scope stopped being
-    /// active, while the model was reading.
+    /// Reads and tool outcomes not stored: the event was erased, or the
+    /// scope stopped being active, while the model was reading.
     pub dropped: u32,
 }
 
@@ -455,6 +564,16 @@ pub trait Store {
         lease_until: Timestamp,
     ) -> Result<Option<ReadBatch>, StoreError>;
 
+    /// Reserves one tool call that is due to be read, until `lease_until`.
+    /// `None` if none is due. A call is handed out `max_attempts` times at
+    /// most, as a chunk is.
+    fn claim_tool_read(
+        &mut self,
+        max_attempts: u32,
+        now: Timestamp,
+        lease_until: Timestamp,
+    ) -> Result<Option<LeasedToolCall>, StoreError>;
+
     /// Decides whether chunks may be sent to a model, and if so writes the
     /// call's receipt and reads their text, in one transaction: the scope
     /// must be active and must have granted the destination, and the
@@ -472,7 +591,7 @@ pub trait Store {
     fn finish_call(&mut self, finish: &CallFinish<'_>) -> Result<CallFinished, StoreError>;
 
     /// Settles work that no call was made for: a permit was refused.
-    fn update_work(&mut self, purpose: Purpose, work: &[WorkUpdate]) -> Result<(), StoreError>;
+    fn update_work(&mut self, work: &[WorkUpdate]) -> Result<(), StoreError>;
 
     /// How much work of a kind is queued.
     fn work_counts(&mut self, purpose: Purpose) -> Result<WorkCounts, StoreError>;

@@ -6,8 +6,8 @@ use std::sync::Arc;
 
 use core_memory_chunker::{ChunkError, LengthUnit, chunk_text};
 use core_memory_contract::{
-    AdmissionOutcome, ChunkId, EventDetails, EventId, EventKey, IdKey, OccurredAt, RefusalReason,
-    Sha256Digest, SourceEvent, TimeBasis, TimePrecision, Timestamp,
+    AdmissionOutcome, ChunkId, ContentKind, EventDetails, EventId, EventKey, IdKey, OccurredAt,
+    RefusalReason, Sha256Digest, SourceEvent, TimeBasis, TimePrecision, Timestamp,
 };
 use serde::Deserialize;
 
@@ -20,9 +20,11 @@ use crate::profile::{CompiledChunker, ProfileRegistry, SourceProfile};
 use crate::read::ReaderConfig;
 use crate::reader::CompiledReader;
 use crate::store::{
-    AdmissionCommit, AdmissionWrite, CheckpointAdvance, CheckpointState, ChunkWrite, PinKind,
-    PinResult, ScopeState, Store, StoredEvent,
+    AdmissionCommit, AdmissionWrite, BeadsOf, CheckpointAdvance, CheckpointState, ChunkWrite,
+    PinKind, PinResult, Purpose, ScopeState, Store, StoredEvent,
 };
+use crate::tool::ToolReaderConfig;
+use crate::tool_reader::CompiledToolReader;
 use crate::vocab::{LoadedVocabulary, Vocabulary};
 
 /// Engine configuration as written by operators.
@@ -39,6 +41,10 @@ pub struct EngineConfig {
     /// calls, and everything else works the same.
     #[serde(default)]
     pub reader: Option<ReaderConfig>,
+    /// Has a model read each tool call. Without it tool calls are stored
+    /// and not read.
+    #[serde(default)]
+    pub tool_reader: Option<ToolReaderConfig>,
     /// The models the engine may call.
     #[serde(default, rename = "binding")]
     pub bindings: Vec<BindingConfig>,
@@ -94,6 +100,7 @@ pub struct Engine {
     pub(crate) vocab: Option<LoadedVocabulary>,
     limits: Limits,
     pub(crate) reader: Option<CompiledReader>,
+    pub(crate) tool_reader: Option<CompiledToolReader>,
     pub(crate) clock: Arc<dyn Clock>,
 }
 
@@ -126,11 +133,16 @@ impl Engine {
                 "a [reader] needs a [vocabulary]: the types it may give a chunk",
             ));
         }
+        let tool_reader = config
+            .tool_reader
+            .map(|settings| CompiledToolReader::compile(settings, &config.bindings))
+            .transpose()?;
         Ok(Self {
             registry,
             vocab,
             limits: config.limits,
             reader,
+            tool_reader,
             clock,
         })
     }
@@ -219,6 +231,9 @@ impl Engine {
         let raw_len = match &event.content {
             core_memory_contract::Content::Text(t) => t.len(),
             core_memory_contract::Content::Json(raw) => raw.get().len(),
+            core_memory_contract::Content::ToolCall(call) => {
+                call.input.get().len() + 1 + call.output.len()
+            }
         };
         if raw_len as u64 > max_bytes {
             return Ok(oversize(
@@ -254,6 +269,7 @@ impl Engine {
             actor: event.actor.clone(),
             structure: event.structure.clone(),
             attributes: event.attributes.clone(),
+            tool_call: content.tool_call.clone(),
             extra: event.extra.clone(),
             parser_contract_version: event.parser_contract_version.clone(),
         };
@@ -361,6 +377,18 @@ impl Engine {
         // Two passes at most: one under the key as offered, and one under
         // a derived revision if another first version of an editable
         // record was stored meanwhile.
+        // A message is a bead for each chunk, and a model reads each
+        // chunk. A tool call is one bead, and a model reads it whole.
+        let (beads, queue) = match content.kind {
+            ContentKind::ToolCall => (
+                BeadsOf::Event,
+                self.tool_reader.as_ref().map(|_| Purpose::ToolRead),
+            ),
+            ContentKind::Text | ContentKind::Json => (
+                BeadsOf::Chunks,
+                self.reader.as_ref().map(|_| Purpose::ChunkRead),
+            ),
+        };
         loop {
             let chunks: Vec<ChunkWrite> = pieces
                 .iter()
@@ -403,7 +431,8 @@ impl Engine {
                 captured_at,
                 checkpoint: event.checkpoint.as_ref(),
                 revises: target.revises,
-                queue_reads: self.reader.is_some(),
+                beads,
+                queue,
             })?;
             return match committed {
                 AdmissionCommit::Committed { checkpoint } => Ok(A::Accepted {

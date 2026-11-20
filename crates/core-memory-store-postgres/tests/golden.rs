@@ -25,11 +25,14 @@ use serde_json::{Value, json};
 
 const GOLDEN: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/golden/export.jsonl");
 
-/// The golden world's reader. Its binding is part of what the file pins.
+/// The golden world's readers. Their binding is part of what the file pins.
 const READER: &str = r#"
 [reader]
 binding = "golden"
 batch_size = 8
+
+[tool_reader]
+binding = "golden"
 
 [[binding]]
 id = "golden"
@@ -153,6 +156,67 @@ fn exported_records_match_the_golden_file() {
         .erase_event(&erased, "user_request", "owner")
         .unwrap();
 
+    // A call of a tool by an agent: its arguments and what came back, kept
+    // whole. A model is shown it with the repetition taken out, and what
+    // the model writes about it is the record that follows.
+    w.clock.advance_millis(2_000);
+    let passing: Vec<String> = (1..=48)
+        .map(|n| format!("test ledger_export::batch_{n:02} ... ok"))
+        .collect();
+    w.accept(&event(json!({
+        "scope": "acme",
+        "source_ns": "agent/session-7f3a",
+        "external_id": "toolu_01HqPz",
+        "profile_id": "core.tool_call",
+        "occurred_at": {"at": "2026-10-21T09:14:03Z", "precision": "second"},
+        "actor": {"id": "agent-billing", "kind": "agent", "role": "assistant"},
+        "media_type": "application/json",
+        "content": {"tool_call": {
+            "tool": "Bash",
+            "input": {"timeout": 600, "command": "cargo test -p ledger_export"},
+            "output": format!(
+                "running 51 tests\n{}\ntest ledger_export::resume_after_timeout ... FAILED\n\
+                 test ledger_export::large_ledger ... FAILED\n\
+                 test ledger_export::retry_budget ... FAILED\n\n\
+                 failures:\n    ledger_export::large_ledger\n    ledger_export::resume_after_timeout\n    ledger_export::retry_budget\n\n\
+                 test result: FAILED. 48 passed; 3 failed; finished in 61.20s\n\
+                 error: test failed, to rerun pass `-p ledger_export --lib`",
+                passing.join("\n")
+            ),
+            "is_error": true
+        }},
+        "structure": {"session": "session-7f3a", "parent": {"external_id": "msg_0142"}},
+        "parser_contract_version": "agent-log/1"
+    })));
+    w.clock.advance_millis(3_000);
+    let tools = FnTransport(|request: &ModelRequest| {
+        // What it is shown is the call as code shortened it.
+        let shown: Value = serde_json::from_str(&request.user).unwrap();
+        assert_eq!(shown["tool"], "Bash");
+        assert!(
+            shown["output"]
+                .as_str()
+                .unwrap()
+                .contains("more lines like the one above]")
+        );
+        Ok(ModelResponse {
+            text: json!({
+                "action": "Ran the tests of the ledger_export package",
+                "outcome": "48 tests passed and 3 failed: large_ledger, resume_after_timeout and retry_budget",
+                "status": "failed",
+            })
+            .to_string(),
+            usage: Usage {
+                input_tokens: 700,
+                output_tokens: 60,
+            },
+        })
+    });
+    let ReadRound::Handled(call) = w.engine.read_tool_once(&mut w.store, &tools).unwrap() else {
+        panic!("the tool call was not read");
+    };
+    assert_eq!((call.problem, call.stored), (None, 1));
+
     let mut lines = Vec::new();
     for change in w.changes() {
         let records = match change {
@@ -169,6 +233,9 @@ fn exported_records_match_the_golden_file() {
                 records
             }
             Change::Read { scope, read } => vec![Record::chunk_read(scope, *read)],
+            Change::ToolOutcome { scope, outcome } => {
+                vec![Record::tool_outcome(scope, *outcome)]
+            }
             Change::Erasure { scope, erasure } => vec![Record::erasure(scope, erasure)],
         };
         for mut record in records {
@@ -176,6 +243,9 @@ fn exported_records_match_the_golden_file() {
             match &mut record.body {
                 RecordBody::ChunkRead(read) => {
                     read.call_id = "00000000-0000-0000-0000-000000000000".parse().unwrap();
+                }
+                RecordBody::ToolOutcome(outcome) => {
+                    outcome.call_id = "00000000-0000-0000-0000-000000000000".parse().unwrap();
                 }
                 RecordBody::Erasure(erasure) => {
                     erasure.erased_at = Timestamp::parse("2026-01-01T00:00:00Z").unwrap();

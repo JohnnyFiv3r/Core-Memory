@@ -64,7 +64,7 @@ impl Case {
     fn text(&self) -> &str {
         match &self.event.content {
             Content::Text(text) => text,
-            Content::Json(_) => panic!("{} is not text", self.case),
+            other => panic!("{} is not text: {:?}", self.case, other.kind()),
         }
     }
 }
@@ -216,6 +216,7 @@ fn score(cases: &[Case], w: &mut World) -> Score {
                     }
                 }
             }
+            Change::ToolOutcome { .. } => panic!("no case is a tool call"),
             Change::Erasure { .. } => panic!("nothing was erased"),
         }
     }

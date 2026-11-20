@@ -176,7 +176,7 @@ CREATE TABLE core_memory.beads (
     bead_id uuid PRIMARY KEY,
     workspace_id text NOT NULL REFERENCES core_memory.workspaces,
     scope text NOT NULL REFERENCES core_memory.scopes,
-    kind text NOT NULL CHECK (kind IN ('chunk')),
+    kind text NOT NULL CHECK (kind IN ('chunk', 'tool')),
     state text NOT NULL CHECK (state IN ('live', 'erased')),
     event_id uuid NOT NULL REFERENCES core_memory.events,
     chunk_id uuid REFERENCES core_memory.chunks,
@@ -185,8 +185,10 @@ CREATE TABLE core_memory.beads (
     time_basis text NOT NULL CHECK (time_basis IN ('source', 'source_bucket', 'captured')),
     created_at timestamptz NOT NULL,
     seq bigint NOT NULL CHECK (seq > 0),
-    -- A message chunk's bead has the chunk's own ID.
+    -- A message chunk's bead has the chunk's own ID. A tool call is one
+    -- bead, with its event's ID, however many chunks its text is cut into.
     CHECK ((kind = 'chunk') = (chunk_id IS NOT NULL AND bead_id = chunk_id)),
+    CHECK (kind <> 'tool' OR (bead_id = event_id AND chunk_id IS NULL)),
     UNIQUE (workspace_id, seq)
 );
 
@@ -261,7 +263,7 @@ CREATE TABLE core_memory.outbound_calls (
     call_id uuid PRIMARY KEY,
     workspace_id text NOT NULL REFERENCES core_memory.workspaces,
     seq bigint NOT NULL CHECK (seq > 0),
-    purpose text NOT NULL CHECK (purpose IN ('chunk_read')),
+    purpose text NOT NULL CHECK (purpose IN ('chunk_read', 'tool_read')),
     scope text NOT NULL REFERENCES core_memory.scopes,
     destination text NOT NULL,
     binding_id text NOT NULL,
@@ -355,12 +357,56 @@ CREATE TABLE core_memory.chunk_read_spans (
 CREATE INDEX chunk_read_spans_chunk_idx ON core_memory.chunk_read_spans (chunk_id);
 
 -- ---------------------------------------------------------------------------
+-- What a model read in a tool call
+-- ---------------------------------------------------------------------------
+
+-- One model read of one tool call: what the call did, what came of it, and
+-- how it ended. A model never sees a tool call's stored text whole: code
+-- shortens it first, by the rules the compressor columns name.
+--
+-- action and outcome are the one place the engine stores text a model
+-- wrote. Later readers are given this record in place of the tool's own
+-- text. Rows are added, never changed; the row with the highest seq for
+-- an event is the current one. Erasing the event deletes its rows here.
+CREATE TABLE core_memory.tool_outcomes (
+    workspace_id text NOT NULL REFERENCES core_memory.workspaces,
+    seq bigint NOT NULL CHECK (seq > 0),
+    event_id uuid NOT NULL REFERENCES core_memory.events,
+    scope text NOT NULL REFERENCES core_memory.scopes,
+    call_id uuid NOT NULL REFERENCES core_memory.outbound_calls,
+    status text NOT NULL CHECK (status IN ('succeeded', 'failed', 'partial', 'unknown')),
+    action text NOT NULL CHECK (btrim(action) <> '' AND char_length(action) <= 120),
+    outcome text NOT NULL CHECK (btrim(outcome) <> '' AND char_length(outcome) <= 200),
+    compressor_id text NOT NULL,
+    compressor_rev integer NOT NULL CHECK (compressor_rev > 0),
+    -- Bytes of the shortened text the model was shown.
+    compressed_bytes bigint NOT NULL CHECK (compressed_bytes >= 0),
+    binding_id text NOT NULL,
+    binding_rev bytea NOT NULL CHECK (octet_length(binding_rev) = 32),
+    model text NOT NULL,
+    prompt_rev integer NOT NULL CHECK (prompt_rev > 0),
+    read_at timestamptz NOT NULL,
+    PRIMARY KEY (workspace_id, seq)
+);
+
+CREATE INDEX tool_outcomes_event_idx ON core_memory.tool_outcomes (event_id, seq);
+
+-- What a model wrote about what a source said, kept out of the planner's
+-- statistics like the source's own text.
+ALTER TABLE core_memory.tool_outcomes
+    ALTER COLUMN action SET STATISTICS 0,
+    ALTER COLUMN outcome SET STATISTICS 0;
+
+-- ---------------------------------------------------------------------------
 -- Work the engine still owes. No text.
 -- ---------------------------------------------------------------------------
 
 CREATE TABLE core_memory.work (
-    kind text NOT NULL CHECK (kind IN ('chunk_read')),
-    chunk_id uuid NOT NULL REFERENCES core_memory.chunks,
+    kind text NOT NULL CHECK (kind IN ('chunk_read', 'tool_read')),
+    -- What is to be read: a chunk for chunk_read, an event for tool_read.
+    item_id uuid NOT NULL,
+    -- The event the item belongs to. Erasing it deletes the work.
+    event_id uuid NOT NULL REFERENCES core_memory.events,
     workspace_id text NOT NULL REFERENCES core_memory.workspaces,
     scope text NOT NULL REFERENCES core_memory.scopes,
     state text NOT NULL CHECK (state IN ('ready', 'leased', 'failed')),
@@ -374,12 +420,14 @@ CREATE TABLE core_memory.work (
     -- A short code for the last problem. Never model or source text.
     problem text CHECK (octet_length(problem) <= 64),
     enqueued_at timestamptz NOT NULL,
-    PRIMARY KEY (kind, chunk_id),
-    CHECK ((state = 'leased') = (leased_until IS NOT NULL))
+    PRIMARY KEY (kind, item_id),
+    CHECK ((state = 'leased') = (leased_until IS NOT NULL)),
+    CHECK (kind <> 'tool_read' OR item_id = event_id)
 );
 
 CREATE INDEX work_next_idx ON core_memory.work (kind, not_before) WHERE state <> 'failed';
 CREATE INDEX work_scope_idx ON core_memory.work (scope);
+CREATE INDEX work_event_idx ON core_memory.work (event_id);
 
 -- ---------------------------------------------------------------------------
 -- Immutability
@@ -475,6 +523,24 @@ BEGIN
 END
 $$;
 
+-- The same for what was read in a tool call. For any table with an
+-- event_id column.
+CREATE FUNCTION core_memory.deleted_only_when_its_event_is_erased() RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, pg_temp
+AS $$
+BEGIN
+    IF current_setting('core_memory.erasing', true) = 'on' AND EXISTS (
+        SELECT 1 FROM core_memory.events AS e
+         WHERE e.event_id = OLD.event_id AND e.state = 'erased'
+    ) THEN
+        RETURN OLD;
+    END IF;
+    RAISE EXCEPTION 'core_memory.% rows cannot be deleted', TG_TABLE_NAME
+        USING ERRCODE = 'restrict_violation';
+END
+$$;
+
 -- What a model read in a chunk is stored only while the chunk's event is
 -- live. The engine checks that where it stores a read, under the workspace
 -- lock that an erasure also takes. This stops a statement that does not:
@@ -489,6 +555,24 @@ BEGIN
           FROM core_memory.chunks AS c
           JOIN core_memory.events AS e ON e.event_id = c.event_id
          WHERE c.chunk_id = NEW.chunk_id AND e.state = 'live'
+    ) THEN
+        RETURN NEW;
+    END IF;
+    RAISE EXCEPTION 'core_memory.% takes rows only for an event that is live', TG_TABLE_NAME
+        USING ERRCODE = 'restrict_violation';
+END
+$$;
+
+-- The same for what was read in a tool call. For any table with an
+-- event_id column.
+CREATE FUNCTION core_memory.stored_only_when_its_event_is_live() RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, pg_temp
+AS $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM core_memory.events AS e
+         WHERE e.event_id = NEW.event_id AND e.state = 'live'
     ) THEN
         RETURN NEW;
     END IF;
@@ -569,6 +653,12 @@ CREATE TRIGGER chunk_read_spans_fixed BEFORE UPDATE ON core_memory.chunk_read_sp
     FOR EACH ROW EXECUTE FUNCTION core_memory.refuse_change();
 CREATE TRIGGER chunk_read_spans_only_erase BEFORE DELETE ON core_memory.chunk_read_spans
     FOR EACH ROW EXECUTE FUNCTION core_memory.deleted_only_with_its_event();
+CREATE TRIGGER tool_outcomes_fixed BEFORE UPDATE ON core_memory.tool_outcomes
+    FOR EACH ROW EXECUTE FUNCTION core_memory.refuse_change();
+CREATE TRIGGER tool_outcomes_only_erase BEFORE DELETE ON core_memory.tool_outcomes
+    FOR EACH ROW EXECUTE FUNCTION core_memory.deleted_only_when_its_event_is_erased();
+CREATE TRIGGER tool_outcomes_live BEFORE INSERT ON core_memory.tool_outcomes
+    FOR EACH ROW EXECUTE FUNCTION core_memory.stored_only_when_its_event_is_live();
 
 CREATE TRIGGER workspaces_no_truncate BEFORE TRUNCATE ON core_memory.workspaces
     FOR EACH STATEMENT EXECUTE FUNCTION core_memory.refuse_change();
@@ -600,6 +690,8 @@ CREATE TRIGGER chunk_reads_no_truncate BEFORE TRUNCATE ON core_memory.chunk_read
     FOR EACH STATEMENT EXECUTE FUNCTION core_memory.refuse_change();
 CREATE TRIGGER chunk_read_spans_no_truncate BEFORE TRUNCATE ON core_memory.chunk_read_spans
     FOR EACH STATEMENT EXECUTE FUNCTION core_memory.refuse_change();
+CREATE TRIGGER tool_outcomes_no_truncate BEFORE TRUNCATE ON core_memory.tool_outcomes
+    FOR EACH STATEMENT EXECUTE FUNCTION core_memory.refuse_change();
 CREATE TRIGGER work_no_truncate BEFORE TRUNCATE ON core_memory.work
     FOR EACH STATEMENT EXECUTE FUNCTION core_memory.refuse_change();
 
@@ -619,7 +711,8 @@ GRANT SELECT ON core_memory.erasures TO core_memory_engine;
 -- and reads once, and owns the queue of its own work.
 GRANT SELECT ON core_memory.scope_destinations TO core_memory_engine;
 GRANT SELECT, INSERT ON core_memory.outbound_calls, core_memory.outbound_results,
-    core_memory.chunk_reads, core_memory.chunk_read_spans TO core_memory_engine;
+    core_memory.chunk_reads, core_memory.chunk_read_spans, core_memory.tool_outcomes
+    TO core_memory_engine;
 GRANT SELECT, INSERT, UPDATE, DELETE ON core_memory.work TO core_memory_engine;
 
 ALTER TABLE core_memory.workspaces ENABLE ROW LEVEL SECURITY;
@@ -637,6 +730,7 @@ ALTER TABLE core_memory.outbound_calls ENABLE ROW LEVEL SECURITY;
 ALTER TABLE core_memory.outbound_results ENABLE ROW LEVEL SECURITY;
 ALTER TABLE core_memory.chunk_reads ENABLE ROW LEVEL SECURITY;
 ALTER TABLE core_memory.chunk_read_spans ENABLE ROW LEVEL SECURITY;
+ALTER TABLE core_memory.tool_outcomes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE core_memory.work ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY engine ON core_memory.workspaces TO core_memory_engine USING (true) WITH CHECK (true);
@@ -653,6 +747,7 @@ CREATE POLICY engine ON core_memory.outbound_calls TO core_memory_engine USING (
 CREATE POLICY engine ON core_memory.outbound_results TO core_memory_engine USING (true) WITH CHECK (true);
 CREATE POLICY engine ON core_memory.chunk_reads TO core_memory_engine USING (true) WITH CHECK (true);
 CREATE POLICY engine ON core_memory.chunk_read_spans TO core_memory_engine USING (true) WITH CHECK (true);
+CREATE POLICY engine ON core_memory.tool_outcomes TO core_memory_engine USING (true) WITH CHECK (true);
 CREATE POLICY engine ON core_memory.work TO core_memory_engine USING (true) WITH CHECK (true);
 
 -- ---------------------------------------------------------------------------
@@ -1049,9 +1144,8 @@ BEGIN
     DELETE FROM core_memory.chunk_reads AS x
      USING core_memory.chunks AS c
      WHERE c.event_id = ANY (event_ids) AND x.chunk_id = c.chunk_id;
-    DELETE FROM core_memory.work AS x
-     USING core_memory.chunks AS c
-     WHERE c.event_id = ANY (event_ids) AND x.chunk_id = c.chunk_id;
+    DELETE FROM core_memory.tool_outcomes AS x WHERE x.event_id = ANY (event_ids);
+    DELETE FROM core_memory.work AS x WHERE x.event_id = ANY (event_ids);
     PERFORM set_config('core_memory.erasing', 'off', true);
     RETURN how_many;
 END
@@ -1218,7 +1312,9 @@ REVOKE ALL ON FUNCTION core_memory.refuse_change() FROM PUBLIC;
 REVOKE ALL ON FUNCTION core_memory.events_only_erase() FROM PUBLIC;
 REVOKE ALL ON FUNCTION core_memory.beads_only_erase() FROM PUBLIC;
 REVOKE ALL ON FUNCTION core_memory.deleted_only_with_its_event() FROM PUBLIC;
+REVOKE ALL ON FUNCTION core_memory.deleted_only_when_its_event_is_erased() FROM PUBLIC;
 REVOKE ALL ON FUNCTION core_memory.stored_only_with_a_live_event() FROM PUBLIC;
+REVOKE ALL ON FUNCTION core_memory.stored_only_when_its_event_is_live() FROM PUBLIC;
 REVOKE ALL ON FUNCTION core_memory.scopes_keep_identity() FROM PUBLIC;
 REVOKE ALL ON FUNCTION core_memory.seq_only_grows() FROM PUBLIC;
 REVOKE ALL ON FUNCTION core_memory.hold_schema() FROM PUBLIC;

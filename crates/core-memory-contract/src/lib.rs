@@ -17,6 +17,7 @@ pub mod timestamp;
 pub use event::{
     Actor, Checkpoint, Content, ContentKind, CorrelationKey, DocumentPosition, EventKey,
     FieldError, ObjectRef, OccurredAt, RecordObject, SourceEvent, Structure, TimePrecision,
+    ToolCall,
 };
 pub use hash::{FieldHasher, Sha256Digest};
 pub use ids::{BeadId, CallId, ChunkId, EventId, IdKey};
@@ -24,8 +25,10 @@ pub use outcome::{
     Abstention, AdmissionOutcome, BusyCause, CheckpointReceipt, RefusalReason, TypeRef,
 };
 pub use record::{
-    CatalogRef, ChunkFacets, ChunkReadRecord, ChunkRecord, ChunkerRef, EntityKind, ErasureRecord,
-    EventDetails, EventRecord, IdentifierMatch, Lengths, ProfileRef, RECORD_CONTRACT, ReadDecision,
-    ReadSpan, ReaderRef, Record, RecordBody, RecordKind, SourceType, SpanKind, TextSpan, TimeBasis,
+    CatalogRef, ChunkFacets, ChunkReadRecord, ChunkRecord, ChunkerRef, CompressorRef, EntityKind,
+    ErasureRecord, EventDetails, EventRecord, IdentifierMatch, Lengths, MAX_ACTION_CHARS,
+    MAX_OUTCOME_CHARS, ProfileRef, RECORD_CONTRACT, ReadDecision, ReadSpan, ReaderRef, Record,
+    RecordBody, RecordKind, SourceType, SpanKind, TextSpan, TimeBasis, ToolCallDetails,
+    ToolOutcomeRecord, ToolStatus,
 };
 pub use timestamp::Timestamp;

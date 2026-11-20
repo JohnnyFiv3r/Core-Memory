@@ -3,17 +3,17 @@
 use std::collections::BTreeMap;
 
 use core_memory_contract::{
-    Abstention, CallId, CatalogRef, Checkpoint, CheckpointReceipt, ChunkFacets, ChunkId,
-    ChunkReadRecord, ChunkRecord, ChunkerRef, ErasureRecord, EventDetails, EventId, EventKey,
-    EventRecord, IdKey, ProfileRef, ReadDecision, ReadSpan, ReaderRef, Sha256Digest, SpanKind,
-    TimeBasis, Timestamp, TypeRef,
+    Abstention, BeadId, CallId, CatalogRef, Checkpoint, CheckpointReceipt, ChunkFacets, ChunkId,
+    ChunkReadRecord, ChunkRecord, ChunkerRef, CompressorRef, ErasureRecord, EventDetails, EventId,
+    EventKey, EventRecord, IdKey, ProfileRef, ReadDecision, ReadSpan, ReaderRef, Sha256Digest,
+    SpanKind, TimeBasis, Timestamp, ToolCallDetails, ToolOutcomeRecord, ToolStatus, TypeRef,
 };
 use core_memory_core::StoreError;
 use core_memory_core::store::{
-    AdmissionCommit, AdmissionWrite, CallFinish, CallFinished, Change, CheckpointAdvance,
-    CheckpointState, ExportedEvent, LeasedChunk, Permit, PermitRequest, PermittedChunk, PinKind,
-    PinResult, Purpose, ReadBatch, ScopeInfo, ScopeState, Store, StoredEvent, WorkCounts, WorkNext,
-    WorkUpdate,
+    AdmissionCommit, AdmissionWrite, BeadsOf, CallFinish, CallFinished, Change, CheckpointAdvance,
+    CheckpointState, ExportedEvent, LeasedChunk, LeasedToolCall, Permit, PermitRequest,
+    PermittedChunk, PinKind, PinResult, Purpose, ReadBatch, ScopeInfo, ScopeState, Sending, Store,
+    StoredEvent, WorkCounts, WorkItem, WorkNext, WorkUpdate,
 };
 use postgres::types::{Json, ToSql};
 use postgres::{Client, GenericClient, IsolationLevel, Row, SimpleQueryMessage, Transaction};
@@ -54,11 +54,23 @@ pub struct ScopeSummary {
     pub destinations: Vec<String>,
 }
 
+/// What [`PostgresStore::queue_reads`] queues again although a model has
+/// read it.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Reread<'a> {
+    /// Chunks whose reads were all made by another reader, or with another
+    /// vocabulary, than these.
+    pub chunks: Option<(&'a ReaderRef, &'a CatalogRef)>,
+    /// Tool calls whose outcomes were all written by another reader than
+    /// this one.
+    pub tool_calls: Option<&'a ReaderRef>,
+}
+
 /// How [`PostgresStore::queue_reads`] ended.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum QueuedReads {
-    /// This many chunks were added to the queue.
-    Queued(u64),
+    /// This many chunks and tool calls were added to the queue.
+    Queued { chunks: u64, tool_calls: u64 },
     /// Nothing is read for a scope that is not active. `None` means it is
     /// not enrolled.
     ScopeNotActive(Option<ScopeState>),
@@ -314,17 +326,16 @@ impl PostgresStore {
         Ok(row.get::<_, &str>(0) == "revoked")
     }
 
-    /// Queues live chunks of a scope to be read by a model: those no model
-    /// has read, and with `reread`, those whose reads were all made with
-    /// another binding revision or vocabulary than the one given. Chunks
-    /// already queued stay as they are.
+    /// Queues what a model has still to read in a scope's live events:
+    /// chunks no model has read and tool calls no model has read, and what
+    /// `reread` adds to them. Work already queued stays as it is.
     ///
     /// Admission queues what it stores while a reader is configured. This
     /// is for what was stored before one was, or before it changed.
     pub fn queue_reads(
         &mut self,
         scope: &str,
-        reread: Option<(&ReaderRef, &CatalogRef)>,
+        reread: Reread<'_>,
         at: Timestamp,
     ) -> Result<QueuedReads, StoreError> {
         let queued = self.write_queue(scope, reread, at);
@@ -334,7 +345,7 @@ impl PostgresStore {
     fn write_queue(
         &mut self,
         scope: &str,
-        reread: Option<(&ReaderRef, &CatalogRef)>,
+        reread: Reread<'_>,
         at: Timestamp,
     ) -> Result<QueuedReads, StoreError> {
         let mut tx = write_transaction(self.client()?)?;
@@ -347,26 +358,29 @@ impl PostgresStore {
             }
             Some(_) => {}
         }
-        let current = reread.map(|(reader, vocabulary)| {
+        let current = reread.chunks.map(|(reader, vocabulary)| {
             (
                 reader.binding_rev.as_bytes().as_slice(),
                 vocabulary.hash.as_bytes().as_slice(),
             )
         });
-        let queued = tx
+        let chunks = tx
             .execute(
                 "INSERT INTO core_memory.work
-                     (kind, chunk_id, workspace_id, scope, state, not_before, enqueued_at)
-                 SELECT 'chunk_read', c.chunk_id, e.workspace_id, e.scope, 'ready', $2, $2
+                     (kind, item_id, event_id, workspace_id, scope, state, not_before,
+                      enqueued_at)
+                 SELECT 'chunk_read', c.chunk_id, e.event_id, e.workspace_id, e.scope, 'ready',
+                        $2, $2
                    FROM core_memory.events AS e
                    JOIN core_memory.chunks AS c ON c.event_id = e.event_id
                   WHERE e.scope = $1 AND e.state = 'live'
+                    AND e.info ->> 'content_kind' <> 'tool_call'
                     AND NOT EXISTS (
                         SELECT 1 FROM core_memory.chunk_reads AS r
                          WHERE r.chunk_id = c.chunk_id
                            AND ($3::bytea IS NULL
                                 OR (r.binding_rev = $3 AND r.vocabulary_hash = $4)))
-                 ON CONFLICT (kind, chunk_id) DO NOTHING",
+                 ON CONFLICT (kind, item_id) DO NOTHING",
                 &[
                     &scope,
                     &at.0,
@@ -375,8 +389,30 @@ impl PostgresStore {
                 ],
             )
             .map_err(backend)?;
+        // A tool call is read whole, so its work is one item for the event.
+        let tool_reader = reread
+            .tool_calls
+            .map(|reader| reader.binding_rev.as_bytes().as_slice());
+        let tool_calls = tx
+            .execute(
+                "INSERT INTO core_memory.work
+                     (kind, item_id, event_id, workspace_id, scope, state, not_before,
+                      enqueued_at)
+                 SELECT 'tool_read', e.event_id, e.event_id, e.workspace_id, e.scope, 'ready',
+                        $2, $2
+                   FROM core_memory.events AS e
+                  WHERE e.scope = $1 AND e.state = 'live'
+                    AND e.info ->> 'content_kind' = 'tool_call'
+                    AND NOT EXISTS (
+                        SELECT 1 FROM core_memory.tool_outcomes AS t
+                         WHERE t.event_id = e.event_id
+                           AND ($3::bytea IS NULL OR t.binding_rev = $3))
+                 ON CONFLICT (kind, item_id) DO NOTHING",
+                &[&scope, &at.0, &tool_reader],
+            )
+            .map_err(backend)?;
         tx.commit().map_err(backend)?;
-        Ok(QueuedReads::Queued(queued))
+        Ok(QueuedReads::Queued { chunks, tool_calls })
     }
 
     /// Puts reads that were set aside as failed back in the queue, with
@@ -398,8 +434,7 @@ impl PostgresStore {
             .execute(
                 "UPDATE core_memory.work
                     SET state = 'ready', attempts = 0, not_before = $2, problem = NULL
-                  WHERE kind = 'chunk_read' AND state = 'failed'
-                    AND ($1::text IS NULL OR scope = $1)",
+                  WHERE state = 'failed' AND ($1::text IS NULL OR scope = $1)",
                 &[&scope, &at.0],
             )
             .map_err(backend)?;
@@ -821,6 +856,16 @@ impl Store for PostgresStore {
         self.settled(claimed)
     }
 
+    fn claim_tool_read(
+        &mut self,
+        max_attempts: u32,
+        now: Timestamp,
+        lease_until: Timestamp,
+    ) -> Result<Option<LeasedToolCall>, StoreError> {
+        let claimed = self.write_claim_tool(max_attempts, now, lease_until);
+        self.settled(claimed)
+    }
+
     fn permit(&mut self, request: &PermitRequest<'_>) -> Result<Permit, StoreError> {
         let permit = self.write_permit(request);
         self.settled(permit)
@@ -831,8 +876,8 @@ impl Store for PostgresStore {
         self.settled(finished)
     }
 
-    fn update_work(&mut self, purpose: Purpose, work: &[WorkUpdate]) -> Result<(), StoreError> {
-        let updated = self.write_work(purpose, work);
+    fn update_work(&mut self, work: &[WorkUpdate]) -> Result<(), StoreError> {
+        let updated = self.write_work(work);
         self.settled(updated)
     }
 
@@ -882,7 +927,9 @@ impl PostgresStore {
 
         // The scope must be active for as long as this transaction runs.
         // One number for the event and one for each bead.
-        let event_seq = match begin_write(&mut tx, scope, Some(chunk_count + 1))? {
+        let beads = i32::try_from(w.beads.count(w.chunks.len()))
+            .map_err(|_| corrupt("an event has too many chunks"))?;
+        let event_seq = match begin_write(&mut tx, scope, Some(beads + 1))? {
             None => return Ok(AdmissionCommit::ScopeNotActive(None)),
             Some(writing) if writing.state != ScopeState::Active => {
                 return Ok(AdmissionCommit::ScopeNotActive(Some(writing.state)));
@@ -1003,39 +1050,79 @@ impl PostgresStore {
             &[&scope, &ids, &texts, &hashes, &facets],
         )
         .map_err(backend)?;
-        if w.queue_reads {
-            // The queue holds IDs only. The text is read when a call is
-            // permitted, so erasing it in between leaves nothing to send.
-            tx.execute(
-                "INSERT INTO core_memory.work
-                     (kind, chunk_id, workspace_id, scope, state, not_before, enqueued_at)
-                 SELECT 'chunk_read', c, $1, $2, 'ready', $3, $3 FROM UNNEST($4::uuid[]) AS u (c)",
-                &[&w.workspace, &scope, &w.captured_at.0, &ids],
-            )
-            .map_err(backend)?;
+        // The queue holds IDs only. The text is read when a call is
+        // permitted, so erasing it in between leaves nothing to send.
+        match w.queue {
+            None => {}
+            Some(Purpose::ChunkRead) => {
+                tx.execute(
+                    "INSERT INTO core_memory.work
+                         (kind, item_id, event_id, workspace_id, scope, state, not_before,
+                          enqueued_at)
+                     SELECT 'chunk_read', c, $1, $2, $3, 'ready', $4, $4
+                       FROM UNNEST($5::uuid[]) AS u (c)",
+                    &[&w.event_id.0, &w.workspace, &scope, &w.captured_at.0, &ids],
+                )
+                .map_err(backend)?;
+            }
+            Some(Purpose::ToolRead) => {
+                tx.execute(
+                    "INSERT INTO core_memory.work
+                         (kind, item_id, event_id, workspace_id, scope, state, not_before,
+                          enqueued_at)
+                     VALUES ('tool_read', $1, $1, $2, $3, 'ready', $4, $4)",
+                    &[&w.event_id.0, &w.workspace, &scope, &w.captured_at.0],
+                )
+                .map_err(backend)?;
+            }
         }
-        // Every chunk of a message is a bead, in chunk order, numbered
-        // straight after the event.
-        tx.execute(
-            "INSERT INTO core_memory.beads (
-                 bead_id, workspace_id, scope, kind, state, event_id, chunk_id,
-                 created_by, time_at, time_basis, created_at, seq
-             )
-             SELECT c, $1, $2, 'chunk', 'live', $3, c, 'engine', $4, $5, $6, $8 + n
-               FROM UNNEST($7::uuid[]) WITH ORDINALITY AS u (c, n)
-              ORDER BY n",
-            &[
-                &w.workspace,
-                &scope,
-                &w.event_id.0,
-                &w.time_at.0,
-                &w.time_basis.as_str(),
-                &w.captured_at.0,
-                &ids,
-                &event_seq,
-            ],
-        )
-        .map_err(backend)?;
+        match w.beads {
+            // Every chunk of a message is a bead, in chunk order, numbered
+            // straight after the event.
+            BeadsOf::Chunks => {
+                tx.execute(
+                    "INSERT INTO core_memory.beads (
+                         bead_id, workspace_id, scope, kind, state, event_id, chunk_id,
+                         created_by, time_at, time_basis, created_at, seq
+                     )
+                     SELECT c, $1, $2, 'chunk', 'live', $3, c, 'engine', $4, $5, $6, $8 + n
+                       FROM UNNEST($7::uuid[]) WITH ORDINALITY AS u (c, n)
+                      ORDER BY n",
+                    &[
+                        &w.workspace,
+                        &scope,
+                        &w.event_id.0,
+                        &w.time_at.0,
+                        &w.time_basis.as_str(),
+                        &w.captured_at.0,
+                        &ids,
+                        &event_seq,
+                    ],
+                )
+                .map_err(backend)?;
+            }
+            // A tool call is one bead, with its event's ID.
+            BeadsOf::Event => {
+                tx.execute(
+                    "INSERT INTO core_memory.beads (
+                         bead_id, workspace_id, scope, kind, state, event_id, chunk_id,
+                         created_by, time_at, time_basis, created_at, seq
+                     )
+                     VALUES ($3, $1, $2, 'tool', 'live', $3, NULL, 'engine', $4, $5, $6,
+                             $7::int8 + 1)",
+                    &[
+                        &w.workspace,
+                        &scope,
+                        &w.event_id.0,
+                        &w.time_at.0,
+                        &w.time_basis.as_str(),
+                        &w.captured_at.0,
+                        &event_seq,
+                    ],
+                )
+                .map_err(backend)?;
+            }
+        }
 
         let checkpoint = match w.checkpoint {
             None => None,
@@ -1150,9 +1237,9 @@ impl PostgresStore {
         // to it.
         let mut tx = read_transaction(self.client()?)?;
         let after = to_i64(after, "export position")?;
-        // The next `limit` changes across the three numbered tables. A read
-        // exists only while its event is live, so no state check is needed
-        // for it.
+        // The next `limit` changes across the numbered tables that are
+        // exported. A read or a tool outcome exists only while its event
+        // is live, so no state check is needed for it.
         let page = tx
             .query(
                 "SELECT seq FROM (
@@ -1163,6 +1250,10 @@ impl PostgresStore {
                      SELECT r.seq FROM core_memory.chunk_reads AS r
                       WHERE r.workspace_id = $1 AND r.seq > $2
                         AND ($3::text IS NULL OR r.scope = $3)
+                     UNION ALL
+                     SELECT t.seq FROM core_memory.tool_outcomes AS t
+                      WHERE t.workspace_id = $1 AND t.seq > $2
+                        AND ($3::text IS NULL OR t.scope = $3)
                      UNION ALL
                      SELECT j.seq FROM core_memory.erasures AS j
                       WHERE j.workspace_id = $1 AND j.seq > $2
@@ -1369,6 +1460,54 @@ impl PostgresStore {
             );
         }
 
+        // ---- tool outcomes ----
+        let rows = tx
+            .query(
+                "SELECT seq, event_id, scope, call_id, status, action, outcome, compressor_id,
+                        compressor_rev, compressed_bytes, binding_id, binding_rev, model,
+                        prompt_rev, read_at
+                   FROM core_memory.tool_outcomes
+                  WHERE workspace_id = $1 AND seq > $2 AND seq <= $3
+                    AND ($4::text IS NULL OR scope = $4)
+                  ORDER BY seq",
+                &[&workspace, &after, &last, &scope],
+            )
+            .map_err(backend)?;
+        for row in &rows {
+            let event_id = EventId(row.get::<_, Uuid>(1));
+            let status: &str = row.get(4);
+            let outcome = ToolOutcomeRecord {
+                event_id,
+                bead_id: BeadId::from(event_id),
+                workspace: workspace.to_string(),
+                seq: to_u64(row.get(0), "change number")?,
+                status: ToolStatus::from_name(status)
+                    .ok_or_else(|| corrupt(format!("unknown tool status `{status}`")))?,
+                action: row.get(5),
+                outcome: row.get(6),
+                compressor: CompressorRef {
+                    id: row.get(7),
+                    rev: to_u32(row.get(8), "compressor revision")?,
+                },
+                compressed_bytes: to_u64(row.get(9), "compressed bytes")?,
+                reader: ReaderRef {
+                    binding_id: row.get(10),
+                    binding_rev: digest(row.get(11), "binding revision")?,
+                    model: row.get(12),
+                    prompt_rev: to_u32(row.get(13), "prompt revision")?,
+                },
+                call_id: CallId(row.get::<_, Uuid>(3)),
+                read_at: Timestamp(row.get::<_, OffsetDateTime>(14)),
+            };
+            changes.insert(
+                outcome.seq,
+                Change::ToolOutcome {
+                    scope: row.get(2),
+                    outcome: Box::new(outcome),
+                },
+            );
+        }
+
         // ---- erasures ----
         let rows = tx
             .query(
@@ -1421,13 +1560,13 @@ impl PostgresStore {
         let Some(head) = tx
             .query_opt(
                 &format!(
-                    "SELECT w.chunk_id, w.scope, w.workspace_id, w.alone,
+                    "SELECT w.item_id, w.scope, w.workspace_id, w.alone,
                             e.profile_id, e.profile_rev, e.seq, c.ordinal
                        FROM core_memory.work AS w
-                       JOIN core_memory.chunks AS c ON c.chunk_id = w.chunk_id
+                       JOIN core_memory.chunks AS c ON c.chunk_id = w.item_id
                        JOIN core_memory.events AS e ON e.event_id = c.event_id
                       WHERE {DUE}
-                      ORDER BY w.not_before, w.enqueued_at, w.chunk_id
+                      ORDER BY w.not_before, w.enqueued_at, w.item_id
                       LIMIT 1
                         FOR UPDATE OF w SKIP LOCKED"
                 ),
@@ -1447,11 +1586,11 @@ impl PostgresStore {
             let rest = tx
                 .query(
                     &format!(
-                        "SELECT w.chunk_id, e.seq, c.ordinal
+                        "SELECT w.item_id, e.seq, c.ordinal
                            FROM core_memory.work AS w
-                           JOIN core_memory.chunks AS c ON c.chunk_id = w.chunk_id
+                           JOIN core_memory.chunks AS c ON c.chunk_id = w.item_id
                            JOIN core_memory.events AS e ON e.event_id = c.event_id
-                          WHERE {DUE} AND w.scope = $2 AND NOT w.alone AND w.chunk_id <> $3
+                          WHERE {DUE} AND w.scope = $2 AND NOT w.alone AND w.item_id <> $3
                             AND e.profile_id = $4 AND e.profile_rev = $5
                           ORDER BY e.seq, c.ordinal
                           LIMIT $6
@@ -1477,8 +1616,8 @@ impl PostgresStore {
             .query(
                 "UPDATE core_memory.work
                     SET state = 'leased', leased_until = $1, attempts = attempts + 1
-                  WHERE kind = 'chunk_read' AND chunk_id = ANY ($2)
-              RETURNING chunk_id, attempts",
+                  WHERE kind = 'chunk_read' AND item_id = ANY ($2)
+              RETURNING item_id, attempts",
                 &[&lease_until.0, &ids],
             )
             .map_err(backend)?;
@@ -1502,6 +1641,66 @@ impl PostgresStore {
                 rev: to_u32(profile_rev, "profile revision")?,
             },
             chunks,
+        }))
+    }
+
+    fn write_claim_tool(
+        &mut self,
+        max_attempts: u32,
+        now: Timestamp,
+        lease_until: Timestamp,
+    ) -> Result<Option<LeasedToolCall>, StoreError> {
+        let mut tx = write_transaction(self.client()?)?;
+        hold_schema(&mut tx)?;
+        set_aside_spent(&mut tx, Purpose::ToolRead, max_attempts, now)?;
+        // One tool call to a model call. A lease that ran out is claimed
+        // like ready work.
+        let Some(head) = tx
+            .query_opt(
+                "SELECT w.item_id, w.scope, w.workspace_id, e.info -> 'tool_call',
+                        ARRAY(SELECT c.chunk_id FROM core_memory.chunks AS c
+                               WHERE c.event_id = e.event_id ORDER BY c.ordinal)
+                   FROM core_memory.work AS w
+                   JOIN core_memory.events AS e ON e.event_id = w.item_id
+                  WHERE w.kind = 'tool_read'
+                    AND (w.state = 'ready' OR (w.state = 'leased' AND w.leased_until < $1))
+                    AND w.not_before <= $1
+                  ORDER BY w.not_before, w.enqueued_at, w.item_id
+                  LIMIT 1
+                    FOR UPDATE OF w SKIP LOCKED",
+                &[&now.0],
+            )
+            .map_err(backend)?
+        else {
+            // Nothing is due. What was set aside above still is.
+            tx.commit().map_err(backend)?;
+            return Ok(None);
+        };
+        let event_id = EventId(head.get::<_, Uuid>(0));
+        let Json(tool_call): Json<ToolCallDetails> = head
+            .try_get::<_, Option<Json<ToolCallDetails>>>(3)
+            .ok()
+            .flatten()
+            .ok_or_else(|| corrupt(format!("tool call {event_id} has no tool details")))?;
+        let chunk_ids: Vec<Uuid> = head.get(4);
+        let attempts: i32 = tx
+            .query_one(
+                "UPDATE core_memory.work
+                    SET state = 'leased', leased_until = $1, attempts = attempts + 1
+                  WHERE kind = 'tool_read' AND item_id = $2
+              RETURNING attempts",
+                &[&lease_until.0, &event_id.0],
+            )
+            .map_err(backend)?
+            .get(0);
+        tx.commit().map_err(backend)?;
+        Ok(Some(LeasedToolCall {
+            scope: head.get(1),
+            workspace: head.get(2),
+            event_id,
+            chunk_ids: chunk_ids.into_iter().map(ChunkId).collect(),
+            tool_call,
+            attempts: to_u32(attempts, "attempts")?,
         }))
     }
 
@@ -1559,8 +1758,16 @@ impl PostgresStore {
                 role: row.get(2),
             })
             .collect();
-        let bytes: u64 = chunks.iter().map(|c| c.text.len() as u64).sum();
-        let reserved = request.reserved_for(bytes);
+        // What will leave, which for a tool call is less than what is
+        // stored, and what it may cost. Text that cannot be sent as it is
+        // gets no permit and no receipt.
+        let Some(Sending {
+            bytes,
+            reserved_tokens: reserved,
+        }) = (request.sending)(&chunks)
+        else {
+            return Ok(Permit::Unsendable);
+        };
         if let Some(budget) = request.budget {
             let spent = tx
                 .query_one(
@@ -1615,12 +1822,18 @@ impl PostgresStore {
     }
 
     fn write_finish(&mut self, f: &CallFinish<'_>) -> Result<CallFinished, StoreError> {
-        let take = match i32::try_from(f.reads.len()) {
+        // One number for each read, and one for a tool call's outcome.
+        let take = match i32::try_from(f.reads.len() + usize::from(f.tool_outcome.is_some())) {
             Ok(0) => None,
             Ok(n) => Some(n),
             Err(_) => return Err(corrupt("a call read too many chunks")),
         };
-        let offered = f.reads.len() as u32;
+        let vocabulary = match (f.reads.is_empty(), f.vocabulary) {
+            (true, _) => None,
+            (false, Some(vocabulary)) => Some(vocabulary),
+            (false, None) => return Err(corrupt("reads were offered without a vocabulary")),
+        };
+        let offered = (f.reads.len() + usize::from(f.tool_outcome.is_some())) as u32;
         let mut tx = write_transaction(self.client()?)?;
         let writing = begin_write(&mut tx, f.scope, take)?;
         // A provider's own count of tokens is a number from outside. One
@@ -1648,7 +1861,8 @@ impl PostgresStore {
             // stored and settled stands, and nothing is stored twice.
             let stored: i64 = tx
                 .query_one(
-                    "SELECT count(*) FROM core_memory.chunk_reads WHERE call_id = $1",
+                    "SELECT (SELECT count(*) FROM core_memory.chunk_reads WHERE call_id = $1)
+                          + (SELECT count(*) FROM core_memory.tool_outcomes WHERE call_id = $1)",
                     &[&f.call_id.0],
                 )
                 .map_err(backend)?
@@ -1670,7 +1884,59 @@ impl PostgresStore {
         let numbered = writing
             .filter(|w| w.state == ScopeState::Active)
             .and_then(|w| w.first_seq.map(|seq| (w.workspace, seq)));
-        if let Some((workspace, first_seq)) = numbered {
+        if let (Some((workspace, first_seq)), Some(outcome)) = (&numbered, f.tool_outcome) {
+            // Only for the event the call's receipt names, and only while
+            // it still has its text: erasing a tool call while the model
+            // read it leaves nothing behind.
+            let stored = tx
+                .execute(
+                    "INSERT INTO core_memory.tool_outcomes (
+                         workspace_id, seq, event_id, scope, call_id, status, action, outcome,
+                         compressor_id, compressor_rev, compressed_bytes, binding_id,
+                         binding_rev, model, prompt_rev, read_at
+                     )
+                     SELECT $1, $2, e.event_id, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
+                            $14, $15
+                       FROM core_memory.events AS e
+                      WHERE e.event_id = $16 AND e.scope = $3 AND e.state = 'live'
+                        AND EXISTS (
+                            SELECT 1 FROM core_memory.outbound_calls AS o
+                             WHERE o.call_id = $4 AND o.scope = $3 AND o.purpose = 'tool_read'
+                               AND o.chunk_ids <@ ARRAY(
+                                   SELECT c.chunk_id FROM core_memory.chunks AS c
+                                    WHERE c.event_id = e.event_id))",
+                    &[
+                        workspace,
+                        &(first_seq + f.reads.len() as i64),
+                        &f.scope,
+                        &f.call_id.0,
+                        &outcome.status.as_str(),
+                        &outcome.action,
+                        &outcome.outcome,
+                        &outcome.compressor.id,
+                        &to_i32(outcome.compressor.rev, "compressor revision")?,
+                        &to_i64(outcome.compressed_bytes, "compressed bytes")?,
+                        &f.reader.binding_id,
+                        &f.reader.binding_rev.as_bytes().as_slice(),
+                        &f.reader.model,
+                        &to_i32(f.reader.prompt_rev, "prompt revision")?,
+                        &f.at.0,
+                        &outcome.event_id.0,
+                    ],
+                )
+                .map_err(backend)?;
+            if stored == 1 {
+                // What was read is no longer owed.
+                tx.execute(
+                    "DELETE FROM core_memory.work WHERE kind = 'tool_read' AND item_id = $1",
+                    &[&outcome.event_id.0],
+                )
+                .map_err(backend)?;
+                finished.stored += 1;
+                finished.dropped -= 1;
+            }
+        }
+        if let (Some((workspace, first_seq)), Some(vocabulary)) = (numbered, vocabulary) {
             let mut ids = Vec::with_capacity(f.reads.len());
             let mut statuses = Vec::with_capacity(f.reads.len());
             let mut type_keys: Vec<Option<&str>> = Vec::with_capacity(f.reads.len());
@@ -1721,8 +1987,8 @@ impl PostgresStore {
                         &first_seq,
                         &f.scope,
                         &f.call_id.0,
-                        &f.vocabulary.id,
-                        &f.vocabulary.hash.as_bytes().as_slice(),
+                        &vocabulary.id,
+                        &vocabulary.hash.as_bytes().as_slice(),
                         &f.reader.binding_id,
                         &f.reader.binding_rev.as_bytes().as_slice(),
                         &f.reader.model,
@@ -1784,22 +2050,22 @@ impl PostgresStore {
             // What was read is no longer owed.
             let done: Vec<Uuid> = seq_of.keys().copied().collect();
             tx.execute(
-                "DELETE FROM core_memory.work WHERE kind = 'chunk_read' AND chunk_id = ANY ($1)",
+                "DELETE FROM core_memory.work WHERE kind = 'chunk_read' AND item_id = ANY ($1)",
                 &[&done],
             )
             .map_err(backend)?;
-            finished.stored = done.len() as u32;
-            finished.dropped = (f.reads.len() - done.len()) as u32;
+            finished.stored += done.len() as u32;
+            finished.dropped -= done.len() as u32;
         }
-        update_work(&mut tx, Purpose::ChunkRead, f.work)?;
+        update_work(&mut tx, f.work)?;
         tx.commit().map_err(backend)?;
         Ok(finished)
     }
 
-    fn write_work(&mut self, purpose: Purpose, work: &[WorkUpdate]) -> Result<(), StoreError> {
+    fn write_work(&mut self, work: &[WorkUpdate]) -> Result<(), StoreError> {
         let mut tx = write_transaction(self.client()?)?;
         hold_schema(&mut tx)?;
-        update_work(&mut tx, purpose, work)?;
+        update_work(&mut tx, work)?;
         tx.commit().map_err(backend)
     }
 
@@ -1847,7 +2113,7 @@ fn set_aside_spent<C: GenericClient>(
 ) -> Result<(), StoreError> {
     tx.execute(
         "WITH spent AS (
-             SELECT w.kind, w.chunk_id
+             SELECT w.kind, w.item_id
                FROM core_memory.work AS w
               WHERE w.kind = $1 AND w.attempts >= $2
                 AND (w.state = 'ready' OR (w.state = 'leased' AND w.leased_until < $3))
@@ -1857,7 +2123,7 @@ fn set_aside_spent<C: GenericClient>(
          UPDATE core_memory.work AS w
             SET state = 'failed', leased_until = NULL, problem = 'attempts_spent'
            FROM spent
-          WHERE w.kind = spent.kind AND w.chunk_id = spent.chunk_id",
+          WHERE w.kind = spent.kind AND w.item_id = spent.item_id",
         &[
             &kind.as_str(),
             &i32::try_from(max_attempts).unwrap_or(i32::MAX),
@@ -1868,16 +2134,20 @@ fn set_aside_spent<C: GenericClient>(
     Ok(())
 }
 
-/// Puts work back in the queue, or sets it aside as failed.
-fn update_work<C: GenericClient>(
-    client: &mut C,
-    purpose: Purpose,
-    work: &[WorkUpdate],
-) -> Result<(), StoreError> {
+/// Puts work back in the queue, or sets it aside as failed. Each item says
+/// which kind of work it is.
+fn update_work<C: GenericClient>(client: &mut C, work: &[WorkUpdate]) -> Result<(), StoreError> {
     if work.is_empty() {
         return Ok(());
     }
-    let ids: Vec<Uuid> = work.iter().map(|w| w.chunk_id.0).collect();
+    let kinds: Vec<&str> = work.iter().map(|w| w.item.purpose().as_str()).collect();
+    let ids: Vec<Uuid> = work
+        .iter()
+        .map(|w| match w.item {
+            WorkItem::Chunk(chunk_id) => chunk_id.0,
+            WorkItem::ToolCall(event_id) => event_id.0,
+        })
+        .collect();
     let problems: Vec<&str> = work.iter().map(|w| w.problem).collect();
     let mut states = Vec::with_capacity(work.len());
     let mut give_back = Vec::with_capacity(work.len());
@@ -1904,12 +2174,12 @@ fn update_work<C: GenericClient>(
                     alone = w.alone OR u.alone,
                     not_before = coalesce(u.not_before, w.not_before),
                     problem = u.problem
-               FROM UNNEST($2::uuid[], $3::text[], $4::bool[], $5::bool[], $6::timestamptz[],
-                           $7::text[])
-                    AS u (chunk_id, state, give_back, alone, not_before, problem)
-              WHERE w.kind = $1 AND w.chunk_id = u.chunk_id",
+               FROM UNNEST($1::text[], $2::uuid[], $3::text[], $4::bool[], $5::bool[],
+                           $6::timestamptz[], $7::text[])
+                    AS u (kind, item_id, state, give_back, alone, not_before, problem)
+              WHERE w.kind = u.kind AND w.item_id = u.item_id",
             &[
-                &purpose.as_str(),
+                &kinds,
                 &ids,
                 &states,
                 &give_back,

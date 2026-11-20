@@ -46,7 +46,8 @@ pub fn chunk_facets(text: &str, kind: ContentKind, identifiers: &[(String, Regex
                 .filter(whatlang::Info::is_reliable)
                 .map(|info| info.lang().code().to_string())
         }
-        ContentKind::Json => None,
+        // A record's or a tool's text is not prose in one language.
+        ContentKind::Json | ContentKind::ToolCall => None,
     };
 
     extractors.insert("urls".to_string(), URLS_REV);

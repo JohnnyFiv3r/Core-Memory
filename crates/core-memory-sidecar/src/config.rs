@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use core_memory_contract::Sha256Digest;
 use core_memory_core::read::ReaderConfig;
+use core_memory_core::tool::ToolReaderConfig;
 use core_memory_core::{
     BindingConfig, EngineConfig, Limits, ScopeGrants, SourceProfile, Vocabulary, is_identifier,
 };
@@ -29,6 +30,10 @@ pub struct SidecarConfig {
     /// Has a model read each chunk. Without it the engine calls no model.
     #[serde(default)]
     pub reader: Option<ReaderConfig>,
+    /// Has a model read each tool call. Without it tool calls are stored
+    /// and not read.
+    #[serde(default)]
+    pub tool_reader: Option<ToolReaderConfig>,
     /// The models the engine may call.
     #[serde(default, rename = "binding")]
     pub bindings: Vec<BindingConfig>,
@@ -434,6 +439,7 @@ impl Loaded {
             profiles: self.config.profiles.clone(),
             limits: self.config.limits,
             reader: self.config.reader.clone(),
+            tool_reader: self.config.tool_reader.clone(),
             bindings: self.config.bindings.clone(),
         }
     }

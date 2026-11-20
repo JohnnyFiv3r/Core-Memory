@@ -19,4 +19,4 @@ pub mod testing;
 pub use connect::{ConnectConfig, MAX_CONNECT_TIMEOUT, MAX_STATEMENT_TIMEOUT};
 pub use migrate::{MigrationReport, SCHEMA_VERSION};
 pub use pool::{CheckoutError, PoolStore, Pooled, PostgresPool};
-pub use store::{Enrollment, EraseOutcome, PostgresStore, QueuedReads, ScopeSummary};
+pub use store::{Enrollment, EraseOutcome, PostgresStore, QueuedReads, Reread, ScopeSummary};

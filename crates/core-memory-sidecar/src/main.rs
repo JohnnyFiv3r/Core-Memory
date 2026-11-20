@@ -21,7 +21,7 @@ use core_memory_sidecar::report::{self, Stop};
 use core_memory_sidecar::runtime::{Runtime, build_engine, check_binding, open_store};
 use core_memory_sidecar::{openapi, server};
 use core_memory_source_jsonl::{JsonlSource, SourceItem};
-use core_memory_store_postgres::{Enrollment, EraseOutcome, QueuedReads};
+use core_memory_store_postgres::{Enrollment, EraseOutcome, QueuedReads, Reread};
 use serde_json::json;
 
 /// Tries per event before an unavailable store is reported as busy.
@@ -32,6 +32,9 @@ const EXPORT_PAGE: u32 = 500;
 /// Events erased per transaction by `erase scope`. Each transaction holds
 /// the scope's workspace, so it is kept short.
 const ERASE_BATCH: u32 = 1_000;
+
+/// The kinds of work a model does, in the order they are reported.
+const PURPOSES: [Purpose; 2] = [Purpose::ChunkRead, Purpose::ToolRead];
 
 /// Exit status when no event is stored under the ID that was named. 2 is a
 /// usage error.
@@ -71,8 +74,10 @@ enum Command {
         #[command(subcommand)]
         command: ScopeCommand,
     },
-    /// Have a model read stored chunks: each chunk's type, and where its
-    /// entities, actions and outcomes are. Needs a [reader] in the config.
+    /// Have a model read what is stored. Of each chunk: its type, and where
+    /// its entities, actions and outcomes are, which needs a [reader] in
+    /// the config. Of each tool call: what it did and what came of it,
+    /// which needs a [tool_reader].
     Read {
         #[command(subcommand)]
         command: ReadCommand,
@@ -182,19 +187,20 @@ struct Destination {
 
 #[derive(Subcommand)]
 enum ReadCommand {
-    /// Read every chunk that is due now, then stop. Prints one line per
-    /// model call batch. Chunks whose scope has not allowed the reader's
-    /// destination are put off, not read.
+    /// Read everything that is due now, then stop. Prints one line per
+    /// batch of chunks and per tool call. Work whose scope has not allowed
+    /// the reader's destination is put off, not read.
     Run,
-    /// Show how many chunks are queued, being read and set aside as failed.
+    /// Show how much is queued, being read and set aside as failed: one
+    /// line for chunks and one for tool calls.
     Status,
-    /// Queue a scope's chunks that no model has read. Admission queues new
-    /// chunks itself; this is for what was stored before a reader was
-    /// configured.
+    /// Queue a scope's chunks and tool calls that no model has read.
+    /// Admission queues what it stores itself; this is for what was stored
+    /// before a reader was configured. Prints one line for each kind.
     Queue {
         scope: String,
-        /// Also queue chunks whose reads were all made with another model,
-        /// prompt or vocabulary than the configured ones.
+        /// Also queue what was only read with another model or prompt than
+        /// the configured reader's, or, for chunks, another vocabulary.
         #[arg(long)]
         reread: bool,
     },
@@ -363,8 +369,10 @@ fn read(config_path: &Path, command: ReadCommand) -> Result<ExitCode, Stop> {
     let now = SystemClock.now().truncated_to_micros();
     match command {
         ReadCommand::Run => {
-            let mut reader = Reader::open(&loaded, Arc::clone(&engine))?
-                .ok_or("add a [reader] section to the config to have a model read chunks")?;
+            let mut reader = Reader::open(&loaded, Arc::clone(&engine))?.ok_or(
+                "add a [reader] section to the config to have a model read chunks, \
+                 or a [tool_reader] section to have one read tool calls",
+            )?;
             report::log(reader.describe());
             let stdout = io::stdout();
             let mut out = stdout.lock();
@@ -379,49 +387,73 @@ fn read(config_path: &Path, command: ReadCommand) -> Result<ExitCode, Stop> {
                 .map_err(report::not_written)?;
             // What is left is due later: its scope has not allowed the
             // destination, the day's budget is spent, or a call failed.
-            let left = open_store(&loaded)?.work_counts(Purpose::ChunkRead)?;
+            let mut store = open_store(&loaded)?;
+            let mut left = serde_json::Map::new();
+            for purpose in PURPOSES {
+                let counts = store.work_counts(purpose)?;
+                left.insert(
+                    purpose.as_str().to_string(),
+                    json!({"ready": counts.ready, "leased": counts.leased, "failed": counts.failed}),
+                );
+            }
             report::log(json!({
                 "read": {
-                    "batches": totals.batches,
+                    "rounds": totals.rounds,
                     "chunks": totals.chunks,
+                    "tool_calls": totals.tool_calls,
                     "stored": totals.stored,
                     "calls": totals.calls,
                     "input_tokens": totals.input_tokens,
                     "output_tokens": totals.output_tokens,
                 },
-                "queued": {"ready": left.ready, "leased": left.leased, "failed": left.failed},
+                "queued": left,
             }));
         }
         ReadCommand::Status => {
             let mut store = open_store(&loaded)?;
             store.check()?;
-            let counts = store.work_counts(Purpose::ChunkRead)?;
-            let problems: BTreeMap<String, u64> = counts.problems.into_iter().collect();
-            report::print(json!({
-                "ready": counts.ready,
-                "leased": counts.leased,
-                "failed": counts.failed,
-                "problems": problems,
-            }))?;
+            for purpose in PURPOSES {
+                let counts = store.work_counts(purpose)?;
+                let problems: BTreeMap<String, u64> = counts.problems.into_iter().collect();
+                report::print(json!({
+                    "work": purpose.as_str(),
+                    "ready": counts.ready,
+                    "leased": counts.leased,
+                    "failed": counts.failed,
+                    "problems": problems,
+                }))?;
+            }
         }
         ReadCommand::Queue { scope, reread } => {
-            let current = match (reread, engine.reader(), engine.vocabulary()) {
-                (false, _, _) => None,
-                (true, Some(reader), Some(vocabulary)) => {
-                    Some((&reader.reader_ref, vocabulary.catalog()))
+            // What was read by the configured readers stays read. A kind
+            // with no reader configured has nothing to compare against,
+            // and only what was never read of it is queued.
+            let mut again = Reread::default();
+            if reread {
+                if let (Some(reader), Some(vocabulary)) = (engine.reader(), engine.vocabulary()) {
+                    again.chunks = Some((&reader.reader_ref, vocabulary.catalog()));
                 }
-                (true, _, _) => {
+                again.tool_calls = engine.tool_reader().map(|reader| &reader.reader_ref);
+                if again.chunks.is_none() && again.tool_calls.is_none() {
                     return Err(
-                        "--reread compares against the configured reader; add a [reader] section"
+                        "--reread compares against the configured readers; add a [reader] or a \
+                         [tool_reader] section"
                             .into(),
                     );
                 }
-            };
+            }
             let mut store = open_store(&loaded)?;
             store.check()?;
-            match store.queue_reads(&scope, current, now)? {
-                QueuedReads::Queued(queued) => {
-                    report::print(json!({"scope": scope, "queued": queued}))?;
+            match store.queue_reads(&scope, again, now)? {
+                QueuedReads::Queued { chunks, tool_calls } => {
+                    for (purpose, queued) in [
+                        (Purpose::ChunkRead, chunks),
+                        (Purpose::ToolRead, tool_calls),
+                    ] {
+                        report::print(
+                            json!({"scope": scope, "work": purpose.as_str(), "queued": queued}),
+                        )?;
+                    }
                 }
                 QueuedReads::ScopeNotActive(None) => {
                     return Err(Stop::Failed(format!("scope `{scope}` is not enrolled")));
@@ -580,6 +612,9 @@ fn export(
                             .collect()
                     }
                     Change::Read { scope, read } => vec![Record::chunk_read(scope, *read)],
+                    Change::ToolOutcome { scope, outcome } => {
+                        vec![Record::tool_outcome(scope, *outcome)]
+                    }
                     Change::Erasure { scope, erasure } => vec![Record::erasure(scope, erasure)],
                 };
                 for record in records {
@@ -603,6 +638,7 @@ fn record_kind(record: &Record) -> &'static str {
         RecordKind::Event => "events",
         RecordKind::Chunk => "chunks",
         RecordKind::ChunkRead => "chunk_reads",
+        RecordKind::ToolOutcome => "tool_outcomes",
         RecordKind::Erasure => "erasures",
     }
 }
@@ -787,6 +823,11 @@ fn check(config_path: &Path) -> Result<ExitCode, Stop> {
         report::print(
             json!({"reader": {"binding": reader.binding.id, "destination": reader.destination}}),
         )?;
+    }
+    if let Some(reader) = engine.tool_reader() {
+        report::print(json!({
+            "tool_reader": {"binding": reader.binding.id, "destination": reader.destination}
+        }))?;
     }
     for p in engine.registry().iter() {
         report::print(json!({

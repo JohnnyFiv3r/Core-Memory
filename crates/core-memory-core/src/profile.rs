@@ -68,7 +68,8 @@ fn default_max_event_bytes() -> u64 {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ChunkerSettings {
-    /// `text.structural` for text content, `json.whole` for JSON content.
+    /// `text.structural` for text content and tool calls, `json.whole` for
+    /// JSON content.
     pub id: String,
     /// Bump whenever the settings change. Chunk IDs include it (CHK-05).
     pub rev: u32,
@@ -155,7 +156,8 @@ impl CompiledProfile {
             return Err(err("chunker rev must be 1 or more".into()));
         }
         let (chunker, algorithm_rev) = match (def.content, settings.id.as_str()) {
-            (ContentKind::Text, TEXT_ALGORITHM) => {
+            // A tool call is stored as text and cut like text.
+            (ContentKind::Text | ContentKind::ToolCall, TEXT_ALGORITHM) => {
                 let cfg = TextChunkerConfig {
                     max: settings.max,
                     unit: settings.unit,
@@ -275,6 +277,12 @@ pub fn builtin_profiles() -> Vec<SourceProfile> {
         text("core.plain_text", SourceType::Document, 2048),
         text("core.chat_transcript", SourceType::Transcript, 4096),
         text("core.document", SourceType::Document, 2048),
+        // One call of a tool by an agent. Its text is kept for reference
+        // and cut in larger pieces: a model reads the call as a whole.
+        SourceProfile {
+            content: ContentKind::ToolCall,
+            ..text("core.tool_call", SourceType::Operational, 8192)
+        },
         SourceProfile {
             id: "core.json_record".into(),
             rev: 1,
