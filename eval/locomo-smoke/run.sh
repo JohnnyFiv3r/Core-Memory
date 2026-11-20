@@ -42,6 +42,13 @@ python3 -I "$here/locomo_to_events.py" "$data" "$sample" locomo "$out/events.jso
 
 config="$out/core-memory.toml"
 cp "$here/core-memory.toml" "$config"
+# READER_EFFORT, JUDGE_MODEL and JUDGE_EFFORT change the bindings, to
+# compare models on the same conversation. See configure.py.
+settings=()
+[ -n "${READER_EFFORT:-}" ] && settings+=(--reader-effort "$READER_EFFORT")
+[ -n "${JUDGE_MODEL:-}" ] && settings+=(--judge-model "$JUDGE_MODEL")
+[ -n "${JUDGE_EFFORT:-}" ] && settings+=(--judge-effort "$JUDGE_EFFORT")
+python3 -I "$here/configure.py" "$config" ${settings[@]+"${settings[@]}"}
 if [ -n "${MODELS_CA_FILE:-}" ]; then
   printf '\n[models]\nca_file = "%s"\n' "$MODELS_CA_FILE" >>"$config"
 fi
