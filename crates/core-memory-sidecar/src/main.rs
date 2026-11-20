@@ -10,11 +10,11 @@ use std::time::Duration;
 use clap::{Parser, Subcommand};
 use core_memory_contract::schema::Contract;
 use core_memory_contract::{
-    AdmissionOutcome, BusyCause, EventId, EventKey, FieldError, Record, RecordKind, RefusalReason,
-    Sha256Digest,
+    AdmissionOutcome, BusyCause, EventId, EventKey, FieldError, RECALL_DEFAULT_FOLLOW,
+    RECALL_DEFAULT_LIMIT, RecallRequest, Record, RecordKind, RefusalReason, Sha256Digest,
 };
 use core_memory_core::store::{Change, Purpose, ScopeState, Store};
-use core_memory_core::{Clock, EngineError, ScopeGrants, StoreError, SystemClock};
+use core_memory_core::{Clock, EngineError, RecallQuery, ScopeGrants, StoreError, SystemClock};
 use core_memory_sidecar::config::Loaded;
 use core_memory_sidecar::reading::{self, Reader};
 use core_memory_sidecar::report::{self, Stop};
@@ -112,6 +112,32 @@ enum Command {
         /// on its own, so this needs --workspace or --scope.
         #[arg(long)]
         after: Option<u64>,
+    },
+    /// Find what is stored that holds some words, and what a judge said of
+    /// how it relates. Prints one JSON answer: the matches, best first, with
+    /// their text verbatim; for a match that was replaced or withdrawn,
+    /// what now stands in its place; the beads the judge's arrows lead to;
+    /// and the arrows between them.
+    Recall {
+        /// The words to look for, read as a web search reads them: all are
+        /// required, "quoted words" stand together, `or` takes either and
+        /// `-word` leaves out what holds it. Put `--` before a query that
+        /// starts with `-`.
+        #[arg(required = true, num_args = 1..)]
+        query: Vec<String>,
+        /// Only this scope. Repeat it for more. Without it, every scope.
+        #[arg(long = "scope", allow_hyphen_values = true)]
+        scopes: Vec<String>,
+        /// Most matches, from 1 to 50.
+        #[arg(long, default_value_t = RECALL_DEFAULT_LIMIT)]
+        limit: u32,
+        /// Steps to take along the judge's arrows from each match, from 0
+        /// to 2.
+        #[arg(long, default_value_t = RECALL_DEFAULT_FOLLOW)]
+        follow: u32,
+        /// Also return matches that are no longer current, marked so.
+        #[arg(long)]
+        include_ended: bool,
     },
     /// Erase whole messages. Their text and metadata are removed for good;
     /// their IDs stay and refuse the same messages if they are offered again.
@@ -262,6 +288,22 @@ fn main() -> ExitCode {
             scope,
             after,
         } => export(config, workspace, scope.as_deref(), after),
+        Command::Recall {
+            query,
+            scopes,
+            limit,
+            follow,
+            include_ended,
+        } => recall(
+            config,
+            RecallRequest {
+                query: query.join(" "),
+                scopes: (!scopes.is_empty()).then_some(scopes),
+                limit: Some(limit),
+                follow: Some(follow),
+                include_ended,
+            },
+        ),
         Command::Erase {
             reason,
             actor,
@@ -664,6 +706,31 @@ fn export(
     // Passing a workspace's last seq back as --after resumes where this
     // export stopped.
     report::log(json!({"exported": {"records": counts, "last_seq": last_seq}}));
+    Ok(ExitCode::SUCCESS)
+}
+
+fn recall(config_path: &Path, request: RecallRequest) -> Result<ExitCode, Stop> {
+    // The command runs with the store's own login, which may read every
+    // scope: what narrows it is what it is asked.
+    let query = RecallQuery::from_request(&request, &ScopeGrants::All)
+        .map_err(|refusal| Stop::Failed(refusal.to_string()))?;
+    let mut store = governing_store(config_path)?;
+    if let Some(scopes) = &request.scopes {
+        for scope in scopes {
+            if store.scope(scope)?.is_none() {
+                return Err(Stop::Failed(format!("scope `{scope}` is not enrolled")));
+            }
+        }
+    }
+    let answer = store.recall(&query)?;
+    let line = serde_json::to_string(&answer).map_err(|e| e.to_string())?;
+    report::print(line)?;
+    // Counts only: the answer itself holds what sources said.
+    report::log(json!({"recalled": {
+        "found": answer.found,
+        "beads": answer.beads.len(),
+        "arrows": answer.arrows.len(),
+    }}));
     Ok(ExitCode::SUCCESS)
 }
 

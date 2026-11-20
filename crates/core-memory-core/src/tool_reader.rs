@@ -17,7 +17,8 @@ use crate::ident::is_identifier;
 use crate::model::{BindingConfig, ModelRequest, ModelTransport, Usage};
 use crate::read::repair;
 use crate::reader::{
-    Failure, LEASE_MARGIN_MS, ReadReport, ReadRound, counted, failure, finish_call, refusal,
+    Failure, LEASE_MARGIN_MS, ReadReport, ReadRound, asked_again, counted, failure, finish_call,
+    refusal,
 };
 use crate::store::{
     CallFinish, CallResult, LeasedToolCall, Permit, PermitRequest, PermittedChunk, Purpose,
@@ -291,7 +292,7 @@ impl Engine {
     ) -> Result<Option<(CallId, Vec<PermittedChunk>)>, EngineError> {
         let now = self.clock.now().truncated_to_micros();
         let chunk_ids: &[ChunkId] = &call.chunk_ids;
-        let permit = store.permit(&PermitRequest {
+        let request = PermitRequest {
             scope: &call.scope,
             chunk_ids,
             purpose: Purpose::ToolRead,
@@ -302,7 +303,12 @@ impl Engine {
             sending,
             budget: reader.binding.budget,
             at: now,
-        })?;
+        };
+        // A permit the store could not give for a moment, as when another
+        // transaction held the workspace past the lock timeout, wrote
+        // nothing: its transaction rolled back. Asking again writes one
+        // receipt, as asking once would have.
+        let permit = asked_again(|| store.permit(&request))?;
         match permit {
             Permit::Granted { call_id, chunks } => Ok(Some((call_id, chunks))),
             refused => {

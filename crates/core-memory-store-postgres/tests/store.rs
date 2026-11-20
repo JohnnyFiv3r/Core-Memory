@@ -884,6 +884,15 @@ fn every_call_waits_for_a_migration_holding_nothing_else() {
     assert_eq!(position.unwrap().unwrap().sequence, 1);
     let exported = behind_a_migration(db, "export", || store.export("w1", 0, 10, None));
     assert_eq!(exported.unwrap().len(), 3);
+    let asked = core_memory_core::RecallQuery {
+        query: "stored before".into(),
+        scopes: ScopeGrants::All,
+        limit: 10,
+        follow: 2,
+        include_ended: false,
+    };
+    let recalled = behind_a_migration(db, "recall", || store.recall(&asked));
+    assert_eq!(recalled.unwrap().beads.len(), 1);
     let workspaces = behind_a_migration(db, "workspaces", || store.workspaces());
     assert_eq!(workspaces.unwrap(), ["w1"]);
     let scopes = behind_a_migration(db, "scopes", || store.scopes());
@@ -1702,10 +1711,11 @@ fn a_database_owner_without_createrole_can_migrate_once_the_roles_exist() {
 fn a_newer_store_is_not_migrated_backwards() {
     let db = TestDb::create();
     db.connect()
-        .batch_execute(
+        .batch_execute(&format!(
             "INSERT INTO core_memory.schema_migrations (version, name, checksum)
-             VALUES (2, 'from the future', 'x')",
-        )
+             VALUES ({}, 'from the future', 'x')",
+            SCHEMA_VERSION + 1
+        ))
         .unwrap();
     let err = db.store().migrate().unwrap_err();
     assert!(matches!(err, StoreError::SchemaMismatch(_)), "{err:?}");
@@ -1735,9 +1745,17 @@ fn reads_are_refused_too_once_the_schema_has_moved_on() {
         ),
         "{replay:?}"
     );
+    let asked = core_memory_core::RecallQuery {
+        query: "stored".into(),
+        scopes: ScopeGrants::All,
+        limit: 10,
+        follow: 1,
+        include_ended: false,
+    };
     for result in [
         w.store.checkpoint("acme", "session-a").map(|_| ()),
         w.store.export("w1", 0, 10, None).map(|_| ()),
+        w.store.recall(&asked).map(|_| ()),
     ] {
         assert!(
             matches!(result, Err(StoreError::SchemaMismatch(_))),
@@ -1774,17 +1792,18 @@ fn a_read_that_a_migration_left_unable_to_run_reports_the_new_version() {
 
     // A migration that renames a column each one-statement read uses. The
     // statements no longer run, so none of them shows the version.
+    let next = SCHEMA_VERSION + 1;
     owner
-        .batch_execute(
+        .batch_execute(&format!(
             "BEGIN;
              LOCK TABLE core_memory.schema_migrations IN ACCESS EXCLUSIVE MODE;
              ALTER TABLE core_memory.scopes RENAME COLUMN state TO state_was;
              ALTER TABLE core_memory.events RENAME COLUMN event_hash TO event_hash_was;
              ALTER TABLE core_memory.checkpoints RENAME COLUMN sequence TO sequence_was;
              INSERT INTO core_memory.schema_migrations (version, name, checksum)
-             VALUES (2, 'renames', 'x');
-             COMMIT;",
-        )
+             VALUES ({next}, 'renames', 'x');
+             COMMIT;"
+        ))
         .unwrap();
     for (what, result) in [
         ("scope", store.scope("acme").map(|_| ())),
@@ -1795,7 +1814,8 @@ fn a_read_that_a_migration_left_unable_to_run_reports_the_new_version() {
         ),
     ] {
         assert!(
-            matches!(&result, Err(StoreError::SchemaMismatch(why)) if why.contains("schema version 2")),
+            matches!(&result, Err(StoreError::SchemaMismatch(why))
+                if why.contains(&format!("schema version {next}"))),
             "{what}: {result:?}"
         );
     }

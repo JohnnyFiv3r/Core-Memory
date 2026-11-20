@@ -5,10 +5,10 @@ use std::collections::BTreeMap;
 use core_memory_contract::{
     Abstention, BeadId, CallId, CatalogRef, Checkpoint, CheckpointReceipt, ChunkFacets, ChunkId,
     ChunkReadRecord, ChunkRecord, ChunkerRef, CompressorRef, ErasureRecord, EventDetails, EventId,
-    EventKey, EventRecord, IdKey, ProfileRef, ReadDecision, ReadSpan, ReaderRef, Sha256Digest,
-    SpanKind, TimeBasis, Timestamp, ToolCallDetails, ToolOutcomeRecord, ToolStatus, TypeRef,
+    EventKey, EventRecord, IdKey, ProfileRef, ReadDecision, ReadSpan, ReaderRef, RecallAnswer,
+    Sha256Digest, SpanKind, TimeBasis, Timestamp, ToolCallDetails, ToolOutcomeRecord, ToolStatus,
+    TypeRef,
 };
-use core_memory_core::StoreError;
 use core_memory_core::store::{
     AdmissionCommit, AdmissionWrite, BeadsOf, CallFinish, CallFinished, Change, CheckpointAdvance,
     CheckpointState, ExportedEvent, JudgeBatch, JudgeClaim, JudgePermit, JudgePermitRequest,
@@ -16,6 +16,7 @@ use core_memory_core::store::{
     PermitRequest, PermittedChunk, PinKind, PinResult, Purpose, ReadBatch, ScopeInfo, ScopeState,
     Sending, Store, StoredEvent, WorkCounts, WorkItem, WorkNext, WorkUpdate,
 };
+use core_memory_core::{RecallQuery, StoreError};
 use postgres::types::{Json, ToSql};
 use postgres::{Client, GenericClient, IsolationLevel, Row, SimpleQueryMessage, Transaction};
 use time::OffsetDateTime;
@@ -844,6 +845,11 @@ impl Store for PostgresStore {
     ) -> Result<Vec<Change>, StoreError> {
         let exported = self.read_export(workspace, after, limit, scope);
         self.settled(exported)
+    }
+
+    fn recall(&mut self, query: &RecallQuery) -> Result<RecallAnswer, StoreError> {
+        let answer = self.read_recall(query);
+        self.settled(answer)
     }
 
     fn claim_reads(

@@ -21,7 +21,9 @@ For each SourceEvent the engine:
    time, across the scopes of its workspace, if a judge is configured and
    each bead's scope allows it.
 
-The engine has no retrieval API. Consumers read its tables or its export.
+Consumers read its tables or its export, or ask it to [recall](#recall): a
+query for the stored text that holds some words, with what a judge said of
+it, which keeps nothing of its own.
 
 ## One store: PostgreSQL
 
@@ -102,6 +104,9 @@ All tables are in the `core_memory` schema.
 Text is kept in one place on purpose. Erasing a message deletes its
 `chunk_text` rows and every row derived from that text, in one transaction.
 Tables that survive an erase hold IDs, ranges and engine-side times only.
+The one index over the text itself, `chunk_text_search_idx`, holds the words
+of each chunk for [recall](#recall); it is part of `chunk_text`, and an erase
+takes a chunk's words out of it with the row.
 
 One table holds text that a source did not write. `tool_outcomes` holds two
 short lines a model wrote about a tool call (see [Tool calls](#tool-calls)).
@@ -314,20 +319,31 @@ own governed deletion. The engine decides nothing about who may erase.
 
 PostgreSQL keeps what was erased in places the erase cannot reach:
 
-- **Dead tuples**, until `VACUUM`.
+- **Table pages.** `VACUUM` marks an erased row's space free but does not
+  overwrite it, so the bytes stay in the table's pages, its TOAST table's
+  included, until new rows reuse the space or the table is rewritten. On
+  PostgreSQL 18, a deleted row's text was still in its table's file after
+  `VACUUM`, and gone after `VACUUM FULL`. `VACUUM FULL` locks the table
+  while it runs; a tool such as `pg_repack` rewrites it without that lock.
 - **Index pages.** `events_key_idx` can keep an erased key as a page
   boundary after `VACUUM`. `REINDEX INDEX core_memory.events_key_idx`
-  removes it.
+  removes it. `chunk_text_search_idx` can keep words of erased text as keys
+  of its own pages after `VACUUM` has removed the rows they pointed to.
+  `REINDEX INDEX core_memory.chunk_text_search_idx` removes them.
 - **WAL and backups**, until they expire.
 
-Operators should vacuum and reindex after erasing, and treat their backup
-retention as the longest erased text can survive.
+Operators who must remove erased text from disk should rewrite the tables
+that held it, `chunk_text` above all, and reindex the indexes above, after
+erasing. They should treat their backup retention as the longest erased
+text can survive.
 
 The planner's statistics are not on this list. `ANALYZE` copies sample
 values of a column into `pg_statistic`, so the columns that hold what a
 source said, or a hash of it, are excluded from statistics. That includes
 `time_at` on events and beads, which is the source's own time until the
-event is erased, and a checkpoint's hash.
+event is erased, and a checkpoint's hash. `ANALYZE` samples an index's
+expressions too, and of a text search vector it keeps the most common
+words, so the expression of `chunk_text_search_idx` is excluded as well.
 
 The planner therefore has no histogram for `time_at`. A query for one
 workspace's beads in a range of time uses `beads_window_idx` without one,
@@ -463,6 +479,11 @@ Until 2.0.0 is released, the first migration still changes as the engine is
 built. A database created by a pre-release build must be recreated, not
 migrated.
 
+Migration 2 builds the [recall](#recall) index over the text of every
+chunk stored. Admissions wait while it is built, as they wait for any
+migration, so on a large store run it when a pause in writing is
+acceptable.
+
 ## Model calls
 
 A model reads each chunk once a reader is configured: a `[reader]` section
@@ -475,9 +496,10 @@ the same.
 ### What a read is
 
 The model is shown a batch of chunks, all of one scope and one source
-profile, under handles (`C1`, `C2`, ...). The types it may choose from
-follow its instructions, so every batch of one vocabulary starts with the
-same text (prompt revision 5). For each chunk it answers with:
+profile, under handles (`C1`, `C2`, ...), and the request names the
+handles it must answer, one item each, in order. The types it may choose
+from follow its instructions, so every batch of one vocabulary starts with
+the same text (prompt revision 6). For each chunk it answers with:
 
 - **a type**: one key of the vocabulary, or an abstention (`no_fit`,
   `insufficient_evidence`, `ambiguous`). An abstention is a completed
@@ -1094,6 +1116,121 @@ exists. A record of what a judge said has no one scope of its own. A
 `verdict` and a `name_link` record name the scope of each of their beads.
 
 The tables are the truth; records are how they are published outside SQL.
+
+## Recall
+
+Recall answers one question: which stored text holds these words, and what
+did a judge say of it? `core-memory recall` asks it from the command line,
+and `POST /v1/recall` over HTTP. It makes no model call, so it works whether
+or not a reader or a judge is configured.
+
+### A query, not a store
+
+Recall reads `chunk_text`, the one copy of source text, through a full-text
+index on that table, and `edges`, which hold what a judge said as IDs. It
+keeps nothing of its own: no copy of the text, no vectors, no graph to keep
+in step with the tables. An erase therefore reaches everything recall could
+return, in the erase's own transaction, as it reaches everything else.
+
+A separate search engine or graph database would hold a second copy of what
+sources said. Erasing would then be a job across systems that can half
+fail, and the copy would have to be kept current with every admission. The
+judged edges already are a graph, in the same database: following them is
+an ordinary recursive query.
+
+### Finding the words
+
+The index holds each chunk's words as PostgreSQL's English text search
+configuration reduces them, so `deadlines` finds `deadline` and common
+words such as `the` are ignored. A query is read as a web search reads it:
+every word is required, `"quoted words"` must stand together, `or` takes
+either of two words, and `-word` leaves out what holds it. The configuration
+is part of the index; changing it is a migration.
+
+Only the first 100,000 characters of a chunk are indexed. A text search
+vector holds at most 1 MB, and computing one for a longer text would fail
+the admission that stores it. The chunkers' defaults cut text far shorter.
+
+Matches are ranked by how closely and how often the words occur in them
+(`ts_rank_cd`), then newest first. A bead is one match however many of its
+chunks hold the words: a tool call is one bead.
+
+A query that holds no word to look for is answered `no_terms`, not
+`no_match`: nothing was searched. That is a query of common words or
+punctuation only, and one that names only words to leave out or offers
+one as an alternative (`-draft`, `launch or -draft`). The index cannot
+answer those, and PostgreSQL would read every chunk to.
+
+### What is current
+
+A match that a `repl` or `withdraws` arrow points at is no longer current.
+Unless the caller asks for such matches, it is not returned, and the
+current end of its chain is returned in its place, marked as the successor
+of the match. A chain never branches, so it has one end. When that end was
+erased, or is in a scope the caller may not read, nothing is returned in
+the match's place: what an erased statement replaced does not become
+current again. Asked for, an ended match is returned marked `current:
+false`, with the bead that ended it when the caller may read that bead.
+
+A bead is `disputed` while a `!contradicts` arrow joins it to another bead
+and both are current. A contradiction ends neither.
+
+Whether a bead is current, and whether it is disputed, is said whatever
+scope the bead that ended or disputes it belongs to: an answer that left
+it out would present a statement as current when the judge said it is not.
+That other bead, its ID and the arrow are shown only to a caller that may
+recall from its scope.
+
+### Following arrows
+
+From the matches and their successors, recall follows the judge's arrows,
+in either direction, up to `follow` steps: 1 unless asked, at most 2. It
+returns the beads it reaches, nearest first and, at one distance, newest
+first, at most 100 of them, and says how many more there were. Each comes
+marked current or not. Then it returns every arrow between two beads of the
+answer.
+
+- A group a judge made holds no text and costs no step: the members of a
+  match's group are one step from it.
+- A negative arrow (`!confuse`, `!contradicts`) is followed to the bead on
+  its other side and no further. Nearness is not completed through it.
+- A bead in a scope the caller may not read is neither returned nor passed
+  through, and no arrow to it is shown.
+- A match left out because it was ended is not brought back this way, and
+  nothing is reached through it.
+
+### What an answer holds
+
+Each bead comes with its kind, its event's ID and key, its time, how it came
+into the answer (`match`, `successor` or `linked`), whether it is current
+and disputed, the type the latest read of its chunk gave, and its text
+verbatim, chunk by chunk: one chunk for a message's bead, every chunk of a
+tool call. Nothing a model wrote stands in for the text. An answer carries
+at most 1 MiB of text, given to the beads in the answer's order; a bead
+whose text would take it past that comes without it, marked
+`text_omitted`. At most 50 matches are returned, 10 unless asked.
+
+The answer, and the query, may hold what sources said. Neither is logged,
+and a refused request is answered without repeating it.
+
+### Who may recall
+
+The command runs with the store's own login and may name any scope. Over
+HTTP, each token lists the scopes it may write (`scopes`) and, separately,
+the scopes it may recall from (`recall`). A token has no `recall` unless it
+is given one: what writes into the engine does not read it back. A request
+that names a scope its token may not recall from is refused without saying
+whether the scope exists.
+
+Recall reads what is stored, whatever its scope's state: pausing or
+revoking a scope stops capture and model calls, not reading. Erasing is
+what takes text away.
+
+### One snapshot
+
+Every statement of a recall runs in one read-only transaction on one
+snapshot, which takes `schema_migrations` first, as every read of several
+statements does (see [Upgrading](#upgrading)).
 
 ## Crates
 

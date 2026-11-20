@@ -372,7 +372,7 @@ impl Engine {
 
         // ---- first call ----
         let now = self.clock.now().truncated_to_micros();
-        let permit = store.permit_judgment(&JudgePermitRequest {
+        let request = JudgePermitRequest {
             workspace: &reading.batch.workspace,
             purpose: reading.purpose,
             new: &new,
@@ -384,7 +384,12 @@ impl Engine {
             sending: &|shown| costs(&render(shown, judge.binding.max_output_tokens), shown),
             budget: judge.binding.budget,
             at: now,
-        })?;
+        };
+        // A permit the store could not give for a moment, as when another
+        // transaction held the workspace past the lock timeout, wrote
+        // nothing: its transaction rolled back. Asking again writes one
+        // receipt, as asking once would have.
+        let permit = asked_again(|| store.permit_judgment(&request))?;
         let (call_id, shown, not_shown) = match permit {
             JudgePermit::Granted {
                 call_id,
@@ -464,7 +469,7 @@ impl Engine {
 
         // ---- the one repair ----
         let repair_request = repair(&request, &response.text, &rejected.problems);
-        let permit = store.permit_judgment(&JudgePermitRequest {
+        let request = JudgePermitRequest {
             workspace: &reading.batch.workspace,
             purpose: reading.purpose,
             new: &shown_new,
@@ -483,7 +488,12 @@ impl Engine {
             },
             budget: judge.binding.budget,
             at: self.clock.now().truncated_to_micros(),
-        })?;
+        };
+        // A permit the store could not give for a moment, as when another
+        // transaction held the workspace past the lock timeout, wrote
+        // nothing: its transaction rolled back. Asking again writes one
+        // receipt, as asking once would have.
+        let permit = asked_again(|| store.permit_judgment(&request))?;
         let repair_call = match permit {
             JudgePermit::Granted { call_id, .. } => call_id,
             // The beads that were withheld from the first call were

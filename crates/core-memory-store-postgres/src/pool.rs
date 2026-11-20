@@ -8,14 +8,14 @@ use std::ops::{Deref, DerefMut};
 use std::sync::{Condvar, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
-use core_memory_contract::{Checkpoint, EventId, Sha256Digest, Timestamp};
-use core_memory_core::StoreError;
+use core_memory_contract::{Checkpoint, EventId, RecallAnswer, Sha256Digest, Timestamp};
 use core_memory_core::store::{
     AdmissionCommit, AdmissionWrite, CallFinish, CallFinished, Change, CheckpointAdvance,
     CheckpointState, JudgeBatch, JudgeClaim, JudgePermit, JudgePermitRequest, JudgeSettle,
     JudgmentFinish, JudgmentFinished, LeasedToolCall, Permit, PermitRequest, PinKind, PinResult,
     Purpose, ReadBatch, ScopeInfo, Store, StoredEvent, WorkCounts, WorkUpdate,
 };
+use core_memory_core::{RecallQuery, StoreError};
 
 use crate::connect::{ConnectConfig, Connector};
 use crate::store::PostgresStore;
@@ -172,6 +172,10 @@ impl Store for PoolStore<'_> {
         scope: Option<&str>,
     ) -> Result<Vec<Change>, StoreError> {
         self.checkout()?.export(workspace, after, limit, scope)
+    }
+
+    fn recall(&mut self, query: &RecallQuery) -> Result<RecallAnswer, StoreError> {
+        self.checkout()?.recall(query)
     }
 
     fn claim_reads(

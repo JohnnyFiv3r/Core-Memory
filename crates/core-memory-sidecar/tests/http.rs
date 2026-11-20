@@ -10,6 +10,7 @@ use axum::http::{HeaderMap, Request, StatusCode, header};
 use core_memory_contract::Sha256Digest;
 use core_memory_sidecar::config::Loaded;
 use core_memory_sidecar::server::{ServeLimits, prepare, serve};
+use core_memory_store_postgres::SCHEMA_VERSION;
 use core_memory_store_postgres::testing::TestDb;
 use http_body_util::BodyExt;
 use serde_json::{Value, json};
@@ -17,6 +18,8 @@ use tower::ServiceExt;
 
 const WRITER: &str = "cm_test_writer";
 const OUTSIDER: &str = "cm_test_outsider";
+/// May recall from `acme` and write nothing.
+const READER: &str = "cm_test_reader";
 
 /// A prepared server on a database of its own, with scope `acme` enrolled
 /// in workspace `w1`. The store client blocks, so the server is built and
@@ -81,9 +84,15 @@ scopes = ["acme"]
 id = "outsider"
 sha256 = "{outsider}"
 scopes = ["elsewhere"]
+
+[[http.token]]
+id = "reader"
+sha256 = "{reader}"
+recall = ["acme"]
 "#,
         writer = Sha256Digest::of(WRITER.as_bytes()),
         outsider = Sha256Digest::of(OUTSIDER.as_bytes()),
+        reader = Sha256Digest::of(READER.as_bytes()),
     )
 }
 
@@ -221,6 +230,7 @@ fn requests_need_a_valid_token() {
     for (method, uri) in [
         ("POST", "/v1/events/batch"),
         ("GET", "/v1/checkpoints?scope=acme&key=k"),
+        ("POST", "/v1/recall"),
     ] {
         let reply = s.call(method, uri, None, Some(json!({"events": []})));
         assert_eq!(reply.status, StatusCode::UNAUTHORIZED, "{uri}");
@@ -593,11 +603,100 @@ fn many_requests_share_a_small_pool() {
 }
 
 #[test]
+fn a_token_recalls_only_from_the_scopes_it_may_recall_from() {
+    let s = Server::new();
+    s.sql("SELECT core_memory.enroll_scope('elsewhere', 'w1');");
+    for (id, text) in [
+        ("1", "The launch is on Thursday."),
+        ("2", "The export takes three hours."),
+    ] {
+        assert_eq!(s.post(WRITER, event(id, text)).status, StatusCode::OK);
+    }
+    assert_eq!(
+        s.post(
+            OUTSIDER,
+            event_in("elsewhere", "3", "Their launch is secret.")
+        )
+        .status,
+        StatusCode::OK
+    );
+    let recall = |token: &str, body: Value| s.call("POST", "/v1/recall", Some(token), Some(body));
+
+    // Without naming scopes, a reader searches every scope it may recall
+    // from, and gets the text as it was written.
+    let reply = recall(READER, json!({"query": "launches"}));
+    assert_eq!(reply.status, StatusCode::OK);
+    assert_eq!(reply.body["found"], "matched");
+    let beads = reply.body["beads"].as_array().unwrap();
+    assert_eq!(beads.len(), 1);
+    assert_eq!(beads[0]["chunks"][0]["text"], "The launch is on Thursday.");
+    assert_eq!(beads[0]["event"]["key"]["scope"], "acme");
+    assert_eq!(beads[0]["via"], "match");
+    assert_eq!(beads[0]["current"], true);
+
+    // A token that writes does not read back, and a reader is refused a
+    // scope it was not given, without being told whether it exists.
+    assert_eq!(
+        recall(WRITER, json!({"query": "launch"})).outcome(),
+        (StatusCode::FORBIDDEN, "recall_not_granted")
+    );
+    let refused = recall(READER, json!({"query": "launch", "scopes": ["elsewhere"]}));
+    assert_eq!(
+        refused.outcome(),
+        (StatusCode::FORBIDDEN, "scope_not_granted")
+    );
+    assert!(!refused.body.to_string().contains("elsewhere"));
+    // A reader cannot write.
+    assert_eq!(
+        s.post(READER, event("4", "not stored")).outcome(),
+        (StatusCode::FORBIDDEN, "scope_denied")
+    );
+
+    // Nothing found and nothing to search for are answers, not errors.
+    assert_eq!(
+        recall(READER, json!({"query": "zeppelin"})).body["found"],
+        "no_match"
+    );
+    assert_eq!(
+        recall(READER, json!({"query": "the"})).body["found"],
+        "no_terms"
+    );
+    for (body, code) in [
+        (json!({"query": "  "}), "empty_query"),
+        (json!({"query": "launch", "limit": 0}), "bad_limit"),
+        (json!({"query": "launch", "follow": 3}), "bad_follow"),
+        (json!({"query": "launch", "scopes": []}), "bad_scopes"),
+        (json!({"query": "x".repeat(1_025)}), "query_too_long"),
+    ] {
+        assert_eq!(
+            recall(READER, body).outcome(),
+            (StatusCode::BAD_REQUEST, code)
+        );
+    }
+    // A body that is not a request is refused without being repeated: a
+    // query may be words of what a source said.
+    let reply = recall(
+        READER,
+        json!({"query": "launch codes 4417", "summarize": true}),
+    );
+    assert_eq!(reply.outcome(), (StatusCode::BAD_REQUEST, "malformed"));
+    assert!(!reply.body.to_string().contains("4417"), "{}", reply.body);
+    assert!(
+        !reply.body.to_string().contains("summarize"),
+        "{}",
+        reply.body
+    );
+}
+
+#[test]
 fn a_store_that_is_gone_makes_the_server_busy_and_not_ready() {
     let mut s = Server::new();
     let ready = s.get("/v1/ready", None);
     assert_eq!(ready.status, StatusCode::OK);
-    assert_eq!(ready.body, json!({"ready": true, "schema_version": 1}));
+    assert_eq!(
+        ready.body,
+        json!({"ready": true, "schema_version": SCHEMA_VERSION})
+    );
     assert_eq!(
         s.post(WRITER, event("1", "stored")).outcome(),
         (StatusCode::OK, "accepted")
@@ -611,7 +710,7 @@ fn a_store_that_is_gone_makes_the_server_busy_and_not_ready() {
     // A probe is told the kind of problem and nothing about the database.
     assert_eq!(
         ready.body,
-        json!({"ready": false, "schema_version": 1, "problem": "store_unavailable"})
+        json!({"ready": false, "schema_version": SCHEMA_VERSION, "problem": "store_unavailable"})
     );
 
     let busy = s.post(WRITER, event("2", "not stored"));
@@ -640,6 +739,17 @@ fn a_store_that_is_gone_makes_the_server_busy_and_not_ready() {
             .outcome(),
         (StatusCode::SERVICE_UNAVAILABLE, "store_unavailable")
     );
+    let recall = s.call(
+        "POST",
+        "/v1/recall",
+        Some(READER),
+        Some(json!({"query": "stored"})),
+    );
+    assert_eq!(
+        recall.outcome(),
+        (StatusCode::SERVICE_UNAVAILABLE, "store_unavailable")
+    );
+    assert_eq!(recall.headers[header::RETRY_AFTER], "2");
     // By now the engine has tried to connect again and been told there is
     // no such database. Callers are still asked to come back, and whoever
     // runs the engine is told that waiting will not help.
@@ -846,6 +956,7 @@ fn describes_itself() {
         "/v1/events",
         "/v1/events/batch",
         "/v1/checkpoints",
+        "/v1/recall",
         "/v1/ready",
     ] {
         assert!(doc.body["paths"][path].is_object(), "{path}");

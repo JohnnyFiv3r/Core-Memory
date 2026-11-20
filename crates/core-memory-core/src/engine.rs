@@ -75,7 +75,7 @@ impl Default for Limits {
     }
 }
 
-/// Which scopes a caller may write (SEC-01).
+/// Which scopes a caller may write (SEC-01), or recall from.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ScopeGrants {
     All,
