@@ -3,7 +3,8 @@
 #
 # A pushed tag v2... builds every wheel and the sdist, then waits for the
 # owner: the publish job runs in the `pypi-v2` environment, which requires
-# his approval, and uploads through PyPI trusted publishing, with no token.
+# the owner's approval, and uploads through PyPI trusted publishing, with no
+# token.
 # A pull request that changes the packaging builds everything and publishes
 # nothing.
 #
