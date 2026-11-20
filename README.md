@@ -1,8 +1,12 @@
 <p align="center">
-  <img src="docs/assets/core-memory-hero-banner.jpg" alt="Core Memory banner" />
+  <img src="https://raw.githubusercontent.com/JohnnyFiv3r/Core-Memory/v2.0.0/docs/assets/core-memory-hero-banner.jpg" alt="Core Memory banner" />
 </p>
 
 # Core Memory
+
+**2.0.0** is released: `pip install core-memory` ·
+[PyPI](https://pypi.org/project/core-memory/) ·
+[release notes](https://github.com/JohnnyFiv3r/Core-Memory/releases/tag/v2.0.0)
 
 Core Memory 2 is a ground-up rewrite in Rust. It turns any stream of source
 events (messages, documents, record changes, an agent's tool calls) into
@@ -39,26 +43,23 @@ order, is a host's work and not the engine's: memoriesQL does it.
 
 ## Install
 
-The `core-memory` command is published on PyPI as `core-memory`. Each wheel
-carries the compiled engine for Linux (x86_64 and arm64) or macOS (Intel and
-Apple silicon), so no Rust toolchain is needed:
+The `core-memory` command is on PyPI as `core-memory`. Each wheel carries
+the compiled engine for Linux (x86_64 and arm64) or macOS (Intel and Apple
+silicon), so no Rust toolchain is needed:
 
 ```bash
 uv tool install core-memory     # or: pipx install core-memory
-core-memory --version
+core-memory --version           # core-memory 2.0.0
 ```
 
-Nothing is published to crates.io.
-
-The package holds only the command. `import core_memory` fails, and says to
-pin `core-memory<2` for the 1.x Python library. The engine needs PostgreSQL
-15 or newer either way. [RELEASING.md](RELEASING.md) says how a release is
-made.
+The engine needs PostgreSQL 15 or newer. The package holds only the command:
+`import core_memory` fails, and says to pin `core-memory<2` for the 1.x
+Python library. There are no Windows wheels and nothing on crates.io; to
+build the command from source, see [Developing](#developing).
 
 ## Try it
 
-You need PostgreSQL 15 or newer, and, to build the command from source, Rust
-1.89 or newer. To start a local database with Docker:
+Start a local PostgreSQL with Docker:
 
 ```bash
 docker run -d --name core-memory-pg -e POSTGRES_PASSWORD=secret \
@@ -66,13 +67,11 @@ docker run -d --name core-memory-pg -e POSTGRES_PASSWORD=secret \
 export CORE_MEMORY_DATABASE_URL=postgresql://postgres:secret@127.0.0.1:5432/postgres
 ```
 
-Then build the `core-memory` command (or skip the build if you installed
-it from PyPI) and run the example:
+Then get the example events and their config, and run them:
 
 ```bash
-cargo build --release
-export PATH="$PWD/target/release:$PATH"
-cd examples/quickstart
+git clone https://github.com/JohnnyFiv3r/Core-Memory
+cd Core-Memory/examples/quickstart
 
 core-memory migrate                            # create the core_memory schema
 core-memory scope add acme --workspace demo    # allow events for scope "acme"
@@ -546,13 +545,19 @@ up on after that, and reported as unreachable.
 
 ## Upgrading
 
-Run `core-memory migrate` from the new build, as the database role that owns
-the `core_memory` schema, then replace the running engines. An engine writes
-only to the schema version it was built for. After the migration, engines
-from the old build answer `busy` until they are replaced, so nothing is
-written by code that does not know the new schema.
+Upgrade the command (`uv tool upgrade core-memory`, or
+`pipx upgrade core-memory`). Run `core-memory migrate` from the new build,
+as the database role that owns the `core_memory` schema, then replace the
+running engines. An engine writes only to the schema version it was built
+for. After the migration, engines from the old build answer `busy` until
+they are replaced, so nothing is written by code that does not know the new
+schema.
 
-## What works today
+2.0.0 released migrations 1 and 2, and a released migration never changes.
+A database created by a build from before 2.0.0 must be recreated, not
+migrated.
+
+## What 2.0.0 does
 
 - **Admission** with stable identity: `(scope, source_ns, external_id,
   revision)`. Replays, identity conflicts, tombstones, scope grants and
@@ -603,7 +608,7 @@ and Claude Opus 5.5 judging.
   less as the judge. It missed replacements and groups that Opus got right,
   so Opus stays the judge.
 
-## Workspace
+## Crates
 
 | Crate | Role |
 |---|---|
@@ -617,6 +622,14 @@ and Claude Opus 5.5 judging.
 | `core-memory` | Facade re-exporting the above |
 
 ## Developing
+
+To build the command from source you need Rust 1.89 or newer:
+
+```bash
+cargo build --release      # the command is target/release/core-memory
+```
+
+The checks CI runs:
 
 ```bash
 cargo fmt --all
@@ -633,18 +646,20 @@ export CORE_MEMORY_TEST_DATABASE_URL=postgresql://postgres:secret@127.0.0.1:5432
 cargo test --workspace --all-features
 ```
 
+[RELEASING.md](RELEASING.md) says how a release is made.
+
 ## Looking for Core Memory 1.x?
 
-The Python implementation lives on the
-[`v1.x`](https://github.com/JohnnyFiv3r/Core-Memory/tree/v1.x) branch and stays
-on PyPI as the maintenance line:
+The Python implementation is frozen at 1.1.2. Its code is on the
+[`v1.x`](https://github.com/JohnnyFiv3r/Core-Memory/tree/v1.x) branch, and
+it stays on PyPI:
 
 ```bash
 pip install "core-memory<2"
 ```
 
-Releases up to 1.1.2 are tagged on `v1.x`. Bug and security fixes for 1.x are
-made there. [docs/lineage.md](docs/lineage.md) goes through each 1.x module
+Releases up to 1.1.2 are tagged on `v1.x`. 1.x gets security fixes only, made
+there. [docs/lineage.md](docs/lineage.md) goes through each 1.x module
 and says what 2.0 kept, replaced, dropped or left to the host.
 
 ## License
