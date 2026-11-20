@@ -1,0 +1,48 @@
+# One-off: archives every old branch under the tag archive/1.x-branches,
+# then deletes the branches. Run it from the Actions tab, once main is the
+# default branch: first as a dry run (the default), then with dry_run off.
+# .github/scripts/archive-1x-branches.sh says what it does and how a
+# branch comes back. This workflow is removed once it has run.
+name: archive-1x-branches
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Only list what would be archived and deleted"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+  pull-requests: read
+
+concurrency:
+  group: archive-1x-branches
+  cancel-in-progress: false
+
+jobs:
+  archive:
+    name: archive and delete old branches
+    runs-on: ubuntu-latest
+    steps:
+      - name: main must be the default branch
+        if: github.event.repository.default_branch != 'main'
+        run: |
+          echo "::error::Make main the default branch first (Settings → General → Default branch)."
+          exit 1
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Archive and delete
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          # v1.x is what 1.x builds from; the demo installs a commit of
+          # fix-semantic-build-error-details until it is rebuilt.
+          KEEP: "main v1.x fix-semantic-build-error-details"
+          ARCHIVE_TAG: archive/1.x-branches
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          bash .github/scripts/archive-1x-branches.sh
