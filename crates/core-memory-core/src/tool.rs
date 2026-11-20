@@ -24,7 +24,8 @@ use crate::model::{BindingConfig, ModelRequest};
 /// Revision of the prompt. Part of every tool reader's binding revision.
 pub const TOOL_PROMPT_REV: u32 = 1;
 /// Revision of the reply validator. Part of every binding revision.
-pub const TOOL_VALIDATOR_REV: u32 = 1;
+/// Revision 2 reads the status whatever its case.
+pub const TOOL_VALIDATOR_REV: u32 = 2;
 
 const BINDING_REV_DOMAIN: &str = "core-memory/tool-binding-rev/v1";
 
@@ -202,10 +203,12 @@ pub fn validate(reply: &str) -> Result<ToolReading, Vec<String>> {
     };
     let action = sentence("action", MAX_ACTION_CHARS);
     let outcome = sentence("outcome", MAX_OUTCOME_CHARS);
+    // A provider that holds a reply to its schema does not hold an enum
+    // value to its case.
     let status = object
         .get("status")
         .and_then(Value::as_str)
-        .and_then(ToolStatus::from_name);
+        .and_then(|status| ToolStatus::from_name(&status.to_ascii_lowercase()));
     if status.is_none() {
         errors.push("`status` must be succeeded, failed, partial or unknown".into());
     }
@@ -340,6 +343,9 @@ mod tests {
             }
         );
         assert!(validate(&format!("```json\n{reply}\n```")).is_ok());
+        // A provider holds the status to its enum but not to its case.
+        let shouted = reply.replace("\"failed\"", "\"Failed\"");
+        assert_eq!(validate(&shouted).unwrap().status, ToolStatus::Failed);
 
         let wrong = |reply: &str| validate(reply).unwrap_err().join("; ");
         assert!(wrong("not json").contains("not JSON"));

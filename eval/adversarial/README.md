@@ -76,8 +76,9 @@ hour by default.
 - **The judge:** the verdict of the first read of each pair a case names,
   written from the first message's side: `leadsto` means the first brought
   the second about, `supersedes:retract` that the first withdraws the
-  second. A pair the judge was never shown counts apart, never as a no. A
-  verdict of the second read, and any label bead made, are shown beside it.
+  second. A pair with no verdict, because the judge was never shown it or
+  every reply about it was rejected, counts apart, never as a no. A verdict
+  of the second read, and any label bead made, are shown beside it.
 - **Names:** a name pair that should be linked as one entity, and a name
   that should be linked to nothing.
 

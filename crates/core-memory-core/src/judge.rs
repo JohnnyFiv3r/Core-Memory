@@ -38,7 +38,8 @@ use crate::store::{
 /// Part of every judge's binding revision, and stored with every verdict.
 pub const RUBRIC_REV: u32 = 2;
 /// Revision of the reply validator. Part of every binding revision.
-pub const JUDGE_VALIDATOR_REV: u32 = 1;
+/// Revision 2 reads relationship codes and labels whatever their case.
+pub const JUDGE_VALIDATOR_REV: u32 = 2;
 
 const BINDING_REV_DOMAIN: &str = "core-memory/judge-binding-rev/v1";
 const MAX_REPORTED_ERRORS: usize = 20;
@@ -462,8 +463,15 @@ pub fn content_bytes(shown: &Shown) -> u64 {
     shown.listed().map(|bead| bead.content.bytes()).sum()
 }
 
+/// The reply's shape, which the provider holds a reply to. A `label` is
+/// required with a `SUPERSEDES` code and allowed with no other: as two
+/// branches, since a provider's schema cannot make one field depend on
+/// another.
 fn reply_schema() -> Value {
     let labels: Vec<&str> = Label::ALL.iter().map(|l| l.as_str()).collect();
+    let (superseding, other): (Vec<&str>, Vec<&str>) = REL_CODES
+        .iter()
+        .partition(|code| code.starts_with("SUPERSEDES"));
     json!({
         "type": "object",
         "additionalProperties": false,
@@ -479,16 +487,27 @@ fn reply_schema() -> Value {
                         "id": {"type": "string"},
                         "related": {
                             "type": "array",
-                            "items": {
-                                "type": "object",
-                                "additionalProperties": false,
-                                "required": ["to", "rel"],
-                                "properties": {
-                                    "to": {"type": "string"},
-                                    "rel": {"type": "string", "enum": REL_CODES},
-                                    "label": {"type": "string", "enum": labels},
+                            "items": {"anyOf": [
+                                {
+                                    "type": "object",
+                                    "additionalProperties": false,
+                                    "required": ["to", "rel"],
+                                    "properties": {
+                                        "to": {"type": "string"},
+                                        "rel": {"type": "string", "enum": other},
+                                    },
                                 },
-                            },
+                                {
+                                    "type": "object",
+                                    "additionalProperties": false,
+                                    "required": ["to", "rel", "label"],
+                                    "properties": {
+                                        "to": {"type": "string"},
+                                        "rel": {"type": "string", "enum": superseding},
+                                        "label": {"type": "string", "enum": labels},
+                                    },
+                                },
+                            ]},
                         },
                         "unsure": {"type": "array", "items": {"type": "string"}},
                     },
@@ -512,8 +531,10 @@ fn reply_schema() -> Value {
     })
 }
 
+/// What a relationship code says, whatever its case: a provider that holds a
+/// reply to its schema does not hold an enum value to its case.
 fn relationship(code: &str) -> Option<(Verdict, bool)> {
-    Some(match code {
+    Some(match code.to_ascii_uppercase().as_str() {
         "CONTAINS" => (Verdict::Contains, false),
         "NEAR" => (Verdict::Near, false),
         "SUPERSEDES>" => (Verdict::Supersedes, true),
@@ -816,7 +837,7 @@ pub fn validate(reply: &str, shown: &Shown, names: Names) -> Result<Judged, Reje
                     };
                     let label = match (verdict, item.get("label")) {
                         (Verdict::Supersedes, Some(Value::String(label))) => {
-                            match Label::from_name(label) {
+                            match Label::from_name(&label.to_ascii_lowercase()) {
                                 Some(label) => Some(label),
                                 None => {
                                     problems.push(
@@ -1843,6 +1864,43 @@ mod tests {
 
     fn judged_alone(shown: &Shown) -> Judged {
         judged(&reply(shown, vec![]), shown).unwrap()
+    }
+
+    #[test]
+    fn codes_and_labels_are_read_whatever_their_case() {
+        // A provider holds a reply to the enums of its schema, but not to
+        // their case.
+        let shown = four();
+        let said = reply(
+            &shown,
+            vec![
+                json!({"id": "N1", "related": [{"to": "B1", "rel": "supersedes<", "label": "Supersede"}], "unsure": []}),
+                json!({"id": "N2", "related": [{"to": "B2", "rel": "Leadsto>"}], "unsure": []}),
+            ],
+        );
+        let judged = judged(&said, &shown).unwrap();
+        let at = |other: usize, new: usize| {
+            judged
+                .pairs
+                .iter()
+                .find(|p| p.other == other && p.new == new)
+                .copied()
+                .unwrap()
+        };
+        assert_eq!(
+            (at(0, 2).verdict, at(0, 2).label),
+            (Verdict::Supersedes, Some(Label::Supersede))
+        );
+        assert_eq!(
+            (at(1, 3).verdict, at(1, 3).from_other),
+            (Verdict::Leadsto, true)
+        );
+        // A code that is no code in any case is still refused.
+        let wrong = reply(
+            &shown,
+            vec![json!({"id": "N1", "related": [{"to": "B1", "rel": "supersedes"}], "unsure": []})],
+        );
+        assert!(problems(&wrong, &shown).contains("`rel` must be one of"));
     }
 
     #[test]
@@ -2972,11 +3030,43 @@ mod tests {
         let mut tuned = binding;
         tuned.timeout_ms = 5_000;
         assert_eq!(rev, judge_binding_rev(&tuned).unwrap());
-        // The reply shape lists every code and label the validator reads.
+        // The reply shape lists every code and label the validator reads,
+        // and a label only with a SUPERSEDES code, where it is required.
         let schema = reply_schema();
-        let rels = &schema["properties"]["new"]["items"]["properties"]["related"]["items"]["properties"]
-            ["rel"]["enum"];
-        assert_eq!(rels.as_array().unwrap().len(), REL_CODES.len());
+        let branches =
+            schema["properties"]["new"]["items"]["properties"]["related"]["items"]["anyOf"]
+                .as_array()
+                .unwrap()
+                .clone();
+        let codes = |branch: &Value| -> Vec<String> {
+            branch["properties"]["rel"]["enum"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|code| code.as_str().unwrap().to_string())
+                .collect()
+        };
+        let [plain, superseding] = [&branches[0], &branches[1]];
+        assert_eq!(
+            codes(plain).len() + codes(superseding).len(),
+            REL_CODES.len()
+        );
+        assert!(
+            codes(superseding)
+                .iter()
+                .all(|c| c.starts_with("SUPERSEDES"))
+        );
+        assert!(codes(plain).iter().all(|c| !c.starts_with("SUPERSEDES")));
+        assert_eq!(plain["required"], json!(["to", "rel"]));
+        assert!(plain["properties"].get("label").is_none());
+        assert_eq!(superseding["required"], json!(["to", "rel", "label"]));
+        assert_eq!(
+            superseding["properties"]["label"]["enum"]
+                .as_array()
+                .unwrap()
+                .len(),
+            Label::ALL.len()
+        );
         for code in REL_CODES {
             assert!(relationship(code).is_some(), "{code}");
             assert!(

@@ -4,8 +4,9 @@ person to read.
     score.py <cases.toml> <export.jsonl>
 
 The reader is scored on each message's type. The judge is scored on the
-verdict of its first read of each pair the cases name; a pair it was never
-shown is counted apart, never as a no. Everything else the judge related
+verdict of its first read of each pair the cases name. A pair with no
+verdict, because the judge was never shown it or every reply about it was
+rejected, is counted apart, never as a no. Everything else the judge related
 within a thread is listed too, unscored, to be read.
 """
 
@@ -165,14 +166,18 @@ def main(cases_path, export):
     reads = collections.Counter()
     for counted in by_probe.values():
         reads.update(counted)
-    pairs = collections.Counter({True: "right", False: "wrong", None: "not judged"}[r] for *_, r in pair_results)
+    pairs = collections.Counter({True: "right", False: "wrong", None: "no verdict"}[r] for *_, r in pair_results)
     w.append(
         f"- reader: **{reads['right']} right, {reads['wrong']} wrong** of {sum(reads.values())}"
         + (f", {reads['not read']} not read" if reads["not read"] else "")
     )
     w.append(
         f"- judge: **{pairs['right']} right, {pairs['wrong']} wrong** of {len(pair_results)} pairs"
-        + (f", {pairs['not judged']} never shown to it" if pairs["not judged"] else "")
+        + (
+            f", {pairs['no verdict']} with no verdict (never shown, or every reply rejected)"
+            if pairs["no verdict"]
+            else ""
+        )
     )
     w.append("\nThe expected answers are ours (cases.toml), not a benchmark's.\n")
 
@@ -200,7 +205,7 @@ def main(cases_path, export):
         for t, pair, tok, second, right in pair_results:
             if t is not thread:
                 continue
-            mark = {True: "right", False: "**wrong**", None: "never shown"}[right]
+            mark = {True: "right", False: "**wrong**", None: "no verdict"}[right]
             again = f"; second read: {', '.join(second)}" if second else ""
             w.append(f"- {pair['a']} → {pair['b']}: {mark}. Said {tok or '-'}{again}; right: {answer(pair)}")
             if right is False and pair.get("why"):
