@@ -232,7 +232,9 @@ Tests fail if a function or a store call takes another lock first.
   receipt. The receipt is committed before any text leaves the engine. A
   refusal sends nothing.
 - The destination is derived from the binding's endpoint, never written by
-  hand. Consent is per scope and per destination, and only a governance
+  hand. A binding paid by one person's own plan is a destination of its
+  own (`signed-in@` and the host), marked from its provider, never by a
+  config. Consent is per scope and per destination, and only a governance
   function gives it.
 - Every call goes through the `ModelTransport` trait: one request, with no
   hidden retry or fallback. Core has no code for any one provider.

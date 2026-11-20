@@ -49,7 +49,19 @@ pub struct BindingConfig {
     /// file.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub credentials_file: Option<String>,
+    /// Whether the binding's calls are made as one person's signed-in
+    /// account, paid by their own plan, rather than with a key. Set by
+    /// whatever builds the binding from its provider, never read from a
+    /// config file. Such a binding is a destination of its own (see
+    /// [`BindingConfig::destination`]): a plan's terms can limit whose
+    /// activity it serves, so a scope allowed to send text to a host with a
+    /// key is not thereby allowed to send it on someone's plan.
+    #[serde(skip)]
+    pub signed_in: bool,
 }
+
+/// What a signed-in binding's destination starts with, before the host.
+pub const SIGNED_IN_DESTINATION: &str = "signed-in@";
 
 fn default_timeout_ms() -> u64 {
     60_000
@@ -124,9 +136,10 @@ impl BindingConfig {
     }
 
     /// Where a call through this binding sends text: the endpoint's host
-    /// in lower case, with its port if it names one. This is what a scope
-    /// consents to, so it is taken from the endpoint and never written by
-    /// hand: a binding pointed somewhere else needs consent again.
+    /// in lower case, with its port if it names one, after `signed-in@` if
+    /// the binding is signed in to. This is what a scope consents to, so it
+    /// is taken from the binding and never written by hand: a binding
+    /// pointed somewhere else, or paid for another way, needs consent again.
     pub fn destination(&self) -> Result<String, ConfigError> {
         let err = |m: &str| {
             Err(ConfigError::new(format!(
@@ -159,7 +172,11 @@ impl BindingConfig {
         if !port_ok || !name_ok {
             return err("must name a host, with a numeric port if any");
         }
-        Ok(host)
+        if self.signed_in {
+            Ok(format!("{SIGNED_IN_DESTINATION}{host}"))
+        } else {
+            Ok(host)
+        }
     }
 }
 
@@ -372,7 +389,26 @@ mod tests {
             timeout_ms: 60_000,
             api_key_env: None,
             credentials_file: None,
+            signed_in: false,
         }
+    }
+
+    #[test]
+    fn a_signed_in_binding_is_a_destination_of_its_own() {
+        let mut b = binding("https://API.OpenAI.com/v1");
+        assert_eq!(b.destination().unwrap(), "api.openai.com");
+        b.signed_in = true;
+        assert_eq!(b.destination().unwrap(), "signed-in@api.openai.com");
+        b.validate().unwrap();
+        // A config cannot say it: whatever builds the binding does.
+        let written: Result<BindingConfig, _> = serde_json::from_value(serde_json::json!({
+            "id": "plan", "provider": "p", "endpoint": "https://api.openai.com/v1",
+            "model": "m", "max_output_tokens": 1, "signed_in": true,
+        }));
+        assert!(written.is_err());
+        // A signed-in binding still needs a sound endpoint.
+        b.endpoint = "https://user:secret@api.openai.com/v1".into();
+        assert!(b.destination().is_err());
     }
 
     #[test]

@@ -154,6 +154,16 @@ impl ChatGptTransport {
                  api_key_env and run `core-memory login chatgpt`"
             ));
         }
+        // A scope's consent is checked against the binding's destination
+        // before anything reaches the transport. Unmarked, that would be
+        // the bare host an API key is allowed for, and the plan would serve
+        // scopes its owner never allowed for it.
+        if !binding.signed_in {
+            return Err(format!(
+                "binding `{id}`: provider `{PROVIDER}` needs the binding marked signed_in, so \
+                 that scopes are allowed for the plan apart from any API key"
+            ));
+        }
         for (name, set) in [
             ("temperature", binding.temperature.is_some()),
             ("seed", binding.seed.is_some()),
@@ -384,11 +394,13 @@ mod tests {
     }
 
     fn binding(endpoint: &str) -> BindingConfig {
-        serde_json::from_value(json!({
+        let mut b: BindingConfig = serde_json::from_value(json!({
             "id": "plan", "provider": PROVIDER, "endpoint": endpoint,
             "model": "gpt-test", "max_output_tokens": 1024, "timeout_ms": 5000,
         }))
-        .unwrap()
+        .unwrap();
+        b.signed_in = true;
+        b
     }
 
     fn request() -> ModelRequest {
@@ -474,6 +486,15 @@ mod tests {
             ChatGptTransport::check_binding(&b)
                 .unwrap_err()
                 .contains("api_key_env")
+        );
+        // Unmarked, its scopes' consent would be checked for the bare host
+        // an API key is allowed for.
+        let mut b = binding(ENDPOINT);
+        b.signed_in = false;
+        assert!(
+            ChatGptTransport::check_binding(&b)
+                .unwrap_err()
+                .contains("signed_in")
         );
         // The transport itself sends a token nowhere else.
         let f = signed_in(|_| {});

@@ -661,7 +661,14 @@ from it.
 
 A **destination** is the host of a binding's endpoint, in lower case, with
 its port if it names one. It is derived from the endpoint and never written
-by hand, so a binding pointed somewhere else needs consent again.
+by hand, so a binding pointed somewhere else needs consent again. A binding
+whose calls are made as one person's signed-in account, paid by their own
+plan, is a destination of its own: `signed-in@` and the host. Whatever
+builds the binding marks it so from its provider (the command does it for
+`openai-chatgpt`); a config cannot, and that provider's transport refuses a
+binding that is not marked. A plan's terms can limit whose activity it may
+serve, so a scope allowed to send text to a host with a key is not thereby
+allowed to send it on someone's plan.
 `core_memory.grant_destination(scope, destination)` and
 `revoke_destination` are governance functions; `core-memory scope allow`
 and `scope disallow` call them. The engine's role cannot.
@@ -841,11 +848,12 @@ account than one already signed in. The server renews the tokens from then on.
   work queue. A token's `Debug` form is a placeholder.
 - *Requests from a runtime only that user controls, for their own activity.*
   The engine runs where its owner runs it. A scope's text goes to the binding
-  only after `scope allow` grants `api.openai.com`, and the question at
-  sign-in, the README and the example config tell the owner to grant it only
-  to scopes that hold their own activity. The grant is to a host: an
-  `openai` API-key binding has the same one, so a scope allowed for that is
-  allowed for this.
+  only after `scope allow` grants `signed-in@api.openai.com`, and the
+  question at sign-in, the README and the example config tell the owner to
+  grant it only to scopes that hold their own activity. The grant is the
+  plan's own: a scope allowed for an `openai` API-key binding
+  (`api.openai.com`) is not allowed for this, so switching a reader to the
+  plan sends nothing until each scope is allowed for it.
 - *Express consent before background use.* Asked before signing in, recorded
   with its time, host and revision; without it no call is made.
 - *The connected application only.* The token serves this engine's own

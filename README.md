@@ -232,7 +232,8 @@ budget = { max_requests_per_day = 2000, max_tokens_per_day = 5000000 }
 ```
 
 A scope's text is sent to a model only after that scope allows the model's
-destination, which is the host of the binding's endpoint:
+destination, which is the host of the binding's endpoint (for a binding paid
+by your own ChatGPT plan, `signed-in@` and the host):
 
 ```bash
 core-memory check                                 # prints each binding and its destination
@@ -330,9 +331,10 @@ What this is bound by, from OpenAI's Sign in with ChatGPT terms:
 - **Your own activity only.** Your plan may serve only requests that come from
   your own activity. Allow the binding's destination (`core-memory scope allow
   <scope> --binding plan`) only for scopes that hold your own conversations,
-  notes and tool runs, never another person's. Consent is to a host, and an
-  `openai` API-key binding has the same one (`api.openai.com`), so check
-  `core-memory scope list` before you switch a reader to your plan.
+  notes and tool runs, never another person's. The plan is a destination of
+  its own, `signed-in@api.openai.com`: a scope allowed for an `openai` API-key
+  binding (`api.openai.com`) is not thereby allowed for your plan, so
+  switching a reader to it sends nothing until you allow each scope again.
 - **Your consent to background use.** Core Memory reads and judges in the
   background without asking each time, so `login` asks you first and records
   your answer and when you gave it. Without it, or on another machine than the

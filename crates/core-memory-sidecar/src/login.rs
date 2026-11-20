@@ -339,6 +339,40 @@ max_output_tokens = 2048
     }
 
     #[test]
+    fn a_scope_is_allowed_for_the_plan_apart_from_an_api_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let loaded = config_with(
+            dir.path(),
+            &format!(
+                "{BINDING}\n[[binding]]\nid = \"key\"\nprovider = \"openai\"\n\
+                 endpoint = \"https://api.openai.com/v1\"\nmodel = \"gpt-test\"\n\
+                 max_output_tokens = 2048\napi_key_env = \"OPENAI_API_KEY\"\n"
+            ),
+        );
+        let destinations: Vec<String> = loaded
+            .config
+            .bindings
+            .iter()
+            .map(|b| b.destination().unwrap())
+            .collect();
+        assert_eq!(
+            destinations,
+            ["signed-in@api.openai.com", "api.openai.com"],
+            "one host, two consents"
+        );
+        // A config cannot mark a binding signed in itself.
+        let path = dir.path().join("marked.toml");
+        std::fs::write(
+            &path,
+            "[[binding]]\nid = \"key\"\nprovider = \"openai\"\n\
+             endpoint = \"https://api.openai.com/v1\"\nmodel = \"gpt-test\"\n\
+             max_output_tokens = 2048\nsigned_in = true\n",
+        )
+        .unwrap();
+        assert!(Loaded::read(&path).is_err());
+    }
+
+    #[test]
     fn refusing_background_use_signs_nothing_in() {
         let dir = tempfile::tempdir().unwrap();
         let credentials = dir.path().join("plan").join("chatgpt.json");
