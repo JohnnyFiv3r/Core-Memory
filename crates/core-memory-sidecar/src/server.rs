@@ -1,9 +1,10 @@
 //! `core-memory serve`: the engine over HTTP/JSON.
 //!
 //! Callers authenticate with a bearer token; each token carries its own
-//! scope grants (SEC-01). Each admission is one short transaction on a
-//! pooled store connection. What it commits is the record, so there is
-//! nothing to deliver afterwards and nothing to drain on shutdown.
+//! scope grants (SEC-01): the scopes it may write, and the scopes it may
+//! recall from. Each admission is one short transaction on a pooled store
+//! connection. What it commits is the record, so there is nothing to
+//! deliver afterwards and nothing to drain on shutdown.
 //!
 //! The server speaks plain HTTP/1.1. It belongs on the loopback interface
 //! or behind a proxy that terminates TLS.
@@ -27,10 +28,11 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use core_memory_contract::schema::Contract;
 use core_memory_contract::{
-    AdmissionOutcome, BusyCause, FieldError, RefusalReason, Sha256Digest, SourceEvent,
+    AdmissionOutcome, BusyCause, FieldError, RecallRequest, RefusalReason, Sha256Digest,
+    SourceEvent,
 };
 use core_memory_core::store::Store;
-use core_memory_core::{Engine, EngineError, ScopeGrants, StoreError};
+use core_memory_core::{Engine, EngineError, RecallQuery, ScopeGrants, StoreError};
 use core_memory_store_postgres::{CheckoutError, PostgresPool, SCHEMA_VERSION};
 use schemars::JsonSchema;
 use serde::de::{self, DeserializeSeed, MapAccess, SeqAccess, Visitor};
@@ -50,11 +52,16 @@ use crate::runtime::{CHECKOUT_WAIT, build_engine, open_pool};
 struct Token {
     hash: Sha256Digest,
     grants: ScopeGrants,
+    recall: ScopeGrants,
 }
 
 /// The scopes the request's token may write, set once it is authenticated.
 #[derive(Debug, Clone)]
 struct Grants(ScopeGrants);
+
+/// The scopes the request's token may recall from, set with [`Grants`].
+#[derive(Debug, Clone)]
+struct Recalls(ScopeGrants);
 
 /// Shared server state.
 #[derive(Debug)]
@@ -276,6 +283,7 @@ pub fn prepare(loaded: &Loaded) -> Result<Prepared, Stop> {
         .map(|t| Token {
             hash: t.sha256,
             grants: grants_from(&t.scopes),
+            recall: grants_from(&t.recall),
         })
         .collect();
     let limits = ServeLimits::from_config(http);
@@ -303,6 +311,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/v1/events", post(post_event))
         .route("/v1/events/batch", post(post_batch))
         .route("/v1/checkpoints", get(get_checkpoint))
+        .route("/v1/recall", post(post_recall))
         .route_layer(middleware::from_fn_with_state(
             Arc::clone(&state),
             authenticate,
@@ -361,6 +370,9 @@ async fn authenticate(
     };
     let grants = Grants(token.grants.clone());
     request.extensions_mut().insert(grants);
+    request
+        .extensions_mut()
+        .insert(Recalls(token.recall.clone()));
     let mut response = next.run(request).await;
     response.extensions_mut().insert(Authenticated);
     response
@@ -774,6 +786,63 @@ async fn get_checkpoint(
             "not_found",
             "no checkpoint is stored under that key",
         ),
+        Ok(Err(Failure::Unavailable(cause))) => {
+            report::log(serde_json::json!({"store_unavailable": cause}));
+            let mut response = error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "store_unavailable",
+                "the store cannot answer right now",
+            );
+            response
+                .headers_mut()
+                .insert(header::RETRY_AFTER, retry_after(state.busy_retry_after_ms));
+            response
+        }
+        Ok(Err(Failure::Internal(cause))) => internal(cause),
+        Err(e) => internal(e),
+    }
+}
+
+/// Answers `POST /v1/recall` from the scopes the token may recall from.
+/// The answer carries source text, so nothing of the request or the
+/// answer is logged.
+async fn post_recall(State(state): State<Arc<AppState>>, request: Request) -> Response {
+    let Some(Recalls(may)) = request.extensions().get::<Recalls>().cloned() else {
+        return internal("a request reached a handler unauthenticated");
+    };
+    let (parts, body) = request.into_parts();
+    let body = match state.read_body(&parts.headers, body).await {
+        Ok(body) => body,
+        Err(response) => return *response,
+    };
+    // The parser's message is not passed on: it can quote the body, and a
+    // query may be words of what a source said.
+    let Ok(asked) = serde_json::from_slice::<RecallRequest>(&body) else {
+        return error(
+            StatusCode::BAD_REQUEST,
+            "malformed",
+            "expected {\"query\": \"...\"} and, if wanted, scopes, limit, follow and \
+             include_ended, and nothing else",
+        );
+    };
+    let query = match RecallQuery::from_request(&asked, &may) {
+        Ok(query) => query,
+        Err(refusal) => {
+            let status = if refusal.is_forbidden() {
+                StatusCode::FORBIDDEN
+            } else {
+                StatusCode::BAD_REQUEST
+            };
+            return error(status, refusal.code(), refusal.to_string());
+        }
+    };
+    let st = Arc::clone(&state);
+    let result = tokio::task::spawn_blocking(move || {
+        Ok::<_, Failure>(st.pool.store(CHECKOUT_WAIT).recall(&query)?)
+    })
+    .await;
+    match result {
+        Ok(Ok(answer)) => axum::Json(answer).into_response(),
         Ok(Err(Failure::Unavailable(cause))) => {
             report::log(serde_json::json!({"store_unavailable": cause}));
             let mut response = error(

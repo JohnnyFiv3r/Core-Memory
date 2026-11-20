@@ -107,6 +107,7 @@ table chunk_text
   trigger chunk_text_only_erase BEFORE DELETE FOR EACH ROW EXECUTE FUNCTION core_memory.deleted_only_with_its_event()
   primary key chunk_text_pkey (chunk_id)
   index chunk_text_scope_idx (scope)
+  index chunk_text_search_idx (to_tsvector('english'::regconfig, "left"(text, 100000)))
 
 table chunks
   chunk_id uuid not null

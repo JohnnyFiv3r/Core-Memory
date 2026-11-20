@@ -6,7 +6,7 @@
 use schemars::generate::SchemaSettings;
 use serde_json::{Value, json};
 
-use core_memory_contract::{AdmissionOutcome, SourceEvent};
+use core_memory_contract::{AdmissionOutcome, RecallAnswer, RecallRequest, SourceEvent};
 
 use crate::server::{
     BatchRequest, BatchResponse, CheckpointResponse, ErrorResponse, ReadyResponse,
@@ -23,6 +23,8 @@ pub fn document() -> Value {
     let checkpoint = generator.subschema_for::<CheckpointResponse>();
     let ready = generator.subschema_for::<ReadyResponse>();
     let error = generator.subschema_for::<ErrorResponse>();
+    let recall_request = generator.subschema_for::<RecallRequest>();
+    let recall_answer = generator.subschema_for::<RecallAnswer>();
     let schemas = generator.take_definitions(true);
 
     let json_body = |schema: &schemars::Schema| json!({"application/json": {"schema": schema}});
@@ -43,7 +45,7 @@ pub fn document() -> Value {
         "info": {
             "title": "Core Memory engine",
             "version": env!("CARGO_PKG_VERSION"),
-            "description": "Admit SourceEvents and receive typed admission outcomes. An accepted event is stored in PostgreSQL before the answer is sent. The engine has no retrieval API.",
+            "description": "Admit SourceEvents and receive typed admission outcomes. An accepted event is stored in PostgreSQL before the answer is sent. Recall what is stored: the text that holds some words, verbatim, with what a judge said of how it relates.",
         },
         "paths": {
             "/v1/events": {
@@ -105,6 +107,28 @@ pub fn document() -> Value {
                         "401": error_response("Missing or unknown bearer token"),
                         "403": error_response("The token holds no grant for the scope"),
                         "404": error_response("No checkpoint is stored under the key"),
+                        "503": {
+                            "description": "The store cannot answer right now. Retry after the given delay",
+                            "headers": {"Retry-After": {"schema": {"type": "integer"}, "description": "Seconds"}},
+                            "content": json_body(&error),
+                        },
+                    },
+                },
+            },
+            "/v1/recall": {
+                "post": {
+                    "operationId": "recall",
+                    "summary": "The stored text that holds some words, with what a judge said of how it relates",
+                    "description": "Searches the scopes the token may recall from, or those of them the request names. A match that a later statement replaced or withdrew is answered by the statement that now stands in its place. Arrows are followed up to `follow` steps, never into a scope the request may not read. Text comes verbatim, chunk by chunk, up to 1 MiB in one answer. Pausing or revoking a scope does not stop it being recalled; erasing a message does.",
+                    "security": [{"bearer": []}],
+                    "requestBody": {"required": true, "content": json_body(&recall_request)},
+                    "responses": {
+                        "200": {"description": "What was found: `matched`, `no_match`, or `no_terms` when the query holds no word to look for: only common words, punctuation or words to leave out", "content": json_body(&recall_answer)},
+                        "400": error_response("The body is not a recall request, or a value is out of range: empty_query, query_too_long, query_control_character, bad_limit, bad_follow or bad_scopes"),
+                        "401": error_response("Missing or unknown bearer token. Answered before any of the body is read"),
+                        "403": error_response("The token may not recall from a scope the request names (scope_not_granted), or from any scope (recall_not_granted)"),
+                        "408": error_response("The request body did not arrive in time"),
+                        "413": error_response("The request body is over the server's limit"),
                         "503": {
                             "description": "The store cannot answer right now. Retry after the given delay",
                             "headers": {"Retry-After": {"schema": {"type": "integer"}, "description": "Seconds"}},
@@ -190,5 +214,8 @@ mod tests {
         assert!(schemas.contains_key("SourceEvent"));
         assert!(schemas.contains_key("AdmissionOutcome"));
         assert!(schemas.contains_key("Checkpoint"));
+        assert!(schemas.contains_key("RecallRequest"));
+        assert!(schemas.contains_key("RecallAnswer"));
+        assert!(doc["paths"]["/v1/recall"]["post"].is_object());
     }
 }

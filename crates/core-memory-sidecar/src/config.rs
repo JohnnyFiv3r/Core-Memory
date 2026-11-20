@@ -169,7 +169,13 @@ pub struct TokenConfig {
     pub id: String,
     pub sha256: Sha256Digest,
     /// Scopes this caller may write. `["*"]` grants every scope.
+    #[serde(default)]
     pub scopes: Vec<String>,
+    /// Scopes this caller may recall from: read their text back, with what
+    /// a judge said of it. None unless named: a token that writes does not
+    /// read. `["*"]` grants every scope.
+    #[serde(default)]
+    pub recall: Vec<String>,
 }
 
 fn default_listen() -> String {
@@ -401,7 +407,15 @@ impl Loaded {
                 if !hashes.insert(t.sha256) {
                     return Err(format!("http token `{}` reuses another token's hash", t.id));
                 }
+                if t.scopes.is_empty() && t.recall.is_empty() {
+                    return Err(format!(
+                        "http token `{}` grants nothing: give it `scopes` to write, \
+                         `recall` to read, or both",
+                        t.id
+                    ));
+                }
                 check_scopes(&format!("http token `{}` scopes", t.id), &t.scopes)?;
+                check_scopes(&format!("http token `{}` recall", t.id), &t.recall)?;
             }
             if http.max_batch_events == 0 || http.max_body_bytes == 0 {
                 return Err(
@@ -467,9 +481,6 @@ impl Loaded {
 }
 
 fn check_scopes(what: &str, scopes: &[String]) -> Result<(), String> {
-    if scopes.is_empty() {
-        return Err(format!("{what} is empty; nothing could be admitted"));
-    }
     if scopes.iter().any(|s| s == "*") && scopes.len() > 1 {
         return Err(format!("{what}: `*` must be the only entry"));
     }
@@ -716,6 +727,31 @@ mod tests {
         let err = load(&format!("{}{}", token("a"), token("b"))).unwrap_err();
         assert!(err.contains("reuses another token's hash"), "{err}");
         let err = load(&token("a").replace("[\"acme\"]", "[]")).unwrap_err();
-        assert!(err.contains("is empty"), "{err}");
+        assert!(err.contains("grants nothing"), "{err}");
+        let err = load(&token("a").replace("scopes = [\"acme\"]", "")).unwrap_err();
+        assert!(err.contains("grants nothing"), "{err}");
+        let err = load(&format!("{}recall = [\"*\", \"acme\"]\n", token("a"))).unwrap_err();
+        assert!(err.contains("`*` must be the only entry"), "{err}");
+    }
+
+    #[test]
+    fn a_token_may_recall_without_writing_and_writes_without_recalling() {
+        let hash = Sha256Digest::of(b"t");
+        let loaded = load(&format!(
+            "[[http.token]]\nid = \"reader\"\nsha256 = \"{hash}\"\nrecall = [\"acme\"]\n"
+        ))
+        .unwrap();
+        let token = &loaded.config.http.as_ref().unwrap().tokens[0];
+        assert!(token.scopes.is_empty());
+        assert_eq!(token.recall, ["acme"]);
+        let loaded = load(&format!(
+            "[[http.token]]\nid = \"writer\"\nsha256 = \"{hash}\"\nscopes = [\"acme\"]\n"
+        ))
+        .unwrap();
+        assert!(
+            loaded.config.http.as_ref().unwrap().tokens[0]
+                .recall
+                .is_empty()
+        );
     }
 }

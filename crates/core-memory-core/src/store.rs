@@ -2,8 +2,9 @@
 //!
 //! It holds scopes and their state, events, chunks and their text, beads,
 //! reader checkpoints and profile pins. What admission commits here is the
-//! record: there is no outbox and no delivery step. The store exposes no
-//! retrieval API; consumers read its tables or its export.
+//! record: there is no outbox and no delivery step. Consumers read its
+//! tables or its export, or recall: a query over the stored text and what
+//! a judge said of it, which keeps nothing of its own.
 //!
 //! The engine's guarantees are transactional, so there is one real
 //! implementation, on PostgreSQL (`core-memory-store-postgres`), and no
@@ -13,12 +14,14 @@ use core_memory_contract::{
     Arrow, BeadId, BeadRecord, CallId, CatalogRef, Checkpoint, CheckpointReceipt, ChunkFacets,
     ChunkId, ChunkReadRecord, ChunkRecord, ChunkerRef, CompressorRef, Direction, EdgeRecord,
     ErasureRecord, EventDetails, EventId, EventKey, EventRecord, IdKey, NameLinkRecord,
-    PairColumns, ProfileRef, ReadDecision, ReadSpan, ReaderRef, Sha256Digest, TimeBasis, Timestamp,
-    ToolCallDetails, ToolOutcomeRecord, ToolStatus, Verdict, VerdictNote, VerdictRecord,
+    PairColumns, ProfileRef, ReadDecision, ReadSpan, ReaderRef, RecallAnswer, Sha256Digest,
+    TimeBasis, Timestamp, ToolCallDetails, ToolOutcomeRecord, ToolStatus, Verdict, VerdictNote,
+    VerdictRecord,
 };
 
 use crate::error::StoreError;
 use crate::model::{BudgetConfig, Usage};
+use crate::recall::RecallQuery;
 
 /// Whether a scope takes new events.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -946,6 +949,13 @@ pub trait Store {
         limit: u32,
         scope: Option<&str>,
     ) -> Result<Vec<Change>, StoreError>;
+
+    /// The beads of the query's scopes whose text holds its words, best
+    /// first, with the current end of each chain that replaced or withdrew
+    /// one, the beads reached from them along the judge's arrows, and the
+    /// arrows between all of them. One read, on one snapshot. It writes
+    /// nothing.
+    fn recall(&mut self, query: &RecallQuery) -> Result<RecallAnswer, StoreError>;
 
     // ---- model calls ----
 
