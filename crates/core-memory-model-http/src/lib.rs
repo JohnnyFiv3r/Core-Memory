@@ -146,8 +146,18 @@ impl HttpClient {
 }
 
 /// Errors before a response. Failures to resolve or connect mean nothing
-/// was sent; anything later may have reached the provider.
+/// was sent, and so does a server certificate that is not trusted; anything
+/// later may have reached the provider.
 fn classify_error(e: ureq::Error) -> TransportError {
+    if let Some(refused) = rustls_error(&e).filter(|e| certificate_refused(e)) {
+        return TransportError::Untrusted {
+            message: format!(
+                "the server's TLS certificate was not trusted ({refused}), so nothing was \
+                 sent. If a proxy or gateway re-signs TLS on the way, trust its certificate \
+                 authority with [models] ca_file"
+            ),
+        };
+    }
     match e {
         ureq::Error::HostNotFound | ureq::Error::ConnectionFailed => TransportError::Transient {
             message: e.to_string(),
@@ -170,6 +180,31 @@ fn classify_error(e: ureq::Error) -> TransportError {
             message: other.to_string(),
         },
     }
+}
+
+/// The rustls error behind `e`, if the TLS connection failed in rustls.
+/// The handshake reports one as an I/O error wrapping it.
+fn rustls_error(e: &ureq::Error) -> Option<&rustls::Error> {
+    match e {
+        ureq::Error::Rustls(inner) => Some(inner),
+        ureq::Error::Io(io) => io
+            .get_ref()
+            .and_then(|inner| inner.downcast_ref::<rustls::Error>()),
+        _ => None,
+    }
+}
+
+/// Whether rustls refused the server's certificate: it was not valid or not
+/// trusted, or there was none. A client sees the server's certificate only
+/// in the handshake, before it writes a byte of the request: rustls does not
+/// renegotiate, and TLS 1.3 has no later server certificate. So a call that
+/// failed this way sent nothing. Any other TLS error is not placed by its
+/// kind alone before or after the request, and stays in doubt.
+fn certificate_refused(error: &rustls::Error) -> bool {
+    matches!(
+        error,
+        rustls::Error::InvalidCertificate(_) | rustls::Error::NoCertificatesPresented
+    )
 }
 
 /// I/O failures that happen before any byte reaches the provider.
@@ -480,6 +515,175 @@ MEUCIG2/Fa/qx/j0xw0IwRQ0FuNnlIojyuDQ/NDOCqkSqUFDAiEA6YSf+7LbyOCq\n\
         assert!(!err.contains("secret-name"), "{err}");
         std::fs::write(&path, TEST_CA).unwrap();
         assert_eq!(Roots::with_file(&path).unwrap().private(), 1);
+    }
+
+    /// An authority a TLS gateway might sign with, made for these tests.
+    const GATEWAY_CA: &str = "-----BEGIN CERTIFICATE-----\n\
+MIIBtDCCAVmgAwIBAgIURympWYMX8VATelpnvS8hzPrXa10wCgYIKoZIzj0EAwIw\n\
+JjEkMCIGA1UEAwwbQ29yZSBNZW1vcnkgdGVzdCBnYXRld2F5IENBMCAXDTI2MTEy\n\
+MDE1NTc1MFoYDzIxMjYxMDI3MTU1NzUwWjAmMSQwIgYDVQQDDBtDb3JlIE1lbW9y\n\
+eSB0ZXN0IGdhdGV3YXkgQ0EwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAARq7Quw\n\
+yYExShZC2A6t5+R90a3ipk+mNa3Dew6TpRCV818IZit4QOn4UZWmrYGptCp7ELfW\n\
+cm+ZPvZ9gjqsXsYQo2MwYTAdBgNVHQ4EFgQUgBo4WTypF9DbispKqK5EClhpMEsw\n\
+HwYDVR0jBBgwFoAUgBo4WTypF9DbispKqK5EClhpMEswDwYDVR0TAQH/BAUwAwEB\n\
+/zAOBgNVHQ8BAf8EBAMCAQYwCgYIKoZIzj0EAwIDSQAwRgIhAM6TCFRR+iD/J1ak\n\
+lm4nliK3bqGUbs0Q+t/ppApmKUpOAiEAuM31UAbGF6YLBLSnzuXREgwj51ZMfHN5\n\
+FP2e5Ae2bsY=\n\
+-----END CERTIFICATE-----
+";
+    /// The gateway's certificate for 127.0.0.1, signed by [`GATEWAY_CA`].
+    const GATEWAY_LEAF: &str = "-----BEGIN CERTIFICATE-----\n\
+MIIBxjCCAWygAwIBAgIUCE9G0xM+ZY/O0Zfm5NhN7nJaYFYwCgYIKoZIzj0EAwIw\n\
+JjEkMCIGA1UEAwwbQ29yZSBNZW1vcnkgdGVzdCBnYXRld2F5IENBMCAXDTI2MTEy\n\
+MDE1NTc1MFoYDzIxMjYxMDI3MTU1NzUwWjAUMRIwEAYDVQQDDAkxMjcuMC4wLjEw\n\
+WTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAARzlZbLNl/oNGHS/0uNGxWACyqI0R0V\n\
+VE3NNKg/a24FtW/3ctKv91mXYRyGT1W63Z0vvs0m2iRt5QrQFcP/ZCPao4GHMIGE\n\
+MAwGA1UdEwEB/wQCMAAwDgYDVR0PAQH/BAQDAgeAMBMGA1UdJQQMMAoGCCsGAQUF\n\
+BwMBMA8GA1UdEQQIMAaHBH8AAAEwHQYDVR0OBBYEFOnRDpR8XQnH3YfFLOrzrhL3\n\
+JsZsMB8GA1UdIwQYMBaAFIAaOFk8qRfQ24rKSqiuRApYaTBLMAoGCCqGSM49BAMC\n\
+A0gAMEUCIQDrkjhDVkGUH1WPgbsYFzXGgjvhkh43YcWMCnjnCwrBagIgFqGgZjjy\n\
+sOmDGV+j8AjWCbWbF37pknlpceXt1BGe3QQ=\n\
+-----END CERTIFICATE-----
+";
+    /// Its key. A test key, for this certificate and nothing else.
+    const GATEWAY_KEY: &str = "-----BEGIN PRIVATE KEY-----\n\
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg/I71+PusVfjC31Ww\n\
+KikaNueW9n2Pp/+5Fhv/KvuSH9WhRANCAARzlZbLNl/oNGHS/0uNGxWACyqI0R0V\n\
+VE3NNKg/a24FtW/3ctKv91mXYRyGT1W63Z0vvs0m2iRt5QrQFcP/ZCPa\n\
+-----END PRIVATE KEY-----
+";
+
+    /// A TLS server on 127.0.0.1 with the gateway's certificate. It answers
+    /// one connection with 200 if the handshake succeeds, and yields the
+    /// request line it read, or `None` if the handshake failed.
+    fn serve_tls() -> (u16, std::thread::JoinHandle<Option<String>>) {
+        use std::io::{BufRead, BufReader, Write};
+
+        let certs: Vec<rustls::pki_types::CertificateDer<'static>> =
+            ureq::tls::parse_pem(GATEWAY_LEAF.as_bytes())
+                .map(|item| match item.unwrap() {
+                    PemItem::Certificate(cert) => cert.der().to_vec().into(),
+                    _ => panic!("not a certificate"),
+                })
+                .collect();
+        let key = match ureq::tls::parse_pem(GATEWAY_KEY.as_bytes()).next() {
+            Some(Ok(PemItem::PrivateKey(key))) => {
+                rustls::pki_types::PrivateKeyDer::Pkcs8(key.der().to_vec().into())
+            }
+            _ => panic!("not a key"),
+        };
+        let config = rustls::ServerConfig::builder_with_provider(Arc::new(
+            rustls::crypto::ring::default_provider(),
+        ))
+        .with_safe_default_protocol_versions()
+        .unwrap()
+        .with_no_client_auth()
+        .with_single_cert(certs, key)
+        .unwrap();
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let handle = std::thread::spawn(move || {
+            let (sock, _) = listener.accept().unwrap();
+            let conn = rustls::ServerConnection::new(Arc::new(config)).unwrap();
+            let mut tls = rustls::StreamOwned::new(conn, sock);
+            // A client that refuses the certificate ends the handshake, and
+            // this read fails.
+            let mut reader = BufReader::new(&mut tls);
+            let mut request_line = String::new();
+            reader.read_line(&mut request_line).ok()?;
+            // The rest of the request, so the reply does not cut it off.
+            let mut length = 0usize;
+            loop {
+                let mut line = String::new();
+                reader.read_line(&mut line).ok()?;
+                let line = line.trim_end();
+                if line.is_empty() {
+                    break;
+                }
+                if let Some((name, value)) = line.split_once(':')
+                    && name.eq_ignore_ascii_case("content-length")
+                {
+                    length = value.trim().parse().ok()?;
+                }
+            }
+            std::io::Read::read_exact(&mut reader, &mut vec![0u8; length]).ok()?;
+            let body = "{}";
+            write!(
+                tls,
+                "HTTP/1.1 200 OK\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                body.len()
+            )
+            .ok()?;
+            tls.conn.send_close_notify();
+            tls.flush().ok()?;
+            Some(request_line.trim_end().to_string())
+        });
+        (port, handle)
+    }
+
+    #[test]
+    fn a_server_whose_certificate_is_not_trusted_was_sent_nothing() {
+        let (port, server) = serve_tls();
+        // The public roots alone: the gateway's authority is not among them.
+        let client = HttpClient::new(Duration::from_secs(5));
+        let err = client
+            .post_json(
+                &format!("https://127.0.0.1:{port}/v1/messages"),
+                &[],
+                &serde_json::json!({}),
+            )
+            .unwrap_err();
+        let TransportError::Untrusted { message } = &err else {
+            panic!("{err:?}");
+        };
+        assert!(message.contains("[models] ca_file"), "{message}");
+        assert!(message.contains("nothing was sent"), "{message}");
+        // The server never got a request.
+        assert_eq!(server.join().unwrap(), None);
+    }
+
+    #[test]
+    fn the_same_server_is_reached_once_its_authority_is_trusted() {
+        let (port, server) = serve_tls();
+        let roots = Roots::with_pem(GATEWAY_CA.as_bytes()).unwrap();
+        let client = HttpClient::trusting(Duration::from_secs(5), Some(&roots));
+        let reply = client
+            .post_json(
+                &format!("https://127.0.0.1:{port}/v1/messages"),
+                &[],
+                &serde_json::json!({}),
+            )
+            .unwrap();
+        assert_eq!((reply.status, reply.body.as_str()), (200, "{}"));
+        assert_eq!(
+            server.join().unwrap().as_deref(),
+            Some("POST /v1/messages HTTP/1.1")
+        );
+    }
+
+    #[test]
+    fn a_tls_error_that_is_not_about_the_certificate_stays_in_doubt() {
+        use std::io::Write;
+        // A server that answers in plain HTTP to a client speaking TLS. The
+        // handshake fails, but on a malformed message, not a certificate,
+        // and an error of that kind can come after a request was written
+        // too: its kind alone does not say nothing was sent.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = std::thread::spawn(move || {
+            let (mut sock, _) = listener.accept().unwrap();
+            let _ = sock.write_all(b"HTTP/1.1 400 Bad Request\r\ncontent-length: 0\r\n\r\n");
+        });
+        let client = HttpClient::new(Duration::from_secs(5));
+        let err = client
+            .post_json(
+                &format!("https://127.0.0.1:{port}/x"),
+                &[],
+                &serde_json::json!({}),
+            )
+            .unwrap_err();
+        assert!(matches!(err, TransportError::InDoubt { .. }), "{err:?}");
+        server.join().unwrap();
     }
 
     #[test]
