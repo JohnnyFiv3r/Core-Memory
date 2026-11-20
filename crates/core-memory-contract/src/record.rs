@@ -87,7 +87,7 @@ impl Record {
         }
     }
 
-    /// A bead a judge made: a label or a group.
+    /// A bead a judge made: a group.
     pub fn bead(bead: BeadRecord) -> Self {
         Self {
             contract: RECORD_CONTRACT.to_string(),
@@ -97,12 +97,14 @@ impl Record {
         }
     }
 
+    /// A relationship. Its key is its arrow and its two beads, which is
+    /// what makes an edge one: a pair may hold two arrows of one type.
     pub fn edge(edge: EdgeRecord) -> Self {
         Self {
             contract: RECORD_CONTRACT.to_string(),
             record_key: format!(
                 "edge:{}:{}:{}",
-                edge.edge_type.as_str(),
+                edge.arrow.as_str(),
                 edge.from_bead,
                 edge.to_bead
             ),

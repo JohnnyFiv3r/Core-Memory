@@ -136,32 +136,29 @@ fn judge(request: &ModelRequest) -> Result<ModelResponse, TransportError> {
             // The new memory says `a` and the other says `b`.
             let is = |a: &str, b: &str| mine.contains(a) && theirs.contains(b);
             let current = memory["current"] != false && other["current"] != false;
-            // `<` runs from the new memory to the other, `>` the other way.
-            let rel = if memory["message"].is_string() && memory["message"] == other["message"] {
-                Some(("CONTAINS", None))
+            // An arrow's forward name is said of the new memory, its
+            // inverse of the other.
+            let arrow = if memory["message"].is_string() && memory["message"] == other["message"] {
+                Some("same-memory")
             } else if is("closed_won", "negotiation") && current {
-                Some(("SUPERSEDES<", Some("supersede")))
+                Some("repl")
             } else if is("negotiation", "closed_won") && current {
-                Some(("SUPERSEDES>", Some("supersede")))
+                Some("repl-by")
             } else if is("Agreed", "phased cutover") || is("ledger_export", "Agreed") {
-                Some(("LEADSTO>", None))
+                Some("cause-by")
             } else if is("phased cutover", "Agreed") || is("Agreed", "ledger_export") {
-                Some(("LEADSTO<", None))
+                Some("cause")
             } else if is("ledger_export", "phased cutover") {
-                Some(("EXPRESS<", None))
+                Some("attr-of")
             } else if is("phased cutover", "ledger_export") {
-                Some(("EXPRESS>", None))
+                Some("attr")
             } else if is("Phase two", "phased cutover") || is("phased cutover", "Phase two") {
-                Some(("NEAR", None))
+                Some("see")
             } else {
                 None
             };
-            match rel {
-                Some((rel, Some(label))) => {
-                    related.push(json!({"to": other["id"], "rel": rel, "label": label}));
-                }
-                Some((rel, None)) => related.push(json!({"to": other["id"], "rel": rel})),
-                None => {}
+            if let Some(arrow) = arrow {
+                related.push(json!({"to": other["id"], "arrow": arrow}));
             }
             if is("Owner:", "Agreed") || is("Agreed", "Owner:") {
                 unsure.push(other["id"].clone());
@@ -329,11 +326,11 @@ fn exported_records_match_the_golden_file() {
 
     // A judge reads how the beads relate: the messages and the plan of one
     // day together, then the records and the note stored days later, then
-    // the tool call beside the first. The label it gives the two records
-    // changes what is current, so it is read a second time before it is
-    // written. Every pair it was shown is a verdict record, whatever it
-    // said, and what it made of them follows: a group, a label, their
-    // relationships and one pair of names.
+    // the tool call beside the first. The replacement it gives of the two
+    // records changes what is current, so it is read a second time before
+    // it is written. Every pair it was shown is a verdict record, whatever
+    // it said, and what it made of them follows: a group, the arrows of
+    // their relationships and one pair of names.
     w.clock.advance_millis(4_000);
     let judging = FnTransport(judge);
     let mut reads = Vec::new();

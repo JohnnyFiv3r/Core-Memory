@@ -77,8 +77,6 @@ def report(out, why):
             more = "…" if len(text) > TEXT else ""
             return f"[{where} {who}] {text[:TEXT]}{more}"
         made = beads.get(bead)
-        if made and made["bead_kind"] == "label":
-            return f"(a {made['label']} label on {said(made['source'])})"
         if made:
             return f"(a {made['bead_kind']} bead)"
         return f"(bead {bead[:8]}, not in this export)"
@@ -136,6 +134,14 @@ def report(out, why):
         if counted:
             ordered = sorted(counted.items(), key=lambda kv: -kv[1])
             w.append(f"- {title}: {', '.join(f'{v} {n}' for v, n in ordered)}")
+    arrows = collections.Counter(
+        (v["verdict"], v["arrow"]) for v in kinds["verdict"] if v["read_no"] == 1 and v.get("arrow")
+    )
+    if arrows:
+        w.append(
+            "- arrows, first read: "
+            + ", ".join(f"{a} ({t}) {n}" for (t, a), n in arrows.most_common())
+        )
     edges = collections.defaultdict(list)
     for edge in kinds["edge"]:
         edges[edge["edge_type"]].append(edge)
@@ -143,12 +149,13 @@ def report(out, why):
         "- edges: "
         + (", ".join(f"{t} {len(e)}" for t, e in sorted(edges.items())) or "none")
     )
-    labels = collections.Counter(
-        b["label"] for b in beads.values() if b["bead_kind"] == "label"
+    ended = collections.Counter(
+        e["arrow"] for e in kinds["edge"] if e.get("arrow") in ("repl", "withdraws")
     )
     groups = sum(1 for b in beads.values() if b["bead_kind"] == "group")
     w.append(
-        f"- label beads: {', '.join(f'{k} {n}' for k, n in labels.most_common()) or 'none'}"
+        "- written, ending currency: "
+        + (", ".join(f"{k} {n}" for k, n in ended.most_common()) or "none")
     )
     w.append(f"- group beads: {groups}")
     w.append(f"- name links: {len(kinds['name_link'])}\n")

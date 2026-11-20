@@ -38,23 +38,26 @@ sometimes the case is what needs changing.
 | not English | Spanish and German |
 | shape | a log line, a bare link |
 
-**15 threads for the judge**, 38 messages and 26 scored pairs: a goal
+**16 threads for the judge**, 41 messages and 29 scored pairs: a goal
 withdrawn, a correction, a fact confirmed after doubt, two statements that
 cannot both be right, a question and its answer, one name for two people,
 the same words about unrelated matters, a problem with its fix and result, a
 message that tells the judge to retract everything before it, a decision
 reversed, more about a thing that replaces nothing, one list split over two
-messages, a move nobody calls a correction, a hypothesis and its result, and
-small talk. Some of their messages carry an expected type too.
+messages, a move nobody calls a correction, a hypothesis and its result,
+small talk, and two accounts that neither side can settle until a third
+message does. Some of their messages carry an expected type too. The runs
+recorded below had the first 15 threads and 26 pairs, until J16 was added
+for the second run of revision 4.
 
 Each case for the reader stands ten days from the next, and each thread
 twenty days from the next, farther apart than the judge's seven-day window:
 the reader's cases are compared with nothing, and each thread is judged on
 its own.
 
-**It spends real money, very little:** the reader reads 101 messages, eight
-to a call, and the judge reads 15 threads, with a second read of each label
-it gives. Expect about $1.
+**It spends real money, very little:** the reader reads 104 messages, eight
+to a call, and the judge reads 16 threads, with a second read of each
+replacement or withdrawal it gives. Expect about $1.
 
 ## Running it
 
@@ -82,12 +85,18 @@ every run. Each repeat costs what one run does.
 - **The reader:** each message's type, or its abstention, against `expect`.
   "abstain" in `expect` stands for any of the reader's three abstentions.
   A case may give `not` instead: any answer but those is right.
-- **The judge:** the verdict of the first read of each pair a case names,
-  written from the first message's side: `leadsto` means the first brought
-  the second about, `supersedes:retract` that the first withdraws the
-  second. A pair with no verdict, because the judge was never shown it or
-  every reply about it was rejected, counts apart, never as a no. A verdict
-  of the second read, and any label bead made, are shown beside it.
+- **The judge:** the arrow of the first read of each pair a case names,
+  written from the first message's side, so that "a *arrow* b" is true:
+  `withdraws` means the first withdraws the second, `cause-by` that the
+  first was caused by the second. A case may give an arrow, a type (any
+  arrow of it, either way), `ends` (a replacement or withdrawal, either
+  way), `none` or `unsure`. A pair with no verdict, because the judge was
+  never shown it or every reply about it was rejected, counts apart, never
+  as a no. A verdict of the second read, and an arrow that ends currency
+  and was written, are shown beside it.
+  Runs before rubric revision 4 were scored with the codes and labels of
+  their time (`supersedes:retract` and so on); their findings below keep
+  those words.
 - **Names:** a name pair that should be linked as one entity, and a name
   that should be linked to nothing.
 
@@ -166,3 +175,62 @@ $1.01):
 - The reader was the same in both, 194 of 201, as it should be.
 - Three runs a side is still few: J02's fall and J13's rise are within
   what one pair does from run to run.
+
+**2026-11-20, rubric revision 4: Burgess's arrows, three runs** ($1.27,
+about seven minutes, 63 judge calls):
+
+| Pair | Revision 3 | Revision 4 |
+|---|---|---|
+| all 26 pairs, 3 runs | 71 of 78 | 78 of 78 |
+| J02, a correction | 1 of 3 | 3 of 3, `repl` |
+| J04, a contradiction | 0 of 3 | 3 of 3, `repl` |
+| J13, a move nobody calls a correction | 1 of 3 | 3 of 3, `repl` |
+
+- **No reply was rejected**, in any run: one field of arrow names held.
+- **The three pairs that came right** are scored by the same answers as
+  before, translated: a replacement for J02, J10 and J13, a replacement or
+  a contradiction for J04. The arrows' answers changed in one way that
+  counts: `!confuse` is now right for the two people named Sam and for the
+  two budgets. The judge gave `!confuse` for Samantha against Sam in every
+  run; every other pair would have been right under the old answers'
+  meaning too.
+- **The contradiction was never left open.** The judge read "per legal" in
+  J04 as a correction and gave `repl` in every run; no first read anywhere
+  gave `!contradicts`. In the third run the second read did not give
+  `repl` again, so nothing was written and both statements stayed current.
+  J16 was added to see the arrow used where neither side has the better
+  claim.
+- **The judge used the new arrows where they fit**: `answered-by` for both
+  questions with their answers in every run (J03, J05), `confirms` for the
+  fact confirmed after doubt and for the hypothesis borne out, `implem` for
+  the training plan of the goal, `cause` and then `result` for the problem,
+  its fix and what came of it, `attr-of` for the venue's parking, and
+  `withdraws` for the goal given up.
+- **It costs more**: $1.27 against revision 3's $1.01 for three runs, from
+  the longer instructions. The judge's share was $1.23.
+- The reader, which did not change, was right on 197 of 201, as against
+  194 under the two revisions before: within what it does from run to run.
+- 78 of 78 on cases we wrote ourselves says the rubric and the cases agree.
+  It does not say the judge is right on what a person would write.
+
+**2026-11-20, revision 4 again, with J16** ($1.41, about eight minutes, 70
+judge calls):
+
+- **The judge: 87 of 87**, all 29 pairs in all three runs, and no reply
+  rejected.
+- **J16, two accounts neither side can settle:** `!contradicts` in every
+  run, so both stayed current, with the dispute open. The call to the
+  restaurant then `confirms` Ana's first account and `repl`s the Thai
+  place; the second read gave `repl` again each time, and that closed the
+  dispute. This is the first live run in which the judge used
+  `!contradicts`, and it did so where the case wants it.
+- **J04, the contradiction settled "per legal":** `repl` in two runs, each
+  confirmed by its second read, and `!contradicts` in the third. Both are
+  right: the message cites legal, and the judge may take that as settling
+  it or not.
+- An `!contradicts` edge points from one bead to the other by their IDs,
+  which differ from run to run, so it runs either way across runs. Its
+  verdicts are `undirected`, as a symmetric arrow's are.
+- The reader, unchanged, was right on 196 of 201: the sarcastic "ship it
+  on Friday at 5pm" was `decision` in every run, and once "Can you send me
+  the Q3 numbers" was left untyped (`no_fit`).

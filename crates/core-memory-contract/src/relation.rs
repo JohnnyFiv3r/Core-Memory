@@ -2,9 +2,17 @@
 //!
 //! A relationship is always a judgment (invariant 4). Code computes what a
 //! judge is shown and records its answer; it never proposes an edge and
-//! never picks a pair. Nothing here holds text: a verdict, an edge, a label
-//! and a group are IDs and values from fixed sets, and a name link is two
-//! byte ranges.
+//! never picks a pair. Nothing here holds text: a verdict, an edge and a
+//! group are IDs and values from fixed sets, and a name link is two byte
+//! ranges.
+//!
+//! The relationships are those of Mark Burgess's Semantic Spacetime: four
+//! types of association, near, leads to, contains and expresses, and named
+//! arrows within each, as his SSTorytime defines them in its `SSTconfig`
+//! files. Each arrow has a forward name and, unless it is symmetric, an
+//! inverse; which of the two a judge gives says which way it runs. The few
+//! arrows this engine adds are marked as its own, in the way his
+//! configuration invites a user to add theirs.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -45,35 +53,173 @@ macro_rules! named {
 }
 
 named! {
-    /// The five relationships. An edge has no state and no weight.
+    /// The four types of association of Semantic Spacetime. Every arrow
+    /// belongs to one. An edge has no state and no weight.
     EdgeType {
-        /// The two call each other up. No cause is claimed and there is no
-        /// direction.
+        /// Proximity: the two are close, alike or about one matter. It has
+        /// no direction. Burgess's type 0 in SSTorytime.
         Near => "near",
-        /// What one describes brought about what the other describes.
+        /// Order: one follows from the other, as cause, result, dependency
+        /// or replacement. Type 1.
         Leadsto => "leadsto",
-        /// Both are parts of one memory. Written as a group bead that
-        /// contains each member.
+        /// Membership: one is a part of the other, or both are parts of one
+        /// memory. Type 2.
         Contains => "contains",
-        /// One states an attribute, a description or the source of what the
-        /// other is about.
+        /// Expression: one states a property, a note, an example or the
+        /// source of the other. Type 3.
         Express => "express",
-        /// A later statement follows an earlier one on the same matter.
-        /// Written from the label bead of the later statement to the bead
-        /// of the earlier one, which is no longer current from then on.
-        Supersedes => "supersedes",
+    }
+}
+
+/// Where an arrow's names come from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ArrowOrigin {
+    /// Burgess's SSTorytime `SSTconfig` files, names as he gives them.
+    Sstorytime,
+    /// Added by this engine, in the form his files use.
+    Engine,
+}
+
+macro_rules! arrows {
+    ($(
+        $(#[$vmeta:meta])*
+        $variant:ident => $key:literal, $edge:ident, $forward:literal, $backward:expr, $origin:ident;
+    )+) => {
+        /// A named relationship. It is stored by its forward name, from the
+        /// bead its forward name is said of to the other.
+        #[derive(
+            Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize,
+            JsonSchema,
+        )]
+        pub enum Arrow {
+            $($(#[$vmeta])* #[serde(rename = $key)] $variant),+
+        }
+
+        impl Arrow {
+            pub const ALL: &'static [Arrow] = &[$(Arrow::$variant),+];
+
+            /// The forward short name, which is the key the arrow is
+            /// stored by.
+            pub fn as_str(self) -> &'static str {
+                match self {
+                    $(Arrow::$variant => $key),+
+                }
+            }
+
+            pub fn from_name(name: &str) -> Option<Self> {
+                Self::ALL.iter().copied().find(|a| a.as_str() == name)
+            }
+
+            /// The type of association the arrow belongs to.
+            pub fn edge_type(self) -> EdgeType {
+                match self {
+                    $(Arrow::$variant => EdgeType::$edge),+
+                }
+            }
+
+            /// The forward name in full: "A causes B".
+            pub fn forward(self) -> &'static str {
+                match self {
+                    $(Arrow::$variant => $forward),+
+                }
+            }
+
+            /// The inverse's short and full names: "B is caused by A". A
+            /// symmetric arrow has none.
+            pub fn backward(self) -> Option<(&'static str, &'static str)> {
+                match self {
+                    $(Arrow::$variant => $backward),+
+                }
+            }
+
+            pub fn origin(self) -> ArrowOrigin {
+                match self {
+                    $(Arrow::$variant => ArrowOrigin::$origin),+
+                }
+            }
+        }
+    };
+}
+
+arrows! {
+    // ---- leads to (SSTconfig/arrows-LT-1.sst) ----
+    Causes => "cause", Leadsto, "causes", Some(("cause-by", "is caused by")), Sstorytime;
+    ResultsIn => "result", Leadsto, "results in", Some(("result-of", "was a result of")), Sstorytime;
+    Enables => "enables", Leadsto, "enables", Some(("enabled-by", "is enabled by")), Sstorytime;
+    Implements => "implem", Leadsto, "implements", Some(("implorg", "was implemented by")), Sstorytime;
+    /// The later statement takes the earlier one's place, which is no longer
+    /// current from then on.
+    Replaces => "repl", Leadsto, "replaces", Some(("repl-by", "is replaced by")), Sstorytime;
+    /// The later statement withdraws the earlier one and puts nothing in
+    /// its place. The earlier one is no longer current from then on: a
+    /// promise withdrawn, in Burgess's Promise Theory.
+    Withdraws => "withdraws", Leadsto, "withdraws", Some(("withdrawn-by", "is withdrawn by")), Engine;
+
+    // ---- contains (SSTconfig/arrows-CN-2.sst) ----
+    HasPart => "has-pt", Contains, "has a part", Some(("pt-of", "is a part of")), Sstorytime;
+    /// From a group bead to each of its members: a hub that unites the
+    /// parts of one memory. A judge does not give it.
+    ConsistsOf => "consists", Contains, "consists of", Some(("mkpt", "makes up part of")), Sstorytime;
+    /// What a judge says of two parts of one memory. It is written as a
+    /// group bead that consists of each of them, and appears only on
+    /// verdicts.
+    SameMemory => "same-memory", Contains, "is part of one memory with", None, Engine;
+
+    // ---- expresses (SSTconfig/arrows-EP-3.sst) ----
+    Note => "note", Express, "note/remark", Some(("isnotefor", "is a note or remark about")), Sstorytime;
+    HasExample => "e.g.", Express, "has example", Some(("ex", "is an example of")), Sstorytime;
+    InOtherWords => "i.e.", Express, "in other words", Some(("clarify", "is a clarification of")), Sstorytime;
+    HasAttribute => "attr", Express, "has an attribute", Some(("attr-of", "is an attribute of")), Sstorytime;
+    DefinedAs => "def", Express, "defined as", Some(("def-of", "is the definition of")), Sstorytime;
+    HasSource => "source", Express, "has source", Some(("source-of", "the source for")), Sstorytime;
+    PotentialSolution => "solution", Express, "potential solution", Some(("issolution", "is a potential solution to")), Sstorytime;
+    Answers => "answers", Express, "answers", Some(("answered-by", "is answered by")), Engine;
+    /// The later statement says again what the earlier one says. Both stay
+    /// current.
+    Confirms => "confirms", Express, "confirms", Some(("confirmed-by", "is confirmed by")), Engine;
+
+    // ---- near (SSTconfig/arrows-NR-0.sst) ----
+    SeeAlso => "see", Near, "see also", None, Sstorytime;
+    SimilarTo => "sim", Near, "similar to", None, Sstorytime;
+    /// Two that are easily taken for one and are not. A negative arrow,
+    /// marked with `!` as in his files: nearness is never completed
+    /// through it.
+    DontConfuseWith => "!confuse", Near, "don't confuse with", None, Sstorytime;
+    /// The two cannot both hold, and neither replaces or withdraws the
+    /// other. Both stay current, as each observer assesses a promise for
+    /// itself, and the contradiction stays open while they are.
+    Contradicts => "!contradicts", Near, "contradicts", None, Engine;
+}
+
+impl Arrow {
+    /// Whether the arrow has no direction.
+    pub fn is_symmetric(self) -> bool {
+        self.backward().is_none()
+    }
+
+    /// Whether the arrow ends what a reader takes as current: the bead it
+    /// points at is no longer current once the arrow is written. Only
+    /// these make a chain, and only they wait for a second read.
+    pub fn ends_currency(self) -> bool {
+        matches!(self, Arrow::Replaces | Arrow::Withdraws)
+    }
+
+    /// Whether the arrow says two beads may not both hold. The beads of
+    /// such an arrow are shown to a judge first while both are current.
+    pub fn disputes(self) -> bool {
+        self == Arrow::Contradicts
     }
 }
 
 named! {
-    /// What a judge said of one pair. `Unsure` is not a no, and neither is
-    /// a pair that was never shown.
+    /// What a judge said of one pair: the type of the arrow it gave, or
+    /// that it found none, or that it could not tell. `Unsure` is not a
+    /// no, and neither is a pair that was never shown.
     Verdict {
         Near => "near",
         Leadsto => "leadsto",
         Contains => "contains",
         Express => "express",
-        Supersedes => "supersedes",
         /// The judge read both and found no relationship.
         None => "none",
         /// The judge could not tell.
@@ -82,6 +228,16 @@ named! {
 }
 
 impl Verdict {
+    /// The verdict of a pair given an arrow of this type.
+    pub fn of(edge_type: EdgeType) -> Self {
+        match edge_type {
+            EdgeType::Near => Verdict::Near,
+            EdgeType::Leadsto => Verdict::Leadsto,
+            EdgeType::Contains => Verdict::Contains,
+            EdgeType::Express => Verdict::Express,
+        }
+    }
+
     /// The relationship the verdict asserts, if it asserts one.
     pub fn edge_type(self) -> Option<EdgeType> {
         match self {
@@ -89,24 +245,16 @@ impl Verdict {
             Verdict::Leadsto => Some(EdgeType::Leadsto),
             Verdict::Contains => Some(EdgeType::Contains),
             Verdict::Express => Some(EdgeType::Express),
-            Verdict::Supersedes => Some(EdgeType::Supersedes),
             Verdict::None | Verdict::Unsure => None,
         }
-    }
-
-    /// Whether the relationship runs from one bead to the other.
-    pub fn is_directed(self) -> bool {
-        matches!(
-            self,
-            Verdict::Leadsto | Verdict::Express | Verdict::Supersedes
-        )
     }
 }
 
 named! {
-    /// Which way a relationship runs between two beads in time order. It is
-    /// explicit because the order in which messages arrive is not the order
-    /// in which things happened.
+    /// Which way a relationship runs between two beads in time order: from
+    /// the bead its arrow's forward name is said of. It is explicit because
+    /// the order in which messages arrive is not the order in which things
+    /// happened.
     Direction {
         EarlierToLater => "earlier_to_later",
         LaterToEarlier => "later_to_earlier",
@@ -115,34 +263,20 @@ named! {
 }
 
 named! {
-    /// What a later statement says of the earlier one it follows.
-    Label {
-        /// It replaces what the earlier one says.
-        Supersede => "supersede",
-        /// It withdraws what the earlier one says.
-        Retract => "retract",
-        /// It confirms what the earlier one says again.
-        Reaffirm => "reaffirm",
-        /// The two cannot both hold. The later one is current, with its
-        /// label visible, until something follows it.
-        Conflict => "conflict",
-    }
-}
-
-named! {
-    /// Why a `supersedes` verdict wrote no label. A `supersedes` verdict
-    /// without a note wrote its label in the same read.
+    /// Why a verdict whose arrow ends currency wrote no edge. Such a
+    /// verdict without a note wrote its edge in the same read.
     VerdictNote {
         /// One of its beads was no longer current when the read was stored:
-        /// the later statement, or one it would have followed.
+        /// the later statement, or one it would have ended.
         NotCurrent => "not_current",
-        /// Its source already carried a label that this one could not join:
-        /// another label, or one that follows two beads already.
-        LabelTaken => "label_taken",
-        /// The label changes what a reader takes as current, so it is held
+        /// The later statement already ends one or two others with an
+        /// arrow this one could not join (the other arrow, or two beads
+        /// already), or already waits with another held arrow.
+        ChainTaken => "chain_taken",
+        /// The arrow changes what a reader takes as current, so it is held
         /// until a second read of the same beads agrees.
         AwaitsSecondRead => "awaits_second_read",
-        /// This was the second read of a held label, and it did not agree
+        /// This was the second read of a held arrow, and it did not agree
         /// with the first. Nothing was written.
         SecondReadDiffers => "second_read_differs",
     }
@@ -155,8 +289,6 @@ named! {
         Chunk => "chunk",
         /// One call of a tool, whole.
         Tool => "tool",
-        /// A judge's statement about the head of a chain.
-        Label => "label",
         /// Several beads a judge marked as one memory.
         Group => "group",
     }
@@ -229,13 +361,14 @@ pub struct VerdictRecord {
     pub earlier_scope: String,
     pub later_scope: String,
     pub verdict: Verdict,
-    pub direction: Direction,
-    /// The label the judge gave with a `supersedes` verdict.
+    /// The arrow the judge gave, with any verdict but `none` and `unsure`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub label: Option<Label>,
+    pub arrow: Option<Arrow>,
+    pub direction: Direction,
+    /// Why an arrow that ends currency wrote no edge, if it did not.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<VerdictNote>,
-    /// 2 for the second, blind read of a proposed label.
+    /// 2 for the second, blind read of an arrow that ends currency.
     pub read_no: u8,
     pub columns: PairColumns,
     pub columns_rev: u32,
@@ -251,8 +384,11 @@ pub struct VerdictRecord {
 pub struct EdgeRecord {
     pub workspace: String,
     pub seq: u64,
+    /// The type of the arrow, which the arrow implies.
     pub edge_type: EdgeType,
-    /// A `near` edge has no direction: its beads are in ID order.
+    pub arrow: Arrow,
+    /// The bead the arrow's forward name is said of. An edge of a
+    /// symmetric arrow has no direction: its beads are in ID order.
     pub from_bead: BeadId,
     pub to_bead: BeadId,
     pub call_id: CallId,
@@ -275,15 +411,8 @@ pub struct BeadRecord {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "bead_kind", rename_all = "snake_case")]
 pub enum MadeBead {
-    /// What a later statement says of the one or two it follows.
-    /// `supersedes` edges run from the label bead to each of those.
-    Label {
-        label: Label,
-        /// The bead of the later statement, which the label bead stands for.
-        source: BeadId,
-    },
-    /// Several beads that are one memory. `contains` edges run from it to
-    /// each member.
+    /// Several beads that are one memory: a hub, as Burgess builds one. A
+    /// `consists` edge runs from it to each member.
     Group,
 }
 
@@ -327,9 +456,9 @@ mod tests {
             assert_eq!(from("something else"), None);
         }
         check(EdgeType::ALL, EdgeType::as_str, EdgeType::from_name);
+        check(Arrow::ALL, Arrow::as_str, Arrow::from_name);
         check(Verdict::ALL, Verdict::as_str, Verdict::from_name);
         check(Direction::ALL, Direction::as_str, Direction::from_name);
-        check(Label::ALL, Label::as_str, Label::from_name);
         check(
             VerdictNote::ALL,
             VerdictNote::as_str,
@@ -339,35 +468,92 @@ mod tests {
     }
 
     #[test]
-    fn a_verdict_is_an_edge_or_a_no_or_a_doubt() {
-        let edges: Vec<_> = Verdict::ALL.iter().filter_map(|v| v.edge_type()).collect();
-        assert_eq!(edges, EdgeType::ALL);
+    fn a_verdict_is_a_type_or_a_no_or_a_doubt() {
+        let types: Vec<_> = Verdict::ALL.iter().filter_map(|v| v.edge_type()).collect();
+        assert_eq!(types, EdgeType::ALL);
+        for edge_type in EdgeType::ALL {
+            assert_eq!(Verdict::of(*edge_type).edge_type(), Some(*edge_type));
+        }
         assert_eq!(Verdict::None.edge_type(), None);
         assert_eq!(Verdict::Unsure.edge_type(), None);
-        // Near and contains have no direction. Neither has a no.
-        for v in Verdict::ALL {
+    }
+
+    #[test]
+    fn every_arrow_has_one_type_and_names_that_tell_its_ends_apart() {
+        let mut names = std::collections::BTreeSet::new();
+        for arrow in Arrow::ALL {
+            // Every short name, forward or inverse, means one arrow one
+            // way, so the name a judge gives says which way it runs.
+            assert!(names.insert(arrow.as_str()), "{arrow:?}");
+            if let Some((short, full)) = arrow.backward() {
+                assert!(names.insert(short), "{arrow:?}");
+                assert_ne!(full, arrow.forward());
+            }
+            // Nearness has no direction, and the other three have one,
+            // but for the pairwise statement that two beads are one memory.
             assert_eq!(
-                v.is_directed(),
-                matches!(v, Verdict::Leadsto | Verdict::Express | Verdict::Supersedes),
-                "{v:?}"
+                arrow.is_symmetric(),
+                arrow.edge_type() == EdgeType::Near || *arrow == Arrow::SameMemory,
+                "{arrow:?}"
+            );
+            // Only leads-to arrows end what is current, and a dispute is a
+            // nearness that keeps both.
+            assert!(!arrow.ends_currency() || arrow.edge_type() == EdgeType::Leadsto);
+            assert!(!arrow.disputes() || arrow.edge_type() == EdgeType::Near);
+        }
+        // Each of the four types has arrows of its own.
+        for edge_type in EdgeType::ALL {
+            assert!(Arrow::ALL.iter().any(|a| a.edge_type() == *edge_type));
+        }
+        // What this engine adds to Burgess's arrows is small and known.
+        let added: Vec<&str> = Arrow::ALL
+            .iter()
+            .filter(|a| a.origin() == ArrowOrigin::Engine)
+            .map(|a| a.as_str())
+            .collect();
+        assert_eq!(
+            added,
+            [
+                "withdraws",
+                "same-memory",
+                "answers",
+                "confirms",
+                "!contradicts"
+            ]
+        );
+        // A negative nearness is marked as his files mark it.
+        assert!(Arrow::DontConfuseWith.as_str().starts_with('!'));
+        assert!(Arrow::Contradicts.as_str().starts_with('!'));
+    }
+
+    #[test]
+    fn two_arrows_of_one_type_between_two_beads_are_two_records() {
+        let edge = |arrow: Arrow| EdgeRecord {
+            workspace: "w1".into(),
+            seq: 1,
+            edge_type: arrow.edge_type(),
+            arrow,
+            from_bead: "018f3b0c-0000-8000-8000-000000000001".parse().unwrap(),
+            to_bead: "018f3b0c-0000-8000-8000-000000000002".parse().unwrap(),
+            call_id: "018f3b0c-0000-8000-8000-000000000003".parse().unwrap(),
+            created_at: Timestamp::from_unix_millis(0),
+        };
+        // A consumer drops a second record with a key it has taken, so a
+        // cause written before a replacement must not hide it.
+        for (one, other) in [
+            (Arrow::Causes, Arrow::Replaces),
+            (Arrow::SeeAlso, Arrow::Contradicts),
+        ] {
+            assert_eq!(one.edge_type(), other.edge_type());
+            assert_ne!(
+                crate::record::Record::edge(edge(one)).record_key,
+                crate::record::Record::edge(edge(other)).record_key
             );
         }
     }
 
     #[test]
     fn a_made_bead_says_what_kind_it_is() {
-        let label = MadeBead::Label {
-            label: Label::Conflict,
-            source: "018f3b0c-0000-8000-8000-000000000001".parse().unwrap(),
-        };
-        assert_eq!(
-            serde_json::to_value(&label).unwrap(),
-            serde_json::json!({
-                "bead_kind": "label",
-                "label": "conflict",
-                "source": "018f3b0c-0000-8000-8000-000000000001",
-            })
-        );
         assert_eq!(
             serde_json::to_value(MadeBead::Group).unwrap(),
             serde_json::json!({"bead_kind": "group"})

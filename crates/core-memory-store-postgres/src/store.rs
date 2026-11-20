@@ -2231,7 +2231,7 @@ pub(crate) fn update_work<C: GenericClient>(
     let item_id = |update: &WorkUpdate| match update.item {
         WorkItem::Chunk(chunk_id) => chunk_id.0,
         WorkItem::ToolCall(event_id) => event_id.0,
-        WorkItem::NewBead(bead_id) | WorkItem::ProposedLabel(bead_id) => bead_id.0,
+        WorkItem::NewBead(bead_id) | WorkItem::HeldChain(bead_id) => bead_id.0,
     };
     let held = lease.map(|lease| lease.0);
     let (done, open): (Vec<&WorkUpdate>, Vec<&WorkUpdate>) = work

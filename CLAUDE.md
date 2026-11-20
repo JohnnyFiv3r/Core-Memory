@@ -109,16 +109,22 @@ the judge said. It never proposes an edge and never picks a pair; a score
 is never evidence. Structural links (reply-to, parent, revision-of) are
 facets and candidate seeds, not relationships.
 
+- A relationship is an arrow of Mark Burgess's Semantic Spacetime, from the
+  fixed directory `core_memory.arrows`, and of one of his four types:
+  `near`, `leadsto`, `contains`, `express`. Changing the directory is a
+  migration and a new rubric revision.
 - Every pair a judge was shown gets a verdict row, whatever it said.
   `unsure`, and a pair that was never shown, are never a no.
 - An edge has no state and no weight, and is never changed or deleted.
-- A chain never branches. A bead is superseded at most once, a label bead
-  follows at most two beads, and only a current bead supersedes or is
-  superseded. The tables refuse anything else, whoever writes it.
-- A label that changes what a reader takes as current is written only
+- A bead is current while no `repl` or `withdraws` edge points at it, and
+  nothing else ends it: a contradiction keeps both statements current.
+- A chain never branches. A bead is replaced or withdrawn at most once, a
+  statement ends at most two beads and with one arrow, and only a current
+  bead ends or is ended. The tables refuse anything else, whoever writes it.
+- An arrow that changes what a reader takes as current is written only
   after a second read, made without the first, gives it again. The setting
   `second_read` turns this off; nothing else does.
-- A bead a judge makes holds no text: IDs, and one of a fixed set of words.
+- A bead a judge makes holds no text: it is a group, and IDs.
 
 ### 5. One store, one transaction
 
@@ -132,7 +138,7 @@ facets and candidate seeds, not relationships.
 - The engine's database role can read and insert. It cannot change or delete
   what it stored, change a scope's state, give model consent, or erase. The
   queue of its own work (`work`) is the one table it changes in place, and
-  a label that waits for its second read (`pending_labels`) is the one
+  an arrow that waits for its second read (`pending_chains`) is the one
   other row it deletes.
 
 ### 6. Text lives in one place
@@ -147,8 +153,8 @@ facets and candidate seeds, not relationships.
 - What code computed from two beads' content for a verdict
   (`verdicts.columns`), and where a name stands in a chunk (`name_links`),
   are derived from text: both go when either bead is erased. Edges stay,
-  as IDs. A label bead is erased with its source and keeps its place in its
-  chain, so what it superseded does not become current again.
+  as IDs, so what an erased statement replaced or withdrew does not become
+  current again.
 - A table that holds what was read in, or judged of, an event or a bead
   takes a new row only while that event or bead is live, whoever writes
   it. An erase would not reach the row again.
@@ -252,7 +258,8 @@ Tests fail if a function or a store call takes another lock first.
 - A judge is shown a tool call as what a model wrote about it, never as
   its stored text.
 - Nothing a judge writes is stored as text. A verdict is one of a fixed
-  set, a label is one of four words, and a name is a byte range of a chunk.
+  set, an arrow is a key of the directory, and a name is a byte range of a
+  chunk.
 - A judgment is stored only for beads its call's receipt names, that are
   live, in a scope that is active, and whose work the call still holds
   under the lease its claim set. Whatever settles a judge's work names

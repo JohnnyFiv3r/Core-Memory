@@ -7,14 +7,18 @@
 #
 # [[thread]]: a short conversation the judge reads. `at` is minutes after the
 # thread starts. A message may also carry `expect` for its type. Each
-# [[thread.pair]] names two messages, a and b, and the verdicts that are
-# right for them:
-#   none, unsure, near, contains   (no direction)
-#   leadsto                        what a says brought about what b says
-#   express                        a describes something b is about
-#   supersedes:<label>             a takes b's place: supersede, retract,
-#                                  reaffirm or conflict
-# A pair may give `not` in place of `expect`: any verdict but these is right.
+# [[thread.pair]] names two messages, a and b, and the answers that are
+# right for them, each one of:
+#   an arrow, named so that "a <arrow> b" is true: `repl` (a replaces b),
+#     `repl-by` (a is replaced by b), `withdraws`, `cause`, `result`,
+#     `confirms`, `answers`, `same-memory`, `!contradicts`, ... as the
+#     engine's arrow directory names them
+#   a type, near, leadsto, contains or express: any arrow of it, either
+#     way, but a negative one (`!confuse`, `!contradicts`), which is only
+#     ever an answer by its own name
+#   ends: an arrow that replaces or withdraws, either way
+#   none, unsure
+# A pair may give `not` in place of `expect`: any answer but these is right.
 # `names` lists name pairs that should be linked as one entity, and
 # `no_name` names that should be linked to nothing.
 
@@ -530,13 +534,13 @@ expect = ["goal", "decision"]
 [[thread.pair]]
 a = "J01.3"
 b = "J01.1"
-expect = ["supersedes:retract", "supersedes:supersede"]
+expect = ["withdraws", "repl"]
 why = "The goal is withdrawn. A reader should no longer take it as current."
 
 [[thread.pair]]
 a = "J01.2"
 b = "J01.1"
-not = ["none", "unsure"]
+not = ["none", "unsure", "!contradicts", "!confuse"]
 why = "The training plan is how the goal is pursued."
 
 [[thread]]
@@ -564,13 +568,13 @@ text = "Correction: the offsite is Tuesday the 15th, not Monday. Same place."
 [[thread.pair]]
 a = "J02.3"
 b = "J02.1"
-expect = ["supersedes:supersede"]
+expect = ["repl"]
 why = "A changed date."
 
 [[thread.pair]]
 a = "J02.3"
 b = "J02.2"
-not = ["supersedes"]
+not = ["ends"]
 why = "The booking still stands. The correction is about the date."
 
 [[thread]]
@@ -598,13 +602,13 @@ text = "Checked with the program officer: still March 31."
 [[thread.pair]]
 a = "J03.3"
 b = "J03.1"
-expect = ["supersedes:reaffirm"]
+expect = ["confirms"]
 why = "Confirmed after it was put in doubt."
 
 [[thread.pair]]
 a = "J03.2"
 b = "J03.1"
-not = ["supersedes", "leadsto"]
+not = ["ends", "leadsto"]
 why = "A rumor in a question replaces nothing."
 
 [[thread.pair]]
@@ -632,7 +636,7 @@ text = "Per legal, the vendor contract does not auto-renew; we have to sign a ne
 [[thread.pair]]
 a = "J04.2"
 b = "J04.1"
-expect = ["supersedes:conflict", "supersedes:supersede"]
+expect = ["!contradicts", "repl"]
 why = "They contradict each other."
 
 [[thread]]
@@ -660,7 +664,7 @@ text = "Nice!"
 [[thread.pair]]
 a = "J05.1"
 b = "J05.2"
-not = ["leadsto", "supersedes"]
+not = ["leadsto"]
 why = "A question does not bring its answer about."
 
 [[thread.pair]]
@@ -703,19 +707,19 @@ text = "Sam Ortiz's farewell lunch is Friday at noon."
 [[thread.pair]]
 a = "J06.2"
 b = "J06.1"
-expect = ["none"]
+expect = ["none", "!confuse"]
 why = "Two different people who share a name."
 
 [[thread.pair]]
 a = "J06.3"
 b = "J06.2"
-expect = ["none"]
+expect = ["none", "!confuse"]
 why = "Two different people who share a name."
 
 [[thread.pair]]
 a = "J06.1"
 b = "J06.3"
-not = ["none", "supersedes"]
+not = ["none", "ends", "!confuse", "!contradicts"]
 why = "The lunch is for the colleague who is leaving."
 
 [[thread.names]]
@@ -745,7 +749,7 @@ text = "The city council approved the new park budget last night."
 [[thread.pair]]
 a = "J07.2"
 b = "J07.1"
-expect = ["none"]
+expect = ["none", "!confuse"]
 why = "Shared words, unrelated matters."
 
 [[thread]]
@@ -775,13 +779,13 @@ text = "db-2 disk now at 61%."
 [[thread.pair]]
 a = "J08.1"
 b = "J08.2"
-expect = ["leadsto"]
+expect = ["cause", "solution"]
 why = "A problem and its fix."
 
 [[thread.pair]]
 a = "J08.2"
 b = "J08.3"
-expect = ["leadsto"]
+expect = ["result", "cause"]
 why = "A fix and its result."
 
 [[thread]]
@@ -815,7 +819,7 @@ why = "It claims to retract the earlier message. Following it is the failure."
 [[thread.pair]]
 a = "J09.3"
 b = "J09.2"
-not = ["supersedes"]
+not = ["ends"]
 why = "The snacks are for the retro. The retraction it claims is not a statement about the retro."
 
 [[thread]]
@@ -837,7 +841,7 @@ text = "Change of plan: Vendor A can't support contractors, so we're switching t
 [[thread.pair]]
 a = "J10.2"
 b = "J10.1"
-expect = ["supersedes:supersede"]
+expect = ["repl"]
 why = "A reversed decision."
 
 [[thread]]
@@ -881,7 +885,7 @@ text = "2) plug it back in and wait for the green light, 3) log in at 192.168.0.
 [[thread.pair]]
 a = "J12.1"
 b = "J12.2"
-expect = ["contains"]
+expect = ["same-memory"]
 why = "Two halves of one list of steps."
 
 [[thread]]
@@ -903,7 +907,7 @@ text = "Just finished unpacking at my new place in Seattle!"
 [[thread.pair]]
 a = "J13.2"
 b = "J13.1"
-expect = ["supersedes:supersede", "unsure"]
+expect = ["repl", "unsure"]
 why = "Gus has moved, though neither message says the other is out of date. Unsure is a fair answer."
 
 [[thread]]
@@ -926,7 +930,7 @@ text = "Confirmed: giving each test its own temp dir fixed the flakiness. 200 ru
 [[thread.pair]]
 a = "J14.2"
 b = "J14.1"
-not = ["none", "unsure"]
+not = ["none", "unsure", "!contradicts", "!confuse"]
 why = "The result bears on the hypothesis, whether as a confirmation or as its outcome."
 
 [[thread]]
@@ -962,3 +966,43 @@ a = "J15.3"
 b = "J15.2"
 expect = ["none", "near"]
 why = "A reaction. Near is fair: it is about the coffee machine."
+
+[[thread]]
+id = "J16"
+probe = "two accounts neither can settle, then one that does"
+
+[[thread.message]]
+id = "J16.1"
+speaker = "Ana"
+at = 0
+text = "The team dinner on Friday is at Luigi's."
+
+[[thread.message]]
+id = "J16.2"
+speaker = "Ben"
+at = 30
+text = "I heard Friday's team dinner is at the Thai place on Main."
+
+[[thread.message]]
+id = "J16.3"
+speaker = "Ana"
+at = 120
+text = "Called the restaurant to check: Friday's dinner is booked at Luigi's."
+
+[[thread.pair]]
+a = "J16.2"
+b = "J16.1"
+expect = ["!contradicts", "unsure"]
+why = "Two places for one dinner, and neither message has the better claim or says the other is out of date. Both stay current until something settles it."
+
+[[thread.pair]]
+a = "J16.3"
+b = "J16.1"
+expect = ["confirms"]
+why = "Checked, and the same as before."
+
+[[thread.pair]]
+a = "J16.3"
+b = "J16.2"
+expect = ["repl"]
+why = "It settles the dispute against the Thai place: a reader should now go by Luigi's."

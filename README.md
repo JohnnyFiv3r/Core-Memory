@@ -296,26 +296,32 @@ and `core-memory read run`, `read status`, `read queue` and `serve` work for
 it as they do for readers. A memory of a scope that has not allowed the
 judge is not shown to it, and the others are still judged.
 
-For each pair it compares, the judge answers with one of five relationships,
-or none, or that it cannot tell:
+For each pair it compares, the judge answers with an arrow, or none, or that
+it cannot tell. The arrows are those of Mark Burgess's Semantic Spacetime,
+as his SSTorytime names them, each of one of his four types:
 
-| Relationship | Meaning |
-|---|---|
-| `supersedes` | A later statement on the same matter: it replaces the earlier one, withdraws it, confirms it again, or conflicts with it. |
-| `leadsto` | What one memory describes brought about what the other describes. |
-| `contains` | Pieces of one memory, in one message or across several. |
-| `express` | One states an attribute, a description, an example or the source of what the other is about. |
-| `near` | They call each other up, and none of the above holds. |
+| Type | Arrows | Meaning |
+|---|---|---|
+| `leadsto` | `cause`, `result`, `enables`, `implem`, `repl`, `withdraws` | One follows from the other: it caused it, came of it, made it possible, carried it out, or, as a later statement, replaces or withdraws it. |
+| `contains` | `same-memory`, `has-pt` | Pieces of one memory, in one message or across several; or one is an item of a whole. |
+| `express` | `note`, `e.g.`, `i.e.`, `attr`, `def`, `source`, `solution`, `answers`, `confirms` | One states something of the other: a note, an example, an attribute, a definition, its source, an answer, a confirmation. |
+| `near` | `see`, `sim`, `!contradicts`, `!confuse` | They are about one matter, say much the same, cannot both hold, or are easily confused and are not one. |
+
+Each arrow but the symmetric ones has an inverse (`cause-by`, `repl-by`,
+...), and the name the judge gives says which way it runs.
+`docs/architecture.md` lists them all, with which are Burgess's names and
+which this engine adds.
 
 What it says is stored as IDs and fixed words, never as text:
 
 - a **verdict** for every pair it was shown, whatever it said. "None" is a
   judgment and is kept. "Cannot tell", and a pair that was never shown, are
   not a no;
-- an **edge** for each relationship;
-- a **label bead** for a `supersedes`, which says how the later statement
-  follows the earlier one. A memory is replaced at most once, so a chain of
-  statements has one current end and never branches;
+- an **edge** for each arrow, from one memory to the other. A memory is
+  current until a later statement replaces or withdraws it, and it is
+  replaced or withdrawn at most once, so a chain of statements has one
+  current end and never branches. A contradiction ends nothing: both
+  statements stay current, and the judge is shown both first while they do;
 - a **group bead** for memories that are parts of one;
 - a **name link** when two memories use different names for one thing, kept
   as the place of each name in its own text.
@@ -323,13 +329,13 @@ What it says is stored as IDs and fixed words, never as text:
 Code decides nothing here but what the judge is shown, and it goes by time
 alone. It never proposes a pair or an edge.
 
-A replacement, a withdrawal or a conflict changes what a reader takes as
-current, so it is not written on one reading. The two statements are read a
-second time, alone, without the first answer, and the label is written only
-if the second reading gives it again. Either way both verdicts are kept.
-Labels that share a statement are settled in the order they were given, so
-a chain given in one reading is written from its oldest statement on. Turn
-this off with `second_read = false`.
+A replacement or a withdrawal changes what a reader takes as current, so it
+is not written on one reading. The two statements are read a second time,
+alone, without the first answer, and the arrow is written only if the
+second reading gives it again. Either way both verdicts are kept. Those
+that share a statement are settled in the order they were given, so a chain
+given in one reading is written from its oldest statement on. Turn this off
+with `second_read = false`.
 
 A memory with no other near it to be compared with is not sent: there is
 no pair to read. Its pairs are read when memories near it arrive.

@@ -6,13 +6,13 @@
 //! validation with one repair; and a finish that records the result and
 //! stores the judgment. Two things differ. A judge is shown beads of every
 //! scope of a workspace that allows it, so the permit decides bead by
-//! bead. And a label that changes what readers take as current is held
-//! until a second read of the same beads, made without the first, gives
-//! the same label.
+//! bead. And an arrow that changes what readers take as current, one that
+//! replaces or withdraws, is held until a second read of the same beads,
+//! made without the first, gives the same arrow.
 //!
 //! Nothing here logs or returns a bead's text or a model's.
 
-use core_memory_contract::{BeadId, CallId, Label, ReaderRef, Sha256Digest, Timestamp};
+use core_memory_contract::{Arrow, BeadId, CallId, ReaderRef, Sha256Digest, Timestamp};
 
 use crate::engine::Engine;
 use crate::error::{ConfigError, EngineError};
@@ -124,7 +124,7 @@ pub enum JudgeRound {
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct JudgeReport {
     pub workspace: String,
-    /// Whether this was the second read of a held label.
+    /// Whether this was the second read of a held arrow.
     pub second_read: bool,
     /// New beads handed to the judge.
     pub new_beads: u32,
@@ -133,15 +133,17 @@ pub struct JudgeReport {
     /// New beads whose judgment was stored.
     pub judged: u32,
     pub verdicts: u32,
-    /// Relationships written, apart from those of labels and groups.
+    /// Relationships written, apart from those that end currency and
+    /// those of groups.
     pub edges: u32,
-    /// Labels written.
-    pub labels: u32,
-    /// Labels held for a second read.
+    /// Arrows written that replace or withdraw.
+    pub chains: u32,
+    /// Arrows that replace or withdraw, held for a second read.
     pub held: u32,
-    /// Labels not written: one of their beads was no longer current, or
-    /// the source already carried a label this one could not join.
-    pub labels_dropped: u32,
+    /// Arrows that replace or withdraw and were not written: one of their
+    /// beads was no longer current, or the source already ended beads with
+    /// an arrow this one could not join, or waited with another held one.
+    pub chains_dropped: u32,
     /// Groups made or added to.
     pub groups: u32,
     /// Name links written.
@@ -182,9 +184,9 @@ impl JudgeReport {
         self.judged = finished.judged;
         self.verdicts = finished.verdicts;
         self.edges = finished.edges;
-        self.labels = finished.labels;
+        self.chains = finished.chains;
         self.held = finished.held;
-        self.labels_dropped = finished.labels_dropped;
+        self.chains_dropped = finished.chains_dropped;
         self.groups = finished.groups;
         self.names = finished.names;
         self.names_rejected = judged.names_rejected;
@@ -202,14 +204,15 @@ struct Reading<'a> {
     /// The lease the claim set on them. Whatever settles their work names
     /// it, so a worker whose lease ran out changes nothing.
     lease: Timestamp,
-    /// For a second read: the label that is held and the beads it follows.
-    held: Option<(Label, &'a [BeadId])>,
+    /// For a second read: the arrow that is held and the beads it would
+    /// end.
+    held: Option<(Arrow, &'a [BeadId])>,
 }
 
 impl Reading<'_> {
     fn item(&self, bead: BeadId) -> WorkItem {
         match self.purpose {
-            Purpose::SecondRead => WorkItem::ProposedLabel(bead),
+            Purpose::SecondRead => WorkItem::HeldChain(bead),
             _ => WorkItem::NewBead(bead),
         }
     }
@@ -239,7 +242,7 @@ struct Ended<'a> {
     result: CallResult,
     usage: Option<Usage>,
     judgment: Option<&'a JudgmentWrite>,
-    /// The source of the held label a valid second read settles.
+    /// The source of the held arrow a valid second read settles.
     settles: Option<BeadId>,
     work: Vec<WorkUpdate>,
 }
@@ -266,7 +269,7 @@ impl Engine {
     }
 
     /// Judges the new beads of one workspace that are due, or reads one
-    /// held label a second time. Returns `Err` only when the store fails;
+    /// held arrow a second time. Returns `Err` only when the store fails;
     /// everything a model or a provider does wrong is recorded and
     /// reported in the round.
     pub fn judge_once(
@@ -306,7 +309,7 @@ impl Engine {
             },
             JudgeWork::SecondRead {
                 source,
-                label,
+                arrow,
                 heads,
             } => Reading {
                 judge,
@@ -314,7 +317,7 @@ impl Engine {
                 purpose: Purpose::SecondRead,
                 leased: vec![*source],
                 lease: claim.lease_until,
-                held: Some((*label, heads)),
+                held: Some((*arrow, heads)),
             },
         };
         let mut report = JudgeReport {
@@ -557,7 +560,7 @@ impl Engine {
         let id_key = &reading.batch.id_key;
         let (write, settles) = match reading.held {
             Some(held) => (
-                second_judgment(shown, judged, id_key, held),
+                second_judgment(shown, judged, held),
                 shown.new.first().map(|source| source.bead_id),
             ),
             None => (
@@ -566,7 +569,7 @@ impl Engine {
                     judged,
                     Recording {
                         id_key,
-                        hold_labels: reading.judge.settings.second_read,
+                        hold_chains: reading.judge.settings.second_read,
                     },
                 ),
                 None,
@@ -646,7 +649,7 @@ impl Engine {
                 },
                 "batch_changed",
             ),
-            // A second read shows the held label's beads together or not
+            // A second read shows the held arrow's beads together or not
             // at all. The source waits, whichever of them may not be shown.
             JudgePermit::NothingToJudge(not_shown) if reading.held.is_some() => {
                 let (next, problem) = not_shown.first().map_or(
@@ -780,7 +783,7 @@ max_output_tokens = 2000
         assert_eq!(judge.reader_ref.binding_id, "careful");
         // It needs no vocabulary and no reader: it is shown what there is.
         assert!(ok.vocabulary().is_none() && ok.reader().is_none());
-        // A label that changes what is current is read twice by default.
+        // An arrow that changes what is current is read twice by default.
         assert!(judge.settings.second_read);
         assert_eq!(
             (

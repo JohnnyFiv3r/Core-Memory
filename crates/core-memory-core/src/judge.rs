@@ -11,6 +11,11 @@
 //! read both and found nothing, which is what a `none` verdict records. A
 //! new bead without an entry makes the reply invalid.
 //!
+//! The judge answers in the arrows of Mark Burgess's Semantic Spacetime, as
+//! his SSTorytime names them ([`Arrow`]). Each arrow belongs to one of his
+//! four types, and the name the judge gives, the forward one or its
+//! inverse, says which way it runs.
+//!
 //! A reply that breaks the shape, or the rules of chains and groups, is
 //! rejected whole, and one repair attempt carries the validator's errors
 //! back. Nothing here logs or returns a bead's text or the model's.
@@ -21,8 +26,8 @@ use std::ops::Range;
 
 use core_memory_contract::hash::canonical_json_digest;
 use core_memory_contract::{
-    BeadId, BeadKind, Direction, EdgeType, EventKey, IdKey, Label, ObjectRef, PairColumns,
-    Sha256Digest, TimeBasis, Verdict, VerdictNote,
+    Arrow, BeadId, BeadKind, Direction, EventKey, IdKey, ObjectRef, PairColumns, Sha256Digest,
+    TimeBasis, Verdict, VerdictNote,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -30,18 +35,19 @@ use serde_json::{Value, json};
 use crate::model::{BindingConfig, ModelRequest};
 use crate::read::locate;
 use crate::store::{
-    EdgeWrite, GroupWrite, JudgmentWrite, LabelWrite, NameLinkWrite, Shown, ShownBead,
+    ChainWrite, EdgeWrite, GroupWrite, JudgmentWrite, NameLinkWrite, Shown, ShownBead,
     ShownContent, VerdictWrite,
 };
 
 /// Revision of the rubric: the instructions and the way beads are shown.
 /// Part of every judge's binding revision, and stored with every verdict.
-/// Revision 3: messages by different people are never parts of one memory,
-/// and two statements of different values for one fact supersede.
-pub const RUBRIC_REV: u32 = 3;
+/// Revision 4: the judge answers in Burgess's arrows. A contradiction keeps
+/// both statements current, dependency leads to what it enables, and a
+/// statement can be part of a whole of which it is not a piece.
+pub const RUBRIC_REV: u32 = 4;
 /// Revision of the reply validator. Part of every binding revision.
-/// Revision 2 reads relationship codes and labels whatever their case.
-pub const JUDGE_VALIDATOR_REV: u32 = 2;
+/// Revision 3 reads arrows, whatever their case.
+pub const JUDGE_VALIDATOR_REV: u32 = 3;
 
 const BINDING_REV_DOMAIN: &str = "core-memory/judge-binding-rev/v1";
 const MAX_REPORTED_ERRORS: usize = 20;
@@ -50,18 +56,40 @@ pub const MAX_NAME_BYTES: usize = 128;
 /// Most name links kept from one reply.
 pub const MAX_NAME_LINKS: usize = 32;
 
-/// What a judge may answer for a pair it relates. `>` runs from the other
-/// memory to the new one, `<` from the new one to the other.
-const REL_CODES: [&str; 8] = [
-    "CONTAINS",
-    "SUPERSEDES<",
-    "SUPERSEDES>",
-    "LEADSTO<",
-    "LEADSTO>",
-    "EXPRESS<",
-    "EXPRESS>",
-    "NEAR",
-];
+/// The arrows a judge may give. A group bead's own arrow is not one of
+/// them: a judge says that two beads are one memory, and the group is how
+/// that is written.
+fn judged_arrows() -> impl Iterator<Item = Arrow> {
+    Arrow::ALL
+        .iter()
+        .copied()
+        .filter(|arrow| *arrow != Arrow::ConsistsOf)
+}
+
+/// Every name a judge may give for a pair it relates: each arrow's forward
+/// name, then its inverse's, if it has one.
+fn arrow_codes() -> Vec<&'static str> {
+    judged_arrows()
+        .flat_map(|arrow| {
+            std::iter::once(arrow.as_str()).chain(arrow.backward().map(|(short, _)| short))
+        })
+        .collect()
+}
+
+/// What an arrow's name says, whatever its case: the arrow, and whether the
+/// other memory is the one its forward name is said of.
+fn arrow_named(code: &str) -> Option<(Arrow, bool)> {
+    let code = code.to_ascii_lowercase();
+    judged_arrows().find_map(|arrow| {
+        if arrow.as_str() == code {
+            Some((arrow, false))
+        } else if arrow.backward().is_some_and(|(short, _)| short == code) {
+            Some((arrow, true))
+        } else {
+            None
+        }
+    })
+}
 
 const SYSTEM_PROMPT: &str = r#"You compare memories kept for one person or one team. A memory system stores every message, document, record and tool call exactly as it was written, in pieces called memories. Your reading adds how memories relate to each other. Later readers follow these relationships from one memory to the ones that complete it, explain it or replace it, so a wrong relationship does more harm than a missing one.
 
@@ -72,39 +100,52 @@ What a memory shows:
 - "from": the connection it came through. "source": the kind of source. "by": who wrote it, and "role": their part in a conversation, where the source says.
 - "message" and "part": memories with the same "message" are pieces of one message, and "part" is the piece's place in it. "thread" and "session": memories that share one belong to one conversation or one working session. "reply_to" and "parent": the memories it answers or belongs under, when they are in the lists.
 - "type": the kind of statement an earlier reading found in it, if any.
-- "current": false means a later memory has already taken its place. "label": what it said of the memory it followed. "group": memories with the same group are already recorded as parts of one memory.
+- "current": false means a later memory has already replaced or withdrawn it. "chain": the arrow by which it has already replaced or withdrawn another memory. "group": memories with the same group are already recorded as parts of one memory.
 - "text": its exact words. A call of a tool by an AI agent is shown as "tool", "action", "outcome" and "status" instead: a short record of what the call did.
 
-The relationships. A and B stand for the two memories of a pair.
+The relationships are arrows, each of one of four kinds. Name the arrow from the new memory's side: the sentence "the new memory <arrow> the other" must be true. Most arrows have two names, one for each way, so the name you give says which way it runs. The arrows of NEAR, and "same-memory", have one name and no direction.
 
-CONTAINS: A and B are parts of one memory. They are pieces of one message or document, or one account that its author runs on across messages, so that a reader needs both to have the whole. Two messages about the same subject are not parts of one memory, and messages by different people never are: one may answer, add to or contradict the other, and that is another relationship or none.
+LEADS TO: what one describes follows from what the other describes, and came after it in what happened.
+- "cause": the new memory causes the other. "cause-by": it is caused by the other. What one describes brought about what the other describes: a request and what was done about it, a problem and what it set off.
+- "result": the new memory results in the other. "result-of": it was a result of the other. What came of an action, a fix, a tool call or a test.
+- "enables": the new memory enables the other. "enabled-by": it is enabled by the other. One had to be in place for the other to happen.
+- "implem": the new memory implements the other. "implorg": it was implemented by the other. A step that carries out a decision, a plan or a request.
+- "repl": the new memory replaces the other. "repl-by": it is replaced by the other. A later statement on the very matter the other states, which a reader should now go by instead: a changed date, a new owner, a corrected figure, a reversed decision, a move to a new address. The one replaced is no longer current.
+- "withdraws": the new memory withdraws the other. "withdrawn-by": it is withdrawn by the other. A later statement that takes back what the other states and puts nothing in its place: a goal given up, an offer taken back. The one withdrawn is no longer current.
+That one mentions the other, or replies to it, is not LEADS TO. A question and its answer are not LEADS TO: the answer tells what already was, and the question did not bring it about.
 
-SUPERSEDES: A is a later statement on the very matter B states, and a reader should now go by A. Give the label that says how:
-- "supersede": A replaces what B says: a changed date, a new owner, a corrected figure, a reversed decision.
-- "retract": A withdraws what B says and puts nothing in its place.
-- "reaffirm": A confirms what B says again, after time has passed or after it was put in doubt.
-- "conflict": A and B cannot both be right, and neither one says the other is wrong or out of date.
-Two statements that give different values for one fact (a date, a figure, a place, an owner, a choice, whether something holds) are SUPERSEDES, with the later one as A, even when neither mentions the other: "supersede" when A changes or corrects what B says, as a move replaces an old address, and "conflict" when either could still be right. They are never EXPRESS, NEAR or CONTAINS.
-Both memories must be current. If one shows "current": false, a later memory has already taken its place: judge against that one, and give this pair another answer.
+CONTAINS: one is a part of the other.
+- "same-memory": the two are parts of one memory. They are pieces of one message or document, or one account that its author runs on across messages, so that a reader needs both to have the whole. Two messages about the same subject are not parts of one memory, and messages by different people never are.
+- "has-pt": the new memory has the other as a part. "pt-of": it is a part of the other. One is a whole, such as a plan, an agenda, a list or a meeting, and the other, a memory of its own, is one of its items or events.
 
-LEADSTO: what A describes brought about what B describes. A request and what was done about it, a decision and the step that carried it out, a problem and its fix, a tool call and what the agent did with its result. A must come first in what happened. That B depends on A, or mentions A, is not enough. A question and its answer are not LEADSTO: the answer tells what already was, and the question did not bring it about.
+EXPRESSES: one states something of the other, without being a part of it and without changing what it says.
+- "note": the other is a note or remark about the new memory. "isnotefor": the new memory is a note or remark about the other.
+- "e.g.": the other is an example of what the new memory says. "ex": the new memory is an example of the other.
+- "i.e.": the other says in other words what the new memory says. "clarify": the new memory is a clarification of the other.
+- "attr": the other states an attribute of what the new memory is about: a size, a price, a colour, a time, a place, a state. "attr-of": the new memory states an attribute of what the other is about.
+- "def": the other defines what the new memory names. "def-of": the new memory is the definition of what the other names.
+- "source": the other is the source of what the new memory says: where it came from, who said it first. "source-of": the new memory is the source of the other.
+- "solution": the other is a potential solution to a problem the new memory states. "issolution": the new memory is a potential solution to a problem the other states.
+- "answers": the new memory answers a question the other asks. "answered-by": the new memory asks a question the other answers.
+- "confirms": the new memory says again what the other says, after time has passed or after it was put in doubt. "confirmed-by": the other confirms the new memory. Both stay current.
 
-EXPRESS: A states an attribute, a description, a definition, an example or the source of something B is about, without being a part of B and without changing what B says.
+NEAR: the two are close. These arrows have no direction.
+- "see": see also. Both are about one particular matter, thing or occasion, so that someone recalling either would want the other, and none of the arrows above holds.
+- "sim": similar to. The two say much the same of different matters, or of one matter without one confirming the other.
+- "!contradicts": the two cannot both hold, and neither replaces or withdraws the other: two accounts that differ, or one that says the other is wrong without settling it. Both stay current, and the contradiction stays open.
+- "!confuse": don't confuse with. The two are easily taken to be about one person, thing or matter, by a shared name or the same words, and they are not.
 
-NEAR: A and B call each other up, because they are about the same matter, thing or occasion, and none of the relationships above holds. NEAR claims no cause and has no direction.
+Two statements that give different values for one fact (a date, a figure, a place, an owner, a choice, whether something holds) are related even when neither mentions the other: "repl" from the later one when it changes or corrects what the earlier one says, as a move replaces an old address, and "!contradicts" when either could still be right. They take no other arrow.
 
-A conversation is not a chain of relationships. That one message answers, thanks, praises or reacts to another, or comes next in the same conversation, is already recorded ("reply_to", "thread", "session") and is not a relationship by itself. Relate two messages of one conversation only for what they say: one replaces or confirms what the other states, what one describes brought about what the other describes, one describes something the other is about, or both are about one particular matter that someone recalling either would want the other for.
+Only a current memory is replaced or withdrawn, and only a current memory replaces or withdraws. If one shows "current": false, a later memory has already taken its place: judge against that one, and give this pair another answer.
 
-Settle the direction first. SUPERSEDES, LEADSTO and EXPRESS run from A to B, so before you choose one, decide which memory is A: which is the later statement, which came first in what happened, which describes the other. Then write it from the new memory's side:
-- "SUPERSEDES<", "LEADSTO<", "EXPRESS<": the new memory is A.
-- "SUPERSEDES>", "LEADSTO>", "EXPRESS>": the other memory is A.
-A new memory that replaces B4 answers B4 with "SUPERSEDES<". A new memory that came about because of B4 answers B4 with "LEADSTO>".
+A conversation is not a chain of relationships. That one message answers, thanks, praises or reacts to another, or comes next in the same conversation, is already recorded ("reply_to", "thread", "session", and the times) and is not a relationship by itself. Relate two messages of one conversation only for what they say.
 
-Give a pair the one relationship that says the most: CONTAINS or SUPERSEDES if either holds, else LEADSTO, else EXPRESS, else NEAR. Most pairs have no relationship at all. A shared word, a shared person or a shared general topic is not one. When you can see that two memories may be related and cannot tell whether or how, put the pair under "unsure". Do not use NEAR for doubt, and do not guess.
+Give a pair one arrow: the one a reader most needs. If more than one holds, take one that replaces or withdraws, else "same-memory", else another of LEADS TO, else one of CONTAINS, else one of EXPRESSES, else one of NEAR. Most pairs have no relationship at all. A shared word, a shared person or a shared general topic is not one. When you can see that two memories may be related and cannot tell whether or how, put the pair under "unsure". Do not use NEAR for doubt, and do not guess.
 
 Your answer is checked against these limits:
-- A memory supersedes at most two others, and all with one label. A memory is superseded at most once.
-- If a new memory is CONTAINS with two other memories, those two must be CONTAINS with each other, or already share a group.
+- A memory replaces or withdraws at most two others, and all with one arrow. A memory is replaced or withdrawn at most once.
+- If a new memory is "same-memory" with two other memories, those two must be "same-memory" with each other, or already share a group.
 
 Names. When two memories you compared use different names for the same person, organization, project, place or thing, and the memories themselves make clear that it is the same one, add the pair to "names". Copy each name exactly as it stands in its memory's text. A tool call has no text to copy a name from.
 
@@ -114,9 +155,9 @@ Answer with JSON only. Give one entry for every new memory, with the pairs that 
 
 {"new": [
   {"id": "N1",
-   "related": [{"to": "B4", "rel": "SUPERSEDES<", "label": "supersede"}, {"to": "B2", "rel": "LEADSTO>"}],
+   "related": [{"to": "B4", "arrow": "repl"}, {"to": "B2", "arrow": "result-of"}],
    "unsure": ["B7"]},
-  {"id": "N2", "related": [{"to": "N1", "rel": "CONTAINS"}], "unsure": []}
+  {"id": "N2", "related": [{"to": "N1", "arrow": "same-memory"}], "unsure": []}
  ],
  "names": [{"a": "N1", "a_name": "Priya", "b": "B2", "b_name": "Priya Raman"}]}"#;
 
@@ -150,9 +191,9 @@ pub struct JudgeConfig {
     /// judge can be shown its type. After that it is judged without one.
     #[serde(default = "default_max_wait_for_reads_ms")]
     pub max_wait_for_reads_ms: u64,
-    /// Whether a label that changes what readers take as current is held
-    /// until a second read of the same beads, made without the first,
-    /// agrees with it.
+    /// Whether an arrow that changes what readers take as current, one
+    /// that replaces or withdraws, is held until a second read of the same
+    /// beads, made without the first, agrees with it.
     #[serde(default = "default_second_read")]
     pub second_read: bool,
     /// Times a bead is handed to the judge before it is set aside as
@@ -425,8 +466,8 @@ pub fn render(shown: &Shown, max_output_tokens: u32) -> ModelRequest {
         if !bead.is_head {
             fields.put("current", json!(false));
         }
-        if let Some(label) = bead.label {
-            fields.put("label", json!(label.as_str()));
+        if let Some(arrow) = bead.chain {
+            fields.put("chain", json!(arrow.as_str()));
         }
         if let Some(group) = bead.group.and_then(|g| groups.get(&g)) {
             fields.put("group", json!(group));
@@ -466,15 +507,8 @@ pub fn content_bytes(shown: &Shown) -> u64 {
     shown.listed().map(|bead| bead.content.bytes()).sum()
 }
 
-/// The reply's shape, which the provider holds a reply to. A `label` is
-/// required with a `SUPERSEDES` code and allowed with no other: as two
-/// branches, since a provider's schema cannot make one field depend on
-/// another.
+/// The reply's shape, which the provider holds a reply to.
 fn reply_schema() -> Value {
-    let labels: Vec<&str> = Label::ALL.iter().map(|l| l.as_str()).collect();
-    let (superseding, other): (Vec<&str>, Vec<&str>) = REL_CODES
-        .iter()
-        .partition(|code| code.starts_with("SUPERSEDES"));
     json!({
         "type": "object",
         "additionalProperties": false,
@@ -490,27 +524,15 @@ fn reply_schema() -> Value {
                         "id": {"type": "string"},
                         "related": {
                             "type": "array",
-                            "items": {"anyOf": [
-                                {
-                                    "type": "object",
-                                    "additionalProperties": false,
-                                    "required": ["to", "rel"],
-                                    "properties": {
-                                        "to": {"type": "string"},
-                                        "rel": {"type": "string", "enum": other},
-                                    },
+                            "items": {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "required": ["to", "arrow"],
+                                "properties": {
+                                    "to": {"type": "string"},
+                                    "arrow": {"type": "string", "enum": arrow_codes()},
                                 },
-                                {
-                                    "type": "object",
-                                    "additionalProperties": false,
-                                    "required": ["to", "rel", "label"],
-                                    "properties": {
-                                        "to": {"type": "string"},
-                                        "rel": {"type": "string", "enum": superseding},
-                                        "label": {"type": "string", "enum": labels},
-                                    },
-                                },
-                            ]},
+                            },
                         },
                         "unsure": {"type": "array", "items": {"type": "string"}},
                     },
@@ -534,22 +556,6 @@ fn reply_schema() -> Value {
     })
 }
 
-/// What a relationship code says, whatever its case: a provider that holds a
-/// reply to its schema does not hold an enum value to its case.
-fn relationship(code: &str) -> Option<(Verdict, bool)> {
-    Some(match code.to_ascii_uppercase().as_str() {
-        "CONTAINS" => (Verdict::Contains, false),
-        "NEAR" => (Verdict::Near, false),
-        "SUPERSEDES>" => (Verdict::Supersedes, true),
-        "SUPERSEDES<" => (Verdict::Supersedes, false),
-        "LEADSTO>" => (Verdict::Leadsto, true),
-        "LEADSTO<" => (Verdict::Leadsto, false),
-        "EXPRESS>" => (Verdict::Express, true),
-        "EXPRESS<" => (Verdict::Express, false),
-        _ => return None,
-    })
-}
-
 /// What a judge said of one pair. Positions are those of the listing: the
 /// window beads first, then the new ones.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -559,10 +565,11 @@ pub struct PairSaid {
     /// The new bead the pair was read for.
     pub new: usize,
     pub verdict: Verdict,
-    /// For a relationship with a direction: whether it runs from the other
-    /// bead to the new one.
+    /// The arrow given, with any verdict but `none` and `unsure`.
+    pub arrow: Option<Arrow>,
+    /// For an arrow with a direction: whether it runs from the other bead
+    /// to the new one, as the other is what its forward name is said of.
     pub from_other: bool,
-    pub label: Option<Label>,
 }
 
 impl PairSaid {
@@ -576,17 +583,18 @@ impl PairSaid {
     }
 }
 
-/// A label the reply's `SUPERSEDES` verdicts amount to.
+/// What the reply's arrows that end currency amount to for one later
+/// statement.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LabelSaid {
+pub struct ChainSaid {
     /// The bead of the later statement.
     pub source: usize,
-    pub label: Label,
-    /// The one or two beads it follows.
+    pub arrow: Arrow,
+    /// The one or two beads it ends.
     pub heads: Vec<usize>,
 }
 
-/// Beads the reply's `CONTAINS` verdicts make one memory.
+/// Beads the reply's `same-memory` arrows make one memory.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GroupSaid {
     /// The group some of them already belonged to.
@@ -611,9 +619,9 @@ pub struct Judged {
     /// Every pair that was read, a `none` included: for each new bead in
     /// turn, each bead listed before it.
     pub pairs: Vec<PairSaid>,
-    /// In an order in which they can be written: a label comes before one
-    /// that supersedes its source.
-    pub labels: Vec<LabelSaid>,
+    /// In an order in which they can be written: a statement's arrow comes
+    /// before one that replaces or withdraws that statement.
+    pub chains: Vec<ChainSaid>,
     pub groups: Vec<GroupSaid>,
     pub names: Vec<NameSaid>,
     /// Name links that were not kept: a name not found, too long, the same
@@ -641,19 +649,20 @@ pub enum Fault {
     Shape,
     /// A handle names no memory the entry may answer for or about.
     UnknownMemory,
-    /// A relationship code or a label is not one of those allowed, or is
-    /// given where it does not belong.
+    /// An arrow is not one of those allowed.
     Relationship,
     /// A memory or a pair is answered more than once.
     AnsweredTwice,
     /// A new memory has no entry.
     MissingEntry,
-    /// A memory that is no longer current supersedes or is superseded.
+    /// A memory that is no longer current replaces or withdraws, or is
+    /// replaced or withdrawn.
     NotCurrent,
-    /// The labels break the rules of a chain: a memory superseded twice,
-    /// two labels from one memory, more than two followed, or a circle.
+    /// The arrows that end currency break the rules of a chain: a memory
+    /// ended twice, two such arrows from one memory, more than two ended,
+    /// or a circle.
     Chain,
-    /// The CONTAINS answers break the rules of a group.
+    /// The `same-memory` answers break the rules of a group.
     Group,
     /// A name link that cannot be kept.
     Name,
@@ -765,8 +774,9 @@ pub fn validate(reply: &str, shown: &Shown, names: Names) -> Result<Judged, Reje
         return Err(problems.rejected());
     };
 
-    // What each new bead's entry says of the beads before it.
-    type Said = (Verdict, bool, Option<Label>);
+    // What each new bead's entry says of the beads before it: the arrow,
+    // and whether it runs from the other bead. `None` is unsure.
+    type Said = Option<(Arrow, bool)>;
     let mut said: Vec<Option<BTreeMap<usize, Said>>> = vec![None; new_count];
     for (n, entry) in entries.iter().enumerate() {
         let Some(entry) = entry.as_object() else {
@@ -817,7 +827,7 @@ pub fn validate(reply: &str, shown: &Shown, names: Names) -> Result<Judged, Reje
                         problems.push(Fault::Shape, format!("{at} must be an object"));
                         continue;
                     };
-                    if let Some(problem) = unexpected(item, &["to", "rel", "label"]) {
+                    if let Some(problem) = unexpected(item, &["to", "arrow"]) {
                         problems.push(Fault::Shape, format!("{at}: {problem}"));
                     }
                     let Some(other) = other_of(item.get("to")) else {
@@ -827,54 +837,25 @@ pub fn validate(reply: &str, shown: &Shown, names: Names) -> Result<Judged, Reje
                         );
                         continue;
                     };
-                    let Some((verdict, from_other)) = item
-                        .get("rel")
-                        .and_then(Value::as_str)
-                        .and_then(relationship)
-                    else {
+                    let code = item.get("arrow").and_then(Value::as_str);
+                    let Some(arrow) = code.and_then(arrow_named) else {
+                        // The model has the list in its instructions, and
+                        // a list of every arrow would not fit here.
                         problems.push(
                             Fault::Relationship,
-                            format!("{at}: `rel` must be one of {}", REL_CODES.join(", ")),
+                            match code {
+                                Some(code) => format!(
+                                    "{at}: {} is not one of the arrows the instructions list",
+                                    quoted(code)
+                                ),
+                                None => format!(
+                                    "{at}: `arrow` must be one of the arrows the instructions list"
+                                ),
+                            },
                         );
                         continue;
                     };
-                    let label = match (verdict, item.get("label")) {
-                        (Verdict::Supersedes, Some(Value::String(label))) => {
-                            match Label::from_name(&label.to_ascii_lowercase()) {
-                                Some(label) => Some(label),
-                                None => {
-                                    problems.push(
-                                        Fault::Relationship,
-                                        format!(
-                                            "{at}: {} is not a label; give supersede, retract, \
-                                         reaffirm or conflict",
-                                            quoted(label)
-                                        ),
-                                    );
-                                    continue;
-                                }
-                            }
-                        }
-                        (Verdict::Supersedes, _) => {
-                            problems.push(Fault::Relationship, format!(
-                                "{at}: SUPERSEDES needs a `label`: supersede, retract, reaffirm \
-                                 or conflict"
-                            ));
-                            continue;
-                        }
-                        (_, None | Some(Value::Null)) => None,
-                        (_, Some(_)) => {
-                            problems.push(
-                                Fault::Relationship,
-                                format!("{at}: only SUPERSEDES takes a `label`"),
-                            );
-                            continue;
-                        }
-                    };
-                    if answers
-                        .insert(other, (verdict, from_other, label))
-                        .is_some()
-                    {
+                    if answers.insert(other, Some(arrow)).is_some() {
                         problems.push(
                             Fault::AnsweredTwice,
                             format!("{name} answers {} more than once", listing.handle(other)),
@@ -894,10 +875,7 @@ pub fn validate(reply: &str, shown: &Shown, names: Names) -> Result<Judged, Reje
                         );
                         continue;
                     };
-                    if answers
-                        .insert(other, (Verdict::Unsure, false, None))
-                        .is_some()
-                    {
+                    if answers.insert(other, None).is_some() {
                         problems.push(
                             Fault::AnsweredTwice,
                             format!("{name} answers {} more than once", listing.handle(other)),
@@ -939,27 +917,32 @@ pub fn validate(reply: &str, shown: &Shown, names: Names) -> Result<Judged, Reje
         let new = listing.window + position;
         let answers = answers.unwrap_or_default();
         for other in 0..new {
-            let (verdict, from_other, label) =
-                answers
-                    .get(&other)
-                    .copied()
-                    .unwrap_or((Verdict::None, false, None));
+            let (verdict, arrow, from_other) = match answers.get(&other) {
+                None => (Verdict::None, None, false),
+                Some(None) => (Verdict::Unsure, None, false),
+                Some(Some((arrow, from_other))) => (
+                    Verdict::of(arrow.edge_type()),
+                    Some(*arrow),
+                    // A symmetric arrow runs neither way.
+                    *from_other && !arrow.is_symmetric(),
+                ),
+            };
             pairs.push(PairSaid {
                 other,
                 new,
                 verdict,
+                arrow,
                 from_other,
-                label,
             });
         }
     }
-    let labels = labels_of(&listing, &pairs, &mut problems);
+    let chains = chains_of(&listing, &pairs, &mut problems);
     let groups = groups_of(&listing, &pairs, &mut problems);
     let (links, names_rejected) = names_of(&listing, object.get("names"), names, &mut problems);
     if problems.is_empty() {
         Ok(Judged {
             pairs,
-            labels,
+            chains,
             groups,
             names: links,
             names_rejected,
@@ -969,51 +952,52 @@ pub fn validate(reply: &str, shown: &Shown, names: Names) -> Result<Judged, Reje
     }
 }
 
-/// The labels a reply's `SUPERSEDES` verdicts amount to, checked against
-/// the rules of a chain: one head, no branch, no circle.
-fn labels_of(listing: &Listing<'_>, pairs: &[PairSaid], problems: &mut Problems) -> Vec<LabelSaid> {
-    let mut by_source: BTreeMap<usize, (Label, Vec<usize>)> = BTreeMap::new();
-    let mut superseded_by: BTreeMap<usize, usize> = BTreeMap::new();
+/// What a reply's arrows that end currency amount to, checked against the
+/// rules of a chain: one head, no branch, no circle.
+fn chains_of(listing: &Listing<'_>, pairs: &[PairSaid], problems: &mut Problems) -> Vec<ChainSaid> {
+    let mut by_source: BTreeMap<usize, (Arrow, Vec<usize>)> = BTreeMap::new();
+    let mut ended_by: BTreeMap<usize, usize> = BTreeMap::new();
     let mut stale = BTreeSet::new();
     for pair in pairs {
-        let (Verdict::Supersedes, Some(label)) = (pair.verdict, pair.label) else {
+        let Some(arrow) = pair.arrow.filter(|arrow| arrow.ends_currency()) else {
             continue;
         };
         let (source, head) = pair.ends();
-        // Only a current statement is followed, and only a current one
-        // follows: a chain grows at its head.
+        // Only a current statement is ended, and only a current one ends
+        // another: a chain grows at its head.
         for index in [source, head] {
             if !listing.beads[index].is_head && stale.insert(index) {
                 problems.push(
                     Fault::NotCurrent,
                     format!(
-                        "{} is no longer current, so it can neither supersede nor be superseded; \
-                     judge against the memory that took its place, and give this pair another \
-                     answer",
+                        "{} is no longer current, so it can neither replace or withdraw nor be \
+                     replaced or withdrawn; judge against the memory that took its place, and \
+                     give this pair another answer",
                         listing.handle(index)
                     ),
                 );
             }
         }
-        if let Some(first) = superseded_by.insert(head, source)
+        if let Some(first) = ended_by.insert(head, source)
             && first != source
         {
             problems.push(
                 Fault::Chain,
                 format!(
-                    "{} is superseded by both {} and {}; a memory is superseded at most once",
+                    "{} is replaced or withdrawn by both {} and {}; a memory is replaced or \
+                     withdrawn at most once",
                     listing.handle(head),
                     listing.handle(first),
                     listing.handle(source)
                 ),
             );
         }
-        let (given, heads) = by_source.entry(source).or_insert((label, Vec::new()));
-        if *given != label {
+        let (given, heads) = by_source.entry(source).or_insert((arrow, Vec::new()));
+        if *given != arrow {
             problems.push(
                 Fault::Chain,
                 format!(
-                    "{} supersedes with two different labels; a memory supersedes with one",
+                    "{} both replaces and withdraws; a memory ends others with one arrow",
                     listing.handle(source)
                 ),
             );
@@ -1023,14 +1007,14 @@ fn labels_of(listing: &Listing<'_>, pairs: &[PairSaid], problems: &mut Problems)
             problems.push(
                 Fault::Chain,
                 format!(
-                    "{} supersedes more than two memories; a memory supersedes at most two",
+                    "{} replaces or withdraws more than two memories; a memory ends at most two",
                     listing.handle(source)
                 ),
             );
         }
     }
-    // A label is written while its source is current, so before any label
-    // that supersedes that source.
+    // An arrow is written while its source is current, so before any arrow
+    // that ends that source.
     let mut ordered: Vec<usize> = Vec::with_capacity(by_source.len());
     let mut written = BTreeSet::new();
     loop {
@@ -1058,7 +1042,8 @@ fn labels_of(listing: &Listing<'_>, pairs: &[PairSaid], problems: &mut Problems)
         problems.push(
             Fault::Chain,
             format!(
-                "{} supersede each other in a circle; decide which statement is the latest",
+                "{} replace or withdraw each other in a circle; decide which statement is the \
+                 latest",
                 listing.handles(circle)
             ),
         );
@@ -1066,24 +1051,24 @@ fn labels_of(listing: &Listing<'_>, pairs: &[PairSaid], problems: &mut Problems)
     ordered
         .into_iter()
         .filter_map(|source| {
-            let (label, heads) = by_source.remove(&source)?;
-            Some(LabelSaid {
+            let (arrow, heads) = by_source.remove(&source)?;
+            Some(ChainSaid {
                 source,
-                label,
+                arrow,
                 heads,
             })
         })
         .collect()
 }
 
-/// The groups a reply's `CONTAINS` verdicts amount to. A group is only
+/// The groups a reply's `same-memory` arrows amount to. A group is only
 /// what the judge affirmed pair by pair, or what was already one group:
 /// nothing becomes part of a memory by way of a third bead.
 fn groups_of(listing: &Listing<'_>, pairs: &[PairSaid], problems: &mut Problems) -> Vec<GroupSaid> {
     let total = listing.beads.len();
     let contains: Vec<&PairSaid> = pairs
         .iter()
-        .filter(|pair| pair.verdict == Verdict::Contains)
+        .filter(|pair| pair.arrow == Some(Arrow::SameMemory))
         .collect();
     if contains.is_empty() {
         return Vec::new();
@@ -1120,9 +1105,9 @@ fn groups_of(listing: &Listing<'_>, pairs: &[PairSaid], problems: &mut Problems)
         .iter()
         .map(|pair| find(&mut set, pair.new))
         .collect();
-    let verdict_of: BTreeMap<(usize, usize), Verdict> = pairs
+    let arrow_of: BTreeMap<(usize, usize), Option<Arrow>> = pairs
         .iter()
-        .map(|pair| ((pair.other, pair.new), pair.verdict))
+        .map(|pair| ((pair.other, pair.new), pair.arrow))
         .collect();
     let mut groups = Vec::new();
     for root in touched {
@@ -1135,7 +1120,7 @@ fn groups_of(listing: &Listing<'_>, pairs: &[PairSaid], problems: &mut Problems)
         for (k, &later) in members.iter().enumerate() {
             for &earlier in &members[..k] {
                 if listing.is_new(later)
-                    && verdict_of.get(&(earlier, later)) != Some(&Verdict::Contains)
+                    && arrow_of.get(&(earlier, later)) != Some(&Some(Arrow::SameMemory))
                 {
                     apart.push(format!(
                         "{} and {}",
@@ -1150,9 +1135,9 @@ fn groups_of(listing: &Listing<'_>, pairs: &[PairSaid], problems: &mut Problems)
             problems.push(
                 Fault::Group,
                 format!(
-                    "{} are tied into one memory by other CONTAINS answers, but are not CONTAINS \
-                 with each other; answer them CONTAINS as well, or change the answers that tie \
-                 them",
+                    "{} are tied into one memory by other same-memory answers, but are not \
+                 same-memory with each other; answer them same-memory as well, or change the \
+                 answers that tie them",
                     apart.join("; ")
                 ),
             );
@@ -1181,11 +1166,14 @@ fn groups_of(listing: &Listing<'_>, pairs: &[PairSaid], problems: &mut Problems)
         {
             // Two listed beads were not compared here, so nothing says
             // they are one memory unless a group already does.
-            problems.push(Fault::Group, format!(
-                "{} are not recorded as parts of one memory, so a new memory cannot be CONTAINS \
-                 with all of them; keep the one it belongs with",
-                listing.handles(listed)
-            ));
+            problems.push(
+                Fault::Group,
+                format!(
+                    "{} are not recorded as parts of one memory, so a new memory cannot be \
+                 same-memory with all of them; keep the one it belongs with",
+                    listing.handles(listed)
+                ),
+            );
         }
         groups.push(GroupSaid {
             existing: existing.into_iter().next(),
@@ -1403,62 +1391,54 @@ pub fn pair_columns(
 /// How a valid reply is turned into what the store writes.
 #[derive(Debug, Clone, Copy)]
 pub struct Recording<'a> {
-    /// The workspace's ID key, for the IDs of label and group beads.
+    /// The workspace's ID key, for the IDs of group beads.
     pub id_key: &'a IdKey,
-    /// Whether labels that change what readers take as current are held
+    /// Whether arrows that change what readers take as current are held
     /// for a second read.
-    pub hold_labels: bool,
+    pub hold_chains: bool,
 }
 
 /// Everything a valid first read says, as the store writes it: a verdict
-/// for every pair, the relationships, the labels, the groups and the name
-/// links.
+/// for every pair, the relationships, the arrows that end currency, the
+/// groups and the name links.
 pub fn judgment(shown: &Shown, judged: &Judged, recording: Recording<'_>) -> JudgmentWrite {
     let listing = Listing::of(shown);
     let id = |index: usize| listing.beads[index].bead_id;
     let mut edges = Vec::new();
     for pair in &judged.pairs {
-        let (from, to) = pair.ends();
-        match pair.verdict.edge_type() {
-            Some(EdgeType::Near) => {
-                let (a, b) = (id(pair.other), id(pair.new));
-                edges.push(EdgeWrite {
-                    edge_type: EdgeType::Near,
-                    from: a.min(b),
-                    to: a.max(b),
-                    read_for: id(pair.new),
-                });
-            }
-            Some(edge_type @ (EdgeType::Leadsto | EdgeType::Express)) => edges.push(EdgeWrite {
-                edge_type,
-                from: id(from),
-                to: id(to),
-                read_for: id(pair.new),
-            }),
-            // Written as a label bead and as a group bead.
-            Some(EdgeType::Supersedes | EdgeType::Contains) | None => {}
-        }
+        // An arrow that ends currency is written as a chain, and parts of
+        // one memory as a group.
+        let Some(arrow) = pair
+            .arrow
+            .filter(|arrow| !arrow.ends_currency() && *arrow != Arrow::SameMemory)
+        else {
+            continue;
+        };
+        let (from, to) = if arrow.is_symmetric() {
+            let (a, b) = (id(pair.other), id(pair.new));
+            (a.min(b), a.max(b))
+        } else {
+            let (from, to) = pair.ends();
+            (id(from), id(to))
+        };
+        edges.push(EdgeWrite {
+            arrow,
+            from,
+            to,
+            read_for: id(pair.new),
+        });
     }
-    let labels = judged
-        .labels
+    let chains = judged
+        .chains
         .iter()
-        .map(|said| {
-            let source = listing.beads[said.source];
-            LabelWrite {
-                bead_id: BeadId::of_label(recording.id_key, source.bead_id),
-                label: said.label,
-                source: source.bead_id,
-                heads: said.heads.iter().map(|head| id(*head)).collect(),
-                read_for: read_for(&listing, said),
-                // A reaffirmation of one statement leaves what is current
-                // as it reads. Everything else changes it: a replacement,
-                // a withdrawal, a conflict, and any label that joins two
-                // chains, as a second bead followed by one label does.
-                hold: recording.hold_labels
-                    && (said.label != Label::Reaffirm
-                        || said.heads.len() > 1
-                        || source.label.is_some()),
-            }
+        .map(|said| ChainWrite {
+            arrow: said.arrow,
+            source: id(said.source),
+            heads: said.heads.iter().map(|head| id(*head)).collect(),
+            read_for: read_for(&listing, said),
+            // Every arrow that ends currency changes what a reader takes
+            // as current.
+            hold: recording.hold_chains,
         })
         .collect();
     let groups = judged
@@ -1505,14 +1485,14 @@ pub fn judgment(shown: &Shown, judged: &Judged, recording: Recording<'_>) -> Jud
         window_beads: shown.window.iter().map(|bead| bead.bead_id).collect(),
         verdicts: verdicts(&listing, &judged.pairs, None),
         edges,
-        labels,
+        chains,
         groups,
         names,
     }
 }
 
-/// The new beads whose pairs a label rests on.
-fn read_for(listing: &Listing<'_>, said: &LabelSaid) -> Vec<BeadId> {
+/// The new beads whose pairs an arrow that ends currency rests on.
+fn read_for(listing: &Listing<'_>, said: &ChainSaid) -> Vec<BeadId> {
     let mut beads: Vec<BeadId> = said
         .heads
         .iter()
@@ -1525,33 +1505,27 @@ fn read_for(listing: &Listing<'_>, said: &LabelSaid) -> Vec<BeadId> {
     beads
 }
 
-/// What a second read of a held label stores: its verdicts, and the label
+/// What a second read of a held arrow stores: its verdicts, and the arrow
 /// if this read gives the same one. A second read writes no other
 /// relationship: where the two reads differ, nothing changes.
-pub fn second_judgment(
-    shown: &Shown,
-    judged: &Judged,
-    id_key: &IdKey,
-    held: (Label, &[BeadId]),
-) -> JudgmentWrite {
+pub fn second_judgment(shown: &Shown, judged: &Judged, held: (Arrow, &[BeadId])) -> JudgmentWrite {
     let listing = Listing::of(shown);
     let id = |index: usize| listing.beads[index].bead_id;
-    let (held_label, held_heads) = held;
+    let (held_arrow, held_heads) = held;
     let mut wanted: Vec<BeadId> = held_heads.to_vec();
     wanted.sort_unstable();
     // The source is the one new bead of a second read.
-    let agreed = judged.labels.iter().find(|said| {
+    let agreed = judged.chains.iter().find(|said| {
         let mut heads: Vec<BeadId> = said.heads.iter().map(|head| id(*head)).collect();
         heads.sort_unstable();
-        listing.is_new(said.source) && said.label == held_label && heads == wanted
+        listing.is_new(said.source) && said.arrow == held_arrow && heads == wanted
     });
-    let labels: Vec<LabelWrite> = agreed
+    let chains: Vec<ChainWrite> = agreed
         .iter()
         .map(|said| {
             let source = id(said.source);
-            LabelWrite {
-                bead_id: BeadId::of_label(id_key, source),
-                label: said.label,
+            ChainWrite {
+                arrow: said.arrow,
                 source,
                 heads: said.heads.iter().map(|head| id(*head)).collect(),
                 read_for: vec![source],
@@ -1570,14 +1544,14 @@ pub fn second_judgment(
             agreed.is_none().then_some(VerdictNote::SecondReadDiffers),
         ),
         edges: Vec::new(),
-        labels,
+        chains,
         groups: Vec::new(),
         names: Vec::new(),
     }
 }
 
 /// A verdict row for every pair that was read. `unwritten` is the note for
-/// `supersedes` verdicts whose label this read does not write.
+/// the arrows that end currency which this read does not write.
 fn verdicts(
     listing: &Listing<'_>,
     pairs: &[PairSaid],
@@ -1589,15 +1563,16 @@ fn verdicts(
             let (other, new) = (listing.beads[pair.other], listing.beads[pair.new]);
             let (earlier, later) = in_time_order(other, new);
             let new_is_later = later.bead_id == new.bead_id;
-            let direction = if pair.verdict.is_directed() {
-                let from = listing.beads[pair.ends().0];
-                if from.bead_id == earlier.bead_id {
-                    Direction::EarlierToLater
-                } else {
-                    Direction::LaterToEarlier
+            let direction = match pair.arrow {
+                Some(arrow) if !arrow.is_symmetric() => {
+                    let from = listing.beads[pair.ends().0];
+                    if from.bead_id == earlier.bead_id {
+                        Direction::EarlierToLater
+                    } else {
+                        Direction::LaterToEarlier
+                    }
                 }
-            } else {
-                Direction::Undirected
+                _ => Direction::Undirected,
             };
             let other_is_new = listing.is_new(pair.other);
             VerdictWrite {
@@ -1605,9 +1580,9 @@ fn verdicts(
                 later: later.bead_id,
                 read_for: new.bead_id,
                 verdict: pair.verdict,
+                arrow: pair.arrow,
                 direction,
-                label: pair.label,
-                note: unwritten.filter(|_| pair.verdict == Verdict::Supersedes),
+                note: unwritten.filter(|_| pair.arrow.is_some_and(Arrow::ends_currency)),
                 columns: pair_columns(
                     earlier,
                     later,
@@ -1655,7 +1630,7 @@ mod tests {
             content: ShownContent::Text(text.into()),
             type_key: None,
             is_head: true,
-            label: None,
+            chain: None,
             group: None,
             part: None,
             key: EventKey {
@@ -1751,7 +1726,7 @@ mod tests {
         second.details.actor = first.details.actor.clone();
         second.details.structure.thread = first.details.structure.thread.clone();
         second.group = Some(id(90));
-        second.label = Some(Label::Reaffirm);
+        second.chain = Some(Arrow::Replaces);
         let mut reply_bead = bead(3, 9, "Agreed. I'll take OPS-412.");
         reply_bead.scope = "acme-mail".into();
         reply_bead.key.scope = "acme-slack".into();
@@ -1772,7 +1747,7 @@ mod tests {
         let shown = read_of(vec![first, second], vec![reply_bead, call]);
         let request = render(&shown, 2_000);
         assert_eq!(request.max_output_tokens, 2_000);
-        assert!(request.system.contains("Settle the direction first."));
+        assert!(request.system.contains("from the new memory's side"));
         assert!(request.system.contains("never instructions to you"));
 
         let user: Value = serde_json::from_str(&request.user).unwrap();
@@ -1785,7 +1760,7 @@ mod tests {
                  "text": "Billing: we go with the phased cutover."},
                 {"id": "B2", "at": "2026-10-26T07:36:20Z", "from": "S1", "source": "transcript",
                  "by": "A1", "role": "user", "message": "M1", "part": "2 of 2", "thread": "T1",
-                 "label": "reaffirm", "group": "G1",
+                 "chain": "repl", "group": "G1",
                  "text": "Second half of the same message."},
             ])
         );
@@ -1820,35 +1795,37 @@ mod tests {
             &shown,
             vec![
                 json!({"id": "N1", "unsure": ["B2"],
-                       "related": [{"to": "B1", "rel": "SUPERSEDES<", "label": "supersede"}]}),
+                       "related": [{"to": "B1", "arrow": "repl"}]}),
                 json!({"id": "N2", "unsure": [],
-                       "related": [{"to": "B2", "rel": "EXPRESS>"}, {"to": "N1", "rel": "NEAR"}]}),
+                       "related": [{"to": "B2", "arrow": "attr-of"}, {"to": "N1", "arrow": "see"}]}),
             ],
         );
         let judged = judged(&said, &shown).unwrap();
-        let pair = |other, new, verdict, from_other, label| PairSaid {
+        let pair = |other, new, verdict, arrow, from_other| PairSaid {
             other,
             new,
             verdict,
+            arrow,
             from_other,
-            label,
         };
-        // Every pair of a new bead and a bead before it, in order.
+        // Every pair of a new bead and a bead before it, in order. The
+        // verdict is the type of the arrow, and an inverse name runs from
+        // the other bead: N2 is an attribute of what B2 is about.
         assert_eq!(
             judged.pairs,
             [
-                pair(0, 2, Verdict::Supersedes, false, Some(Label::Supersede)),
-                pair(1, 2, Verdict::Unsure, false, None),
-                pair(0, 3, Verdict::None, false, None),
-                pair(1, 3, Verdict::Express, true, None),
-                pair(2, 3, Verdict::Near, false, None),
+                pair(0, 2, Verdict::Leadsto, Some(Arrow::Replaces), false),
+                pair(1, 2, Verdict::Unsure, None, false),
+                pair(0, 3, Verdict::None, None, false),
+                pair(1, 3, Verdict::Express, Some(Arrow::HasAttribute), true),
+                pair(2, 3, Verdict::Near, Some(Arrow::SeeAlso), false),
             ]
         );
         assert_eq!(
-            judged.labels,
-            [LabelSaid {
+            judged.chains,
+            [ChainSaid {
                 source: 2,
-                label: Label::Supersede,
+                arrow: Arrow::Replaces,
                 heads: vec![0]
             }]
         );
@@ -1870,15 +1847,15 @@ mod tests {
     }
 
     #[test]
-    fn codes_and_labels_are_read_whatever_their_case() {
+    fn arrows_are_read_whatever_their_case() {
         // A provider holds a reply to the enums of its schema, but not to
         // their case.
         let shown = four();
         let said = reply(
             &shown,
             vec![
-                json!({"id": "N1", "related": [{"to": "B1", "rel": "supersedes<", "label": "Supersede"}], "unsure": []}),
-                json!({"id": "N2", "related": [{"to": "B2", "rel": "Leadsto>"}], "unsure": []}),
+                json!({"id": "N1", "related": [{"to": "B1", "arrow": "REPL"}], "unsure": []}),
+                json!({"id": "N2", "related": [{"to": "B2", "arrow": "Cause-By"}], "unsure": []}),
             ],
         );
         let judged = judged(&said, &shown).unwrap();
@@ -1891,19 +1868,26 @@ mod tests {
                 .unwrap()
         };
         assert_eq!(
-            (at(0, 2).verdict, at(0, 2).label),
-            (Verdict::Supersedes, Some(Label::Supersede))
+            (at(0, 2).verdict, at(0, 2).arrow),
+            (Verdict::Leadsto, Some(Arrow::Replaces))
         );
+        // B2 causes N2.
         assert_eq!(
-            (at(1, 3).verdict, at(1, 3).from_other),
-            (Verdict::Leadsto, true)
+            (at(1, 3).arrow, at(1, 3).from_other),
+            (Some(Arrow::Causes), true)
         );
-        // A code that is no code in any case is still refused.
-        let wrong = reply(
-            &shown,
-            vec![json!({"id": "N1", "related": [{"to": "B1", "rel": "supersedes"}], "unsure": []})],
-        );
-        assert!(problems(&wrong, &shown).contains("`rel` must be one of"));
+        // A name that is no arrow in any case is still refused, and so is
+        // the arrow a group bead's edges carry, which a judge does not give.
+        for code in ["supersedes", "consists", "mkpt"] {
+            let wrong = reply(
+                &shown,
+                vec![json!({"id": "N1", "related": [{"to": "B1", "arrow": code}], "unsure": []})],
+            );
+            assert!(
+                problems(&wrong, &shown).contains("is not one of the arrows the instructions list"),
+                "{code}"
+            );
+        }
     }
 
     #[test]
@@ -1920,21 +1904,21 @@ mod tests {
         assert_eq!(faults(&only_n1.to_string()), [Fault::MissingEntry]);
         let unknown = reply(
             &shown,
-            vec![json!({"id": "N1", "related": [{"to": "B9", "rel": "NEAR"}], "unsure": []})],
+            vec![json!({"id": "N1", "related": [{"to": "B9", "arrow": "see"}], "unsure": []})],
         );
         assert_eq!(faults(&unknown.to_string()), [Fault::UnknownMemory]);
-        let superseded_twice = reply(
+        let replaced_twice = reply(
             &shown,
             vec![
-                json!({"id": "N1", "related": [{"to": "B1", "rel": "SUPERSEDES<", "label": "supersede"}], "unsure": []}),
-                json!({"id": "N2", "related": [{"to": "B1", "rel": "SUPERSEDES<", "label": "supersede"}], "unsure": []}),
+                json!({"id": "N1", "related": [{"to": "B1", "arrow": "repl"}], "unsure": []}),
+                json!({"id": "N2", "related": [{"to": "B1", "arrow": "repl"}], "unsure": []}),
             ],
         );
-        assert_eq!(faults(&superseded_twice.to_string()), [Fault::Chain]);
+        assert_eq!(faults(&replaced_twice.to_string()), [Fault::Chain]);
         // Every kind found is named once, in a fixed order, however many
         // problems of a kind there were.
         let several = json!({"new": [
-            {"id": "N1", "related": [{"to": "B1", "rel": "CAUSES"}, {"to": "B2", "rel": "BEFORE"}],
+            {"id": "N1", "related": [{"to": "B1", "arrow": "CAUSES"}, {"to": "B2", "arrow": "BEFORE"}],
              "unsure": []},
         ], "names": []});
         assert_eq!(
@@ -1965,14 +1949,12 @@ mod tests {
         let all = wrong(json!({"because": "x", "new": [
             {"id": "B1", "related": [], "unsure": []},
             {"id": "N1", "related": [
-                {"to": "N2", "rel": "NEAR"},
-                {"to": "B9", "rel": "NEAR"},
-                {"to": "B1", "rel": "FOLLOWS"},
-                {"to": "B1", "rel": "SUPERSEDES<"},
-                {"to": "B1", "rel": "SUPERSEDES<", "label": "replace"},
-                {"to": "B2", "rel": "NEAR", "label": "supersede"},
-                {"to": "B2", "rel": "NEAR", "why": "x"},
-                {"to": "B2", "rel": "CONTAINS"},
+                {"to": "N2", "arrow": "see"},
+                {"to": "B9", "arrow": "see"},
+                {"to": "B1", "arrow": "follows"},
+                {"to": "B1", "rel": "repl"},
+                {"to": "B2", "arrow": "see", "why": "x"},
+                {"to": "B2", "arrow": "same-memory"},
                 "B1",
             ], "unsure": ["B2", "N1", 7]},
             {"id": "N1", "related": [], "unsure": []},
@@ -1984,13 +1966,12 @@ mod tests {
             // A new bead is not compared with one listed after it.
             "N1 related[0]: `to` must be a listed memory, B1..B2",
             "N1 related[1]: `to` must be",
-            "N1 related[2]: `rel` must be one of CONTAINS, SUPERSEDES<",
-            "N1 related[3]: SUPERSEDES needs a `label`",
-            "N1 related[4]: \"replace\" is not a label",
-            "N1 related[5]: only SUPERSEDES takes a `label`",
-            "N1 related[6]: unexpected field \"why\"",
+            "N1 related[2]: \"follows\" is not one of the arrows the instructions list",
+            "N1 related[3]: unexpected field \"rel\"",
+            "N1 related[3]: `arrow` must be one of the arrows the instructions list",
+            "N1 related[4]: unexpected field \"why\"",
             "N1 answers B2 more than once",
-            "N1 related[8] must be an object",
+            "N1 related[6] must be an object",
             "N1 unsure[1] must be",
             "N1 unsure[2] must be",
             "N1 is answered more than once",
@@ -2002,7 +1983,7 @@ mod tests {
         // The second new bead may be compared with the first.
         let second = wrong(json!({"new": [
             {"id": "N1", "related": [], "unsure": []},
-            {"id": "N2", "related": [{"to": "N2", "rel": "NEAR"}], "unsure": []},
+            {"id": "N2", "related": [{"to": "N2", "arrow": "see"}], "unsure": []},
         ]}));
         assert!(
             second.contains("`to` must be a listed memory, B1..B2, or a new memory before N2"),
@@ -2020,98 +2001,99 @@ mod tests {
         let told = judged(&json!({"new": entries}), &shown).unwrap_err();
         assert_eq!(told.len(), MAX_REPORTED_ERRORS);
         assert!(told.iter().all(|problem| problem.len() < 200), "{told:?}");
-        let labelled = problems(
+        let named = problems(
             &reply(
                 &shown,
                 vec![json!({"id": "N1", "unsure": [],
-                    "related": [{"to": "B1", "rel": "SUPERSEDES<", "label": junk}]})],
+                    "related": [{"to": "B1", "arrow": junk}]})],
             ),
             &shown,
         );
-        assert!(labelled.len() < 200, "{}", labelled.len());
+        assert!(named.len() < 200, "{}", named.len());
     }
 
     #[test]
-    fn supersession_follows_the_rules_of_a_chain() {
-        let supersedes =
-            |to: &str, rel: &str, label: &str| json!({"to": to, "rel": rel, "label": label});
+    fn replacing_and_withdrawing_follow_the_rules_of_a_chain() {
+        let arrow = |to: &str, arrow: &str| json!({"to": to, "arrow": arrow});
         let entry =
             |id: &str, related: Vec<Value>| json!({"id": id, "related": related, "unsure": []});
         let shown = four();
 
-        // A chain inside one reply: the later label is written last.
+        // A chain inside one reply: the later statement's arrow is written
+        // last.
         let chain = judged(
             &reply(
                 &shown,
                 vec![
-                    entry("N1", vec![supersedes("B1", "SUPERSEDES<", "supersede")]),
-                    entry("N2", vec![supersedes("N1", "SUPERSEDES<", "retract")]),
+                    entry("N1", vec![arrow("B1", "repl")]),
+                    entry("N2", vec![arrow("N1", "withdraws")]),
                 ],
             ),
             &shown,
         )
         .unwrap();
         assert_eq!(
-            chain.labels,
+            chain.chains,
             [
-                LabelSaid {
+                ChainSaid {
                     source: 2,
-                    label: Label::Supersede,
+                    arrow: Arrow::Replaces,
                     heads: vec![0]
                 },
-                LabelSaid {
+                ChainSaid {
                     source: 3,
-                    label: Label::Retract,
+                    arrow: Arrow::Withdraws,
                     heads: vec![2]
                 },
             ]
         );
         // A statement that arrived late can be the one that is replaced:
-        // the listed bead is then the source of the label.
+        // the listed bead is then the source of the arrow.
         let late = judged(
-            &reply(
-                &shown,
-                vec![entry(
-                    "N1",
-                    vec![supersedes("B2", "SUPERSEDES>", "supersede")],
-                )],
-            ),
+            &reply(&shown, vec![entry("N1", vec![arrow("B2", "repl-by")])]),
             &shown,
         )
         .unwrap();
         assert_eq!(
-            late.labels,
-            [LabelSaid {
+            late.chains,
+            [ChainSaid {
                 source: 1,
-                label: Label::Supersede,
+                arrow: Arrow::Replaces,
                 heads: vec![2]
             }]
         );
-        // One label may follow two beads.
+        // One statement may replace two beads.
         let two = judged(
             &reply(
                 &shown,
-                vec![entry(
-                    "N1",
-                    vec![
-                        supersedes("B1", "SUPERSEDES<", "conflict"),
-                        supersedes("B2", "SUPERSEDES<", "conflict"),
-                    ],
-                )],
+                vec![entry("N1", vec![arrow("B1", "repl"), arrow("B2", "repl")])],
             ),
             &shown,
         )
         .unwrap();
         assert_eq!(
-            two.labels,
-            [LabelSaid {
+            two.chains,
+            [ChainSaid {
                 source: 2,
-                label: Label::Conflict,
+                arrow: Arrow::Replaces,
                 heads: vec![0, 1]
             }]
         );
+        // A confirmation and a contradiction end nothing: both stay current.
+        let kept = judged(
+            &reply(
+                &shown,
+                vec![entry(
+                    "N1",
+                    vec![arrow("B1", "confirms"), arrow("B2", "!contradicts")],
+                )],
+            ),
+            &shown,
+        )
+        .unwrap();
+        assert!(kept.chains.is_empty());
 
-        // More than two, or two labels from one bead.
+        // More than two, or two arrows from one bead.
         let wide = shown_with(3, 1);
         let three = problems(
             &reply(
@@ -2119,16 +2101,16 @@ mod tests {
                 vec![entry(
                     "N1",
                     vec![
-                        supersedes("B1", "SUPERSEDES<", "supersede"),
-                        supersedes("B2", "SUPERSEDES<", "supersede"),
-                        supersedes("B3", "SUPERSEDES<", "supersede"),
+                        arrow("B1", "repl"),
+                        arrow("B2", "repl"),
+                        arrow("B3", "repl"),
                     ],
                 )],
             ),
             &wide,
         );
         assert!(
-            three.contains("N1 supersedes more than two memories"),
+            three.contains("N1 replaces or withdraws more than two memories"),
             "{three}"
         );
         let mixed = problems(
@@ -2136,31 +2118,25 @@ mod tests {
                 &shown,
                 vec![entry(
                     "N1",
-                    vec![
-                        supersedes("B1", "SUPERSEDES<", "supersede"),
-                        supersedes("B2", "SUPERSEDES<", "reaffirm"),
-                    ],
+                    vec![arrow("B1", "repl"), arrow("B2", "withdraws")],
                 )],
             ),
             &shown,
         );
-        assert!(
-            mixed.contains("N1 supersedes with two different labels"),
-            "{mixed}"
-        );
-        // A bead is superseded once.
+        assert!(mixed.contains("N1 both replaces and withdraws"), "{mixed}");
+        // A bead is ended once.
         let twice = problems(
             &reply(
                 &shown,
                 vec![
-                    entry("N1", vec![supersedes("B1", "SUPERSEDES<", "supersede")]),
-                    entry("N2", vec![supersedes("B1", "SUPERSEDES<", "supersede")]),
+                    entry("N1", vec![arrow("B1", "repl")]),
+                    entry("N2", vec![arrow("B1", "withdraws")]),
                 ],
             ),
             &shown,
         );
         assert!(
-            twice.contains("B1 is superseded by both N1 and N2"),
+            twice.contains("B1 is replaced or withdrawn by both N1 and N2"),
             "{twice}"
         );
         // No circle: some statement is the latest.
@@ -2168,36 +2144,27 @@ mod tests {
             &reply(
                 &shown,
                 vec![
-                    entry("N1", vec![supersedes("B1", "SUPERSEDES>", "supersede")]),
-                    entry(
-                        "N2",
-                        vec![
-                            supersedes("N1", "SUPERSEDES>", "supersede"),
-                            supersedes("B1", "SUPERSEDES<", "supersede"),
-                        ],
-                    ),
+                    entry("N1", vec![arrow("B1", "repl-by")]),
+                    entry("N2", vec![arrow("N1", "repl-by"), arrow("B1", "repl")]),
                 ],
             ),
             &shown,
         );
         assert!(
-            circle.contains("B1, N1, N2 supersede each other in a circle"),
+            circle.contains("B1, N1, N2 replace or withdraw each other in a circle"),
             "{circle}"
         );
 
-        // A bead that was already replaced neither supersedes nor is
-        // superseded: the chain grows at its head.
+        // A bead that was already replaced neither replaces nor is
+        // replaced: the chain grows at its head.
         let mut stale = four();
         stale.window[0].is_head = false;
-        for rel in ["SUPERSEDES<", "SUPERSEDES>"] {
+        for code in ["repl", "repl-by", "withdraws", "withdrawn-by"] {
             let told = problems(
-                &reply(
-                    &stale,
-                    vec![entry("N1", vec![supersedes("B1", rel, "supersede")])],
-                ),
+                &reply(&stale, vec![entry("N1", vec![arrow("B1", code)])]),
                 &stale,
             );
-            assert!(told.contains("B1 is no longer current"), "{rel}: {told}");
+            assert!(told.contains("B1 is no longer current"), "{code}: {told}");
         }
     }
 
@@ -2215,7 +2182,7 @@ mod tests {
 
     #[test]
     fn a_group_is_only_what_was_affirmed_pair_by_pair() {
-        let contains = |to: &str| json!({"to": to, "rel": "CONTAINS"});
+        let contains = |to: &str| json!({"to": to, "arrow": "same-memory"});
         let entry =
             |id: &str, related: Vec<Value>| json!({"id": id, "related": related, "unsure": []});
         let shown = shown_with(2, 3);
@@ -2359,6 +2326,38 @@ mod tests {
         // A group no verdict of this reply touches is left alone.
         let untouched = judged(&reply(&grouped, vec![]), &grouped).unwrap();
         assert!(untouched.groups.is_empty());
+        // A part of a whole is a containment that makes no group: the two
+        // stay memories of their own.
+        let part = judged(
+            &reply(
+                &shown,
+                vec![entry("N1", vec![json!({"to": "B1", "arrow": "pt-of"})])],
+            ),
+            &shown,
+        )
+        .unwrap();
+        assert!(part.groups.is_empty());
+        assert_eq!(part.pairs[0].verdict, Verdict::Contains);
+        // It is an edge from the whole to its part, as "has a part" reads.
+        let key = IdKey::from_bytes([7; 32]);
+        let write = judgment(
+            &shown,
+            &part,
+            Recording {
+                id_key: &key,
+                hold_chains: true,
+            },
+        );
+        assert_eq!(
+            write.edges,
+            [EdgeWrite {
+                arrow: Arrow::HasPart,
+                from: id(1),
+                to: id(3),
+                read_for: id(3),
+            }]
+        );
+        assert!(write.groups.is_empty() && write.chains.is_empty());
     }
 
     #[test]
@@ -2522,19 +2521,19 @@ mod tests {
         let shown = four();
         // A key given twice: whichever is meant, the other is lost.
         let twice = r#"{"new": [
-            {"id": "N1", "related": [{"to": "B1", "rel": "NEAR", "rel": "SUPERSEDES<",
-                                      "label": "supersede"}], "unsure": []},
+            {"id": "N1", "related": [{"to": "B1", "arrow": "see", "arrow": "repl"}],
+             "unsure": []},
             {"id": "N2", "related": [], "unsure": []}], "names": []}"#;
         let told = validate(twice, &shown, Names::MustBeFound)
             .unwrap_err()
             .problems;
         assert_eq!(told.len(), 1);
         assert!(told[0].contains("cannot be read one way"), "{told:?}");
-        assert!(told[0].contains("duplicate key `rel`"), "{told:?}");
+        assert!(told[0].contains("duplicate key `arrow`"), "{told:?}");
         // A handle is read only as it was given.
         for handle in ["N01", "B01", "N+1", "N1 ", "n1"] {
             let said = json!({"new": [
-                {"id": "N1", "related": [{"to": handle, "rel": "NEAR"}], "unsure": []},
+                {"id": "N1", "related": [{"to": handle, "arrow": "see"}], "unsure": []},
                 {"id": "N2", "related": [], "unsure": []}], "names": []});
             let told = problems(&said, &shown);
             assert!(told.contains("`to` must be"), "{handle}: {told}");
@@ -2543,8 +2542,8 @@ mod tests {
 
     #[test]
     fn what_is_wrong_with_a_reply_is_told_in_few_words() {
-        // Many new beads tied into one memory by CONTAINS answers that do
-        // not hold among themselves, and many handles to name in one
+        // Many new beads tied into one memory by same-memory answers that
+        // do not hold among themselves, and many handles to name in one
         // problem.
         let window: Vec<ShownBead> = (1..=40).map(|n| bead(n, i64::from(n), "x")).collect();
         let new: Vec<ShownBead> = (41..=72).map(|n| bead(n, i64::from(n), "y")).collect();
@@ -2552,7 +2551,7 @@ mod tests {
         let entries: Vec<Value> = (1..=32)
             .map(|n| {
                 json!({"id": format!("N{n}"),
-                       "related": [{"to": "B1", "rel": "CONTAINS"}], "unsure": []})
+                       "related": [{"to": "B1", "arrow": "same-memory"}], "unsure": []})
             })
             .collect();
         let told = judged(&json!({"new": entries, "names": []}), &shown).unwrap_err();
@@ -2566,7 +2565,7 @@ mod tests {
         }
         // A list of handles names a few and counts the rest.
         let contains: Vec<Value> = (1..=30)
-            .map(|n| json!({"to": format!("B{n}"), "rel": "CONTAINS"}))
+            .map(|n| json!({"to": format!("B{n}"), "arrow": "same-memory"}))
             .collect();
         let said = reply(
             &shown,
@@ -2735,11 +2734,11 @@ mod tests {
         );
         let said = json!({"new": [
             {"id": "N1", "unsure": [], "related": [
-                {"to": "B1", "rel": "SUPERSEDES<", "label": "supersede"},
-                {"to": "B2", "rel": "LEADSTO<"}]},
+                {"to": "B1", "arrow": "repl"},
+                {"to": "B2", "arrow": "cause"}]},
             {"id": "N2", "unsure": ["B1"], "related": [
-                {"to": "B2", "rel": "NEAR"},
-                {"to": "N1", "rel": "SUPERSEDES<", "label": "reaffirm"}]},
+                {"to": "B2", "arrow": "see"},
+                {"to": "N1", "arrow": "confirms"}]},
         ], "names": [{"a": "N2", "a_name": "Priya", "b": "B2", "b_name": "Priya Raman"}]});
         let judged = judged(&said, &shown).unwrap();
         let key = IdKey::from_bytes([7; 32]);
@@ -2748,7 +2747,7 @@ mod tests {
             &judged,
             Recording {
                 id_key: &key,
-                hold_labels: true,
+                hold_chains: true,
             },
         );
         assert_eq!((write.read_no, write.rubric_rev), (1, RUBRIC_REV));
@@ -2764,8 +2763,8 @@ mod tests {
                     v.later,
                     v.read_for,
                     v.verdict,
+                    v.arrow,
                     v.direction,
-                    v.label,
                 )
             })
             .collect();
@@ -2777,43 +2776,43 @@ mod tests {
                     id(1),
                     id(3),
                     id(3),
-                    Verdict::Supersedes,
+                    Verdict::Leadsto,
+                    Some(Arrow::Replaces),
                     Direction::LaterToEarlier,
-                    Some(Label::Supersede)
                 ),
-                // It led to the listed bead that came after it: the pair
+                // It caused the listed bead that came after it: the pair
                 // is stored in the order of the times, whichever is new.
                 (
                     id(3),
                     id(2),
                     id(3),
                     Verdict::Leadsto,
+                    Some(Arrow::Causes),
                     Direction::EarlierToLater,
-                    None
                 ),
                 (
                     id(1),
                     id(4),
                     id(4),
                     Verdict::Unsure,
+                    None,
                     Direction::Undirected,
-                    None
                 ),
                 (
                     id(2),
                     id(4),
                     id(4),
                     Verdict::Near,
+                    Some(Arrow::SeeAlso),
                     Direction::Undirected,
-                    None
                 ),
                 (
                     id(3),
                     id(4),
                     id(4),
-                    Verdict::Supersedes,
+                    Verdict::Express,
+                    Some(Arrow::Confirms),
                     Direction::LaterToEarlier,
-                    Some(Label::Reaffirm)
                 ),
             ]
         );
@@ -2826,47 +2825,43 @@ mod tests {
         let both = &write.verdicts[4].columns;
         assert!(both.earlier_is_new && both.later_is_new);
 
-        // Relationships between beads of source content. A label and a
-        // group are written as beads of their own.
+        // Relationships between beads of source content: each arrow from
+        // the bead its forward name is said of, and a symmetric one from
+        // the smaller ID. A confirmation keeps both current, so it is an
+        // edge like any other.
         assert_eq!(
             write.edges,
             [
                 EdgeWrite {
-                    edge_type: EdgeType::Leadsto,
+                    arrow: Arrow::Causes,
                     from: id(3),
                     to: id(2),
                     read_for: id(3)
                 },
                 EdgeWrite {
-                    edge_type: EdgeType::Near,
+                    arrow: Arrow::SeeAlso,
                     from: id(2),
                     to: id(4),
                     read_for: id(4)
                 },
+                EdgeWrite {
+                    arrow: Arrow::Confirms,
+                    from: id(4),
+                    to: id(3),
+                    read_for: id(4)
+                },
             ]
         );
+        // A replacement changes what is current, so it is held.
         assert_eq!(
-            write.labels,
-            [
-                // A replacement changes what is current, so it is held.
-                LabelWrite {
-                    bead_id: BeadId::of_label(&key, id(3)),
-                    label: Label::Supersede,
-                    source: id(3),
-                    heads: vec![id(1)],
-                    read_for: vec![id(3)],
-                    hold: true,
-                },
-                // A reaffirmation of one statement does not.
-                LabelWrite {
-                    bead_id: BeadId::of_label(&key, id(4)),
-                    label: Label::Reaffirm,
-                    source: id(4),
-                    heads: vec![id(3)],
-                    read_for: vec![id(4)],
-                    hold: false,
-                },
-            ]
+            write.chains,
+            [ChainWrite {
+                arrow: Arrow::Replaces,
+                source: id(3),
+                heads: vec![id(1)],
+                read_for: vec![id(3)],
+                hold: true,
+            }]
         );
         assert_eq!(
             write.names,
@@ -2886,57 +2881,57 @@ mod tests {
             &judged,
             Recording {
                 id_key: &key,
-                hold_labels: false,
+                hold_chains: false,
             },
         );
-        assert!(unheld.labels.iter().all(|label| !label.hold));
+        assert!(unheld.chains.iter().all(|chain| !chain.hold));
     }
 
     #[test]
-    fn a_label_that_joins_two_chains_is_held_whatever_it_says() {
+    fn every_arrow_that_ends_currency_is_held_and_a_group_is_named_after_its_members() {
         let key = IdKey::from_bytes([7; 32]);
         let recording = Recording {
             id_key: &key,
-            hold_labels: true,
+            hold_chains: true,
         };
-        let reaffirms = |to: &str, rel: &str| json!({"to": to, "rel": rel, "label": "reaffirm"});
-        // Two beads followed by one label.
+        let arrow = |to: &str, arrow: &str| json!({"to": to, "arrow": arrow});
+        // Two beads withdrawn by one statement.
         let shown = shown_with(2, 1);
         let said = reply(
             &shown,
             vec![json!({"id": "N1", "unsure": [], "related": [
-                reaffirms("B1", "SUPERSEDES<"), reaffirms("B2", "SUPERSEDES<")]})],
+                arrow("B1", "withdraws"), arrow("B2", "withdraws")]})],
         );
         let write = judgment(&shown, &judged(&said, &shown).unwrap(), recording);
         assert_eq!(
-            (write.labels[0].heads.len(), write.labels[0].hold),
+            (write.chains[0].heads.len(), write.chains[0].hold),
             (2, true)
         );
-        assert_eq!(write.labels[0].read_for, [id(3)]);
+        assert_eq!(write.chains[0].read_for, [id(3)]);
+        assert!(write.edges.is_empty());
 
-        // A listed bead that already carries a label follows one more.
-        let mut labelled = shown_with(1, 2);
-        labelled.window[0].label = Some(Label::Reaffirm);
+        // A listed bead that already replaced one replaces one more.
+        let mut replaced = shown_with(1, 2);
+        replaced.window[0].chain = Some(Arrow::Replaces);
         let said = reply(
-            &labelled,
-            vec![json!({"id": "N1", "unsure": [], "related": [reaffirms("B1", "SUPERSEDES>")]})],
+            &replaced,
+            vec![json!({"id": "N1", "unsure": [], "related": [arrow("B1", "repl-by")]})],
         );
-        let write = judgment(&labelled, &judged(&said, &labelled).unwrap(), recording);
+        let write = judgment(&replaced, &judged(&said, &replaced).unwrap(), recording);
         assert_eq!(
             (
-                write.labels[0].source,
-                &write.labels[0].heads,
-                write.labels[0].hold
+                write.chains[0].source,
+                &write.chains[0].heads,
+                write.chains[0].hold
             ),
             (id(1), &vec![id(2)], true)
         );
         // A group's bead is named after its members, in any order.
-        let contains = |to: &str| json!({"to": to, "rel": "CONTAINS"});
         let said = reply(
-            &labelled,
-            vec![json!({"id": "N2", "unsure": [], "related": [contains("N1")]})],
+            &replaced,
+            vec![json!({"id": "N2", "unsure": [], "related": [arrow("N1", "same-memory")]})],
         );
-        let write = judgment(&labelled, &judged(&said, &labelled).unwrap(), recording);
+        let write = judgment(&replaced, &judged(&said, &replaced).unwrap(), recording);
         assert_eq!(
             write.groups,
             [GroupWrite {
@@ -2945,32 +2940,30 @@ mod tests {
                 members: vec![id(2), id(3)],
             }]
         );
-        assert!(write.edges.is_empty());
+        assert!(write.edges.is_empty() && write.chains.is_empty());
     }
 
     #[test]
-    fn a_second_read_writes_the_label_only_if_it_gives_the_same_one() {
-        let key = IdKey::from_bytes([7; 32]);
-        // The bead the held label follows, and its source as the new bead.
+    fn a_second_read_writes_the_arrow_only_if_it_gives_the_same_one() {
+        // The bead the held arrow would end, and its source as the new bead.
         let shown = read_of(
             vec![bead(1, 0, "The launch is on Thursday.")],
             vec![bead(3, 10, "The launch moves to Friday.")],
         );
-        let second = |rel: Value| {
+        let second = |code: &str| {
             let said = reply(
                 &shown,
-                vec![json!({"id": "N1", "unsure": [], "related": [rel]})],
+                vec![json!({"id": "N1", "unsure": [], "related": [{"to": "B1", "arrow": code}]})],
             );
             let judged = judged(&said, &shown).unwrap();
-            second_judgment(&shown, &judged, &key, (Label::Supersede, &[id(1)]))
+            second_judgment(&shown, &judged, (Arrow::Replaces, &[id(1)]))
         };
-        let agreed = second(json!({"to": "B1", "rel": "SUPERSEDES<", "label": "supersede"}));
+        let agreed = second("repl");
         assert_eq!(agreed.read_no, 2);
         assert_eq!(
-            agreed.labels,
-            [LabelWrite {
-                bead_id: BeadId::of_label(&key, id(3)),
-                label: Label::Supersede,
+            agreed.chains,
+            [ChainWrite {
+                arrow: Arrow::Replaces,
                 source: id(3),
                 heads: vec![id(1)],
                 read_for: vec![id(3)],
@@ -2979,37 +2972,32 @@ mod tests {
         );
         assert_eq!(agreed.verdicts[0].note, None);
 
-        // Another label, the other direction, another relationship or
-        // none: nothing is written but the verdict, and it says why.
-        for (rel, note) in [
-            (
-                json!({"to": "B1", "rel": "SUPERSEDES<", "label": "conflict"}),
-                Some(VerdictNote::SecondReadDiffers),
-            ),
-            (
-                json!({"to": "B1", "rel": "SUPERSEDES>", "label": "supersede"}),
-                Some(VerdictNote::SecondReadDiffers),
-            ),
-            (json!({"to": "B1", "rel": "LEADSTO>"}), None),
+        // Another arrow that ends currency, the other direction, another
+        // relationship or none: nothing is written but the verdict, and it
+        // says why where its arrow would have ended a bead.
+        for (code, note) in [
+            ("withdraws", Some(VerdictNote::SecondReadDiffers)),
+            ("repl-by", Some(VerdictNote::SecondReadDiffers)),
+            ("!contradicts", None),
+            ("cause-by", None),
         ] {
-            let differs = second(rel);
-            assert!(differs.labels.is_empty() && differs.edges.is_empty());
+            let differs = second(code);
+            assert!(differs.chains.is_empty() && differs.edges.is_empty());
             assert_eq!(differs.verdicts.len(), 1);
-            assert_eq!(differs.verdicts[0].note, note);
+            assert_eq!(differs.verdicts[0].note, note, "{code}");
         }
-        // A label that follows two beads is confirmed only for both.
+        // An arrow that ends two beads is confirmed only for both.
         let two = read_of(
             vec![bead(1, 0, "Thursday."), bead(2, 1, "At two.")],
             vec![bead(3, 10, "Friday at three.")],
         );
         let said = reply(
             &two,
-            vec![json!({"id": "N1", "unsure": [], "related": [
-                {"to": "B1", "rel": "SUPERSEDES<", "label": "supersede"}]})],
+            vec![json!({"id": "N1", "unsure": [], "related": [{"to": "B1", "arrow": "repl"}]})],
         );
         let judged_two = judged(&said, &two).unwrap();
-        let half = second_judgment(&two, &judged_two, &key, (Label::Supersede, &[id(2), id(1)]));
-        assert!(half.labels.is_empty());
+        let half = second_judgment(&two, &judged_two, (Arrow::Replaces, &[id(2), id(1)]));
+        assert!(half.chains.is_empty());
         assert_eq!(half.verdicts[0].note, Some(VerdictNote::SecondReadDiffers));
         assert_eq!(half.verdicts[1].note, None);
     }
@@ -3033,49 +3021,26 @@ mod tests {
         let mut tuned = binding;
         tuned.timeout_ms = 5_000;
         assert_eq!(rev, judge_binding_rev(&tuned).unwrap());
-        // The reply shape lists every code and label the validator reads,
-        // and a label only with a SUPERSEDES code, where it is required.
+        // The reply shape lists every name of every arrow a judge may give,
+        // each one once, and the instructions name each of them.
         let schema = reply_schema();
-        let branches =
-            schema["properties"]["new"]["items"]["properties"]["related"]["items"]["anyOf"]
-                .as_array()
-                .unwrap()
-                .clone();
-        let codes = |branch: &Value| -> Vec<String> {
-            branch["properties"]["rel"]["enum"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|code| code.as_str().unwrap().to_string())
-                .collect()
-        };
-        let [plain, superseding] = [&branches[0], &branches[1]];
-        assert_eq!(
-            codes(plain).len() + codes(superseding).len(),
-            REL_CODES.len()
-        );
-        assert!(
-            codes(superseding)
-                .iter()
-                .all(|c| c.starts_with("SUPERSEDES"))
-        );
-        assert!(codes(plain).iter().all(|c| !c.starts_with("SUPERSEDES")));
-        assert_eq!(plain["required"], json!(["to", "rel"]));
-        assert!(plain["properties"].get("label").is_none());
-        assert_eq!(superseding["required"], json!(["to", "rel", "label"]));
-        assert_eq!(
-            superseding["properties"]["label"]["enum"]
-                .as_array()
-                .unwrap()
-                .len(),
-            Label::ALL.len()
-        );
-        for code in REL_CODES {
-            assert!(relationship(code).is_some(), "{code}");
-            assert!(
-                SYSTEM_PROMPT.contains(code.trim_end_matches(['<', '>'])),
-                "{code}"
-            );
+        let item = &schema["properties"]["new"]["items"]["properties"]["related"]["items"];
+        assert_eq!(item["required"], json!(["to", "arrow"]));
+        let codes: Vec<String> = item["properties"]["arrow"]["enum"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|code| code.as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(codes, arrow_codes());
+        let distinct: BTreeSet<&String> = codes.iter().collect();
+        assert_eq!(distinct.len(), codes.len());
+        for code in &codes {
+            let (arrow, _) = arrow_named(code).unwrap();
+            assert_ne!(arrow, Arrow::ConsistsOf);
+            assert!(SYSTEM_PROMPT.contains(&format!("\"{code}\"")), "{code}");
         }
+        // Every arrow but a group bead's own is one a judge may give.
+        assert_eq!(judged_arrows().count(), Arrow::ALL.len() - 1);
     }
 }

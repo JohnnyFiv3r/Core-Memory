@@ -202,7 +202,7 @@ enum ReadCommand {
     /// still to read, is judged by a later run.
     Run,
     /// Show how much is queued, being worked on and set aside as failed:
-    /// one line each for chunks, tool calls, beads to judge and labels to
+    /// one line each for chunks, tool calls, beads to judge and arrows to
     /// read a second time.
     Status,
     /// Queue a scope's chunks and tool calls that no model has read, and,

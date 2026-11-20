@@ -23,7 +23,37 @@ import sys
 import tomllib
 
 TEXT = 160
-UNDIRECTED = {"none", "unsure", "near", "contains"}
+
+# The judge's arrows, as core_memory.arrows holds them: each arrow's inverse,
+# and its type. A symmetric arrow has no inverse.
+ARROWS = {
+    "cause": ("cause-by", "leadsto"),
+    "result": ("result-of", "leadsto"),
+    "enables": ("enabled-by", "leadsto"),
+    "implem": ("implorg", "leadsto"),
+    "repl": ("repl-by", "leadsto"),
+    "withdraws": ("withdrawn-by", "leadsto"),
+    "has-pt": ("pt-of", "contains"),
+    "consists": ("mkpt", "contains"),
+    "same-memory": (None, "contains"),
+    "note": ("isnotefor", "express"),
+    "e.g.": ("ex", "express"),
+    "i.e.": ("clarify", "express"),
+    "attr": ("attr-of", "express"),
+    "def": ("def-of", "express"),
+    "source": ("source-of", "express"),
+    "solution": ("issolution", "express"),
+    "answers": ("answered-by", "express"),
+    "confirms": ("confirmed-by", "express"),
+    "see": (None, "near"),
+    "sim": (None, "near"),
+    "!confuse": (None, "near"),
+    "!contradicts": (None, "near"),
+}
+# Every name an arrow goes by, forward or inverse, and its type.
+TYPE_OF = {name: kind for arrow, (inverse, kind) in ARROWS.items() for name in (arrow, inverse) if name}
+# The names of the arrows that end currency, either way: "ends" in a case.
+ENDS = {"repl", "repl-by", "withdraws", "withdrawn-by"}
 
 
 def lines(path):
@@ -55,9 +85,6 @@ def by_scope(records):
     for r in records:
         if r["record_kind"] == "edge" and r["to_bead"] in chunk_scope:
             made_scope.setdefault(r["from_bead"], chunk_scope[r["to_bead"]])
-    for r in records:
-        if r["record_kind"] == "bead" and r.get("source") in chunk_scope:
-            made_scope[r["bead_id"]] = chunk_scope[r["source"]]
 
     def scope(r):
         kind = r["record_kind"]
@@ -104,7 +131,9 @@ class Stored:
         self.verdicts = collections.defaultdict(list)
         for v in kinds["verdict"]:
             self.verdicts[frozenset((v["earlier_bead"], v["later_bead"]))].append(v)
-        self.labels = [b for b in kinds["bead"] if b.get("bead_kind") == "label"]
+        # The arrows that end currency that were written: after a second
+        # read, if one was asked for.
+        self.chains = [e for e in kinds["edge"] if e.get("arrow") in ("repl", "withdraws")]
         self.groups = [b for b in kinds["bead"] if b.get("bead_kind") == "group"]
 
     def bead(self, message):
@@ -136,21 +165,29 @@ class Stored:
 
 
 def token(v, a_bead):
-    """A verdict, written from message a's side."""
-    kind = v["verdict"]
-    if kind in UNDIRECTED:
-        return kind
-    if kind == "supersedes" and v.get("label"):
-        kind = f"supersedes:{v['label']}"
+    """A verdict, written from message a's side: `none`, `unsure`, or the
+    arrow's name that makes "a <arrow> b" true."""
+    arrow = v.get("arrow")
+    if v["verdict"] in ("none", "unsure") or not arrow:
+        return v["verdict"]
+    inverse, _ = ARROWS.get(arrow, (None, None))
+    if v.get("direction") == "undirected" or inverse is None:
+        return arrow
     source = {
         "earlier_to_later": v["earlier_bead"],
         "later_to_earlier": v["later_bead"],
     }.get(v.get("direction"))
-    return kind if source == a_bead else f"{kind} (b to a)"
+    return arrow if source == a_bead else inverse
 
 
-def kind_of(tok):
-    return tok.split(" ")[0].split(":")[0]
+def matches(tok, answers):
+    """Whether a token is one of the answers: an arrow from a's side, a type
+    (any arrow of it, either way, but a negative one), `ends` (an arrow that
+    ends currency, either way), `none` or `unsure`. A negative arrow, `!`
+    and all, says the two are not alike or cannot both hold, so it is only
+    ever an answer by its own name."""
+    positive_type = None if tok.startswith("!") else TYPE_OF.get(tok)
+    return tok in answers or positive_type in answers or ("ends" in answers and tok in ENDS)
 
 
 def read_right(case, said):
@@ -164,8 +201,8 @@ def read_right(case, said):
 
 def pair_right(pair, tok):
     if "not" in pair:
-        return kind_of(tok) not in pair["not"]
-    return tok in pair["expect"]
+        return not matches(tok, pair["not"])
+    return matches(tok, pair["expect"])
 
 
 def answer(case):
@@ -192,7 +229,7 @@ class Scored:
         for case in typed_cases(cases):
             said = stored.read(case["id"])
             self.reads.append((case, said, read_right(case, said)))
-        self.pairs = []  # (thread, pair, first, second, right, label)
+        self.pairs = []  # (thread, pair, first, second, right, chain)
         for thread in cases.get("thread", []):
             for pair in thread.get("pair", []):
                 a, b = stored.bead(pair["a"]), stored.bead(pair["b"])
@@ -201,8 +238,11 @@ class Scored:
                 second = [token(v, a) for v in found if v["read_no"] == 2]
                 tok = first[0] if first else None
                 right = pair_right(pair, tok) if tok else None
-                label = next((l["label"] for l in stored.labels if l.get("source") == a), None)
-                self.pairs.append((thread, pair, tok, second, right, label))
+                chain = next(
+                    (e["arrow"] for e in stored.chains if {e["from_bead"], e["to_bead"]} == {a, b}),
+                    None,
+                )
+                self.pairs.append((thread, pair, tok, second, right, chain))
 
     def totals(self):
         reads = collections.Counter({True: "right", False: "wrong", None: "not read"}[r] for *_, r in self.reads)
@@ -294,9 +334,12 @@ def one_run(cases, run):
                 in (stored.name(n["a_bead"], n["a_start"], n["a_end"]), stored.name(n["b_bead"], n["b_start"], n["b_end"]))
             ]
             w.append(f"- “{banned['name']}” linked to nothing: {'**no, linked**' if bad else 'right'}")
-        made = [b for b in stored.labels if b.get("source") in beads]
+        made = [e for e in stored.chains if e["from_bead"] in beads and e["to_bead"] in beads]
         if made:
-            w.append("- label beads: " + ", ".join(f"{beads[b['source']]} {b['label']}" for b in made))
+            w.append(
+                "- written, ending currency: "
+                + ", ".join(f"{beads[e['from_bead']]} {e['arrow']} {beads[e['to_bead']]}" for e in made)
+            )
         w.append("")
 
     names = [
@@ -326,14 +369,14 @@ def several_runs(cases, runs):
     w.append("\nThe expected answers are ours (cases.toml), not a benchmark's.\n")
 
     w.append("## The judge, pair by pair\n")
-    w.append("Each run's verdict of its first read; the label it made, if any, after a `→`.\n")
+    w.append("Each run's verdict of its first read, as a's arrow to b; an arrow that ends currency and was written, after a `→`.\n")
     first = next(iter(runs.values()))
     for i, (thread, pair, *_) in enumerate(first.pairs):
         said, right = [], 0
         for run in runs.values():
-            _, _, tok, _, ok, label = run.pairs[i]
+            _, _, tok, _, ok, chain = run.pairs[i]
             right += ok is True
-            said.append((tok or "no verdict") + (f" → {label}" if label else ""))
+            said.append((tok or "no verdict") + (f" → {chain}" if chain else ""))
         mark = f"**{right} of {n}**" if right < n else f"{right} of {n}"
         w.append(f"- {thread['id']} {pair['a']} → {pair['b']} ({thread['probe']}): {mark}. {'; '.join(said)}. Right: {answer(pair)}")
     w.append("")
