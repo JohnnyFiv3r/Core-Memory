@@ -115,8 +115,11 @@ fn read_with(cases: &[Case], answer: impl Fn(&Case) -> Answer + Send + Sync) -> 
     let model = FnTransport(
         |request: &ModelRequest| -> Result<ModelResponse, TransportError> {
             let shown: Value = serde_json::from_str(request.user.lines().next().unwrap()).unwrap();
-            // The request offers the fixture's types with their definitions.
-            let offered = shown["types"].as_array().unwrap();
+            // The request offers the fixture's types with their definitions,
+            // after the instructions.
+            let listed: Value =
+                serde_json::from_str(request.system.rsplit_once('\n').unwrap().1).unwrap();
+            let offered = listed["types"].as_array().unwrap();
             assert_eq!(offered.len(), 5);
             let goal = offered.iter().find(|t| t["key"] == "goal").unwrap();
             assert!(
@@ -151,6 +154,7 @@ fn read_with(cases: &[Case], answer: impl Fn(&Case) -> Answer + Send + Sync) -> 
                 usage: Usage {
                     input_tokens: 1_000,
                     output_tokens: 200,
+                    ..Usage::default()
                 },
             })
         },

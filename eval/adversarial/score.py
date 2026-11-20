@@ -1,7 +1,7 @@
 """Scores what the engine stored against the answers in cases.toml, for a
 person to read.
 
-    score.py <cases.toml> <export.jsonl>
+    score.py [--reader-only] <cases.toml> <export.jsonl>
 
 The reader is scored on each message's type. The judge is scored on the
 verdict of its first read of each pair the cases name. A pair with no
@@ -250,7 +250,7 @@ class Scored:
         return reads, pairs
 
 
-def one_run(cases, run):
+def one_run(cases, run, reader_only=False):
     stored = run.stored
     reads, pairs = run.totals()
     w = ["# Adversarial cases\n"]
@@ -258,14 +258,15 @@ def one_run(cases, run):
         f"- reader: **{reads['right']} right, {reads['wrong']} wrong** of {len(run.reads)}"
         + (f", {reads['not read']} not read" if reads["not read"] else "")
     )
-    w.append(
+    if not reader_only:
+        w.append(
         f"- judge: **{pairs['right']} right, {pairs['wrong']} wrong** of {len(run.pairs)} pairs"
         + (
             f", {pairs['no verdict']} with no verdict (never shown, or every reply rejected)"
             if pairs["no verdict"]
             else ""
         )
-    )
+        )
     w.append("\nThe expected answers are ours (cases.toml), not a benchmark's.\n")
 
     by_probe = collections.defaultdict(collections.Counter)
@@ -287,6 +288,8 @@ def one_run(cases, run):
                 w.append(f"  - {case['why']}")
         w.append("")
 
+    if reader_only:
+        return w
     w.append("## The judge, by thread\n")
     named = {
         frozenset((stored.bead(p["a"]), stored.bead(p["b"]))) for _, p, *_ in run.pairs
@@ -355,22 +358,28 @@ def one_run(cases, run):
     return w
 
 
-def several_runs(cases, runs):
+def several_runs(cases, runs, reader_only=False):
     n = len(runs)
     w = [f"# Adversarial cases, {n} runs\n"]
-    w.append("| Run | Reader right | Judge right | Wrong | No verdict |")
-    w.append("|---|---|---|---|---|")
+    if reader_only:
+        w.append("| Run | Reader right |")
+        w.append("|---|---|")
+    else:
+        w.append("| Run | Reader right | Judge right | Wrong | No verdict |")
+        w.append("|---|---|---|---|---|")
     for name, run in runs.items():
         reads, pairs = run.totals()
-        w.append(
-            f"| {name} | {reads['right']} of {len(run.reads)} | {pairs['right']} of {len(run.pairs)} "
-            f"| {pairs['wrong']} | {pairs['no verdict']} |"
-        )
+        row = f"| {name} | {reads['right']} of {len(run.reads)} |"
+        if not reader_only:
+            row += f" {pairs['right']} of {len(run.pairs)} | {pairs['wrong']} | {pairs['no verdict']} |"
+        w.append(row)
     w.append("\nThe expected answers are ours (cases.toml), not a benchmark's.\n")
+    first = next(iter(runs.values()))
+    if reader_only:
+        return w + reader_misses(runs, first, n)
 
     w.append("## The judge, pair by pair\n")
     w.append("Each run's verdict of its first read, as a's arrow to b; an arrow that ends currency and was written, after a `→`.\n")
-    first = next(iter(runs.values()))
     for i, (thread, pair, *_) in enumerate(first.pairs):
         said, right = [], 0
         for run in runs.values():
@@ -383,8 +392,11 @@ def several_runs(cases, runs):
 
     groups = {name: len(run.stored.groups) for name, run in runs.items()}
     w.append(f"Group beads (memories the judge joined): {', '.join(f'{k} {v}' for k, v in groups.items())}.\n")
+    return w + reader_misses(runs, first, n)
 
-    w.append("## The reader: cases not right in every run\n")
+
+def reader_misses(runs, first, n):
+    w = ["## The reader: cases not right in every run\n"]
     cases_seen = [case for case, *_ in first.reads]
     shown = 0
     for i, case in enumerate(cases_seen):
@@ -400,17 +412,23 @@ def several_runs(cases, runs):
     return w
 
 
-def main(cases_path, export):
+def main(cases_path, export, reader_only=False):
     with open(cases_path, "rb") as f:
         cases = tomllib.load(f)
     runs = {name: Scored(cases, Stored(records)) for name, records in by_scope(lines(export)).items()}
     if not runs:
         sys.exit("score.py: the export holds no events")
-    w = one_run(cases, next(iter(runs.values()))) if len(runs) == 1 else several_runs(cases, runs)
+    if len(runs) == 1:
+        w = one_run(cases, next(iter(runs.values())), reader_only)
+    else:
+        w = several_runs(cases, runs, reader_only)
     print("\n".join(w))
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 3:
+    args = sys.argv[1:]
+    reader_only = "--reader-only" in args
+    args = [a for a in args if a != "--reader-only"]
+    if len(args) != 2:
         sys.exit(__doc__)
-    main(*sys.argv[1:])
+    main(*args, reader_only=reader_only)

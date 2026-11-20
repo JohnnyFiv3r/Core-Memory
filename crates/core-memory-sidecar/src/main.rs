@@ -422,6 +422,8 @@ fn read(config_path: &Path, command: ReadCommand) -> Result<ExitCode, Stop> {
                     "calls": totals.calls,
                     "input_tokens": totals.input_tokens,
                     "output_tokens": totals.output_tokens,
+                    "cache_read_tokens": totals.cache_read_tokens,
+                    "cache_write_tokens": totals.cache_write_tokens,
                 },
                 "queued": left,
             }));

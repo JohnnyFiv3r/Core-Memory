@@ -133,6 +133,7 @@ fn answer(reply: Value) -> Result<ModelResponse, TransportError> {
         usage: Usage {
             input_tokens: 500,
             output_tokens: 40,
+            ..Usage::default()
         },
     })
 }
@@ -2228,6 +2229,7 @@ fn the_end_of_a_judges_call_is_recorded_once() {
         usage: Some(Usage {
             input_tokens: u64::MAX,
             output_tokens: 3,
+            ..Usage::default()
         }),
         judgment: Some(&write),
         settles: None,

@@ -3,7 +3,8 @@
 //! One call is one `POST /v1/messages` with API version `2026-10-21`. The
 //! reply is constrained to the request's JSON Schema with
 //! `output_config.format`, and the binding's `reasoning_effort` becomes
-//! `output_config.effort`. Sampling parameters are not sent: that API
+//! `output_config.effort`, or with `none` turns thinking off at effort
+//! `low`. Sampling parameters are not sent: that API
 //! version rejects them. Server-side refusal fallbacks are not enabled,
 //! because a decision must come from the model its binding pins (MOD-02).
 //!
@@ -27,7 +28,17 @@ pub const DEFAULT_ENDPOINT: &str = "https://api.anthropic.com";
 /// The provider name bindings use for this adapter.
 pub const PROVIDER: &str = "anthropic";
 
-const EFFORT_LEVELS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
+/// `none` is not an effort the API knows: it turns thinking off, which the
+/// API takes at effort `low`, and only from some models.
+const EFFORT_LEVELS: [&str; 6] = ["none", "low", "medium", "high", "xhigh", "max"];
+/// Models whose thinking cannot be turned off: the API answers 400 to a
+/// request that tries. Claude Haiku 5.5 and Claude Opus 5 can.
+const THINKING_ALWAYS_ON: [&str; 4] = [
+    "claude-opus-5-5",
+    "claude-sonnet-5-5",
+    "claude-fable-",
+    "claude-mythos-",
+];
 
 pub struct AnthropicTransport {
     client: HttpClient,
@@ -82,6 +93,16 @@ impl AnthropicTransport {
                 EFFORT_LEVELS.join(", ")
             ));
         }
+        if binding.reasoning_effort.as_deref() == Some("none")
+            && THINKING_ALWAYS_ON
+                .iter()
+                .any(|model| binding.model.starts_with(model))
+        {
+            return Err(format!(
+                "binding `{id}`: {} always thinks; set reasoning_effort to low or higher instead of none",
+                binding.model
+            ));
+        }
         if !(binding.endpoint.starts_with("https://") || binding.endpoint.starts_with("http://")) {
             return Err(format!("binding `{id}`: endpoint must be an http(s) URL"));
         }
@@ -97,17 +118,31 @@ impl AnthropicTransport {
                 json!({"type": "json_schema", "schema": sendable(&request.response_schema)}),
             );
         }
+        let thinking_off = binding.reasoning_effort.as_deref() == Some("none");
         if let Some(effort) = &binding.reasoning_effort {
+            let effort = if thinking_off { "low" } else { effort.as_str() };
             output_config.insert("effort".into(), json!(effort));
         }
+        // The instructions are the same for every call of a reader or a
+        // judge, and come first, so the provider may keep them in its
+        // prompt cache and charge a fraction of the price for them the next
+        // time. A prompt too short to cache is sent the same way, and is
+        // not cached.
         let mut body = json!({
             "model": binding.model,
             "max_tokens": request.max_output_tokens,
-            "system": request.system,
+            "system": [{
+                "type": "text",
+                "text": request.system,
+                "cache_control": {"type": "ephemeral"},
+            }],
             "messages": [{"role": "user", "content": request.user}],
         });
         if !output_config.is_empty() {
             body["output_config"] = Value::Object(output_config);
+        }
+        if thinking_off {
+            body["thinking"] = json!({"type": "disabled"});
         }
         body
     }
@@ -227,13 +262,19 @@ impl ModelTransport for AnthropicTransport {
             .unwrap_or_default();
         let usage = &body["usage"];
         let count = |field: &str| usage[field].as_u64().unwrap_or(0);
+        let (read, written) = (
+            count("cache_read_input_tokens"),
+            count("cache_creation_input_tokens"),
+        );
         Ok(ModelResponse {
             text,
             usage: Usage {
                 input_tokens: count("input_tokens")
-                    + count("cache_creation_input_tokens")
-                    + count("cache_read_input_tokens"),
+                    .saturating_add(read)
+                    .saturating_add(written),
                 output_tokens: count("output_tokens"),
+                cache_read_tokens: read,
+                cache_write_tokens: written,
             },
         })
     }
@@ -273,13 +314,23 @@ mod tests {
             &[("content-type", "application/json")],
             r#"{"content": [{"type": "thinking", "thinking": ""}, {"type": "text", "text": "{\"items\": []}"}],
                 "stop_reason": "end_turn",
-                "usage": {"input_tokens": 100, "cache_read_input_tokens": 20, "output_tokens": 7}}"#,
+                "usage": {"input_tokens": 100, "cache_read_input_tokens": 20,
+                          "cache_creation_input_tokens": 5, "output_tokens": 7}}"#,
         );
         let transport = AnthropicTransport::new("sk-test", Duration::from_secs(5));
         let response = transport.send(&binding(&url), &request()).unwrap();
         assert_eq!(response.text, "{\"items\": []}");
-        assert_eq!(response.usage.input_tokens, 120);
-        assert_eq!(response.usage.output_tokens, 7);
+        // Every input token, and of them those read from and written to the
+        // provider's cache.
+        assert_eq!(
+            response.usage,
+            Usage {
+                input_tokens: 125,
+                output_tokens: 7,
+                cache_read_tokens: 20,
+                cache_write_tokens: 5,
+            }
+        );
 
         let received = server.join().unwrap();
         assert_eq!(received.request_line, "POST /v1/messages HTTP/1.1");
@@ -290,8 +341,33 @@ mod tests {
         assert_eq!(sent["output_config"]["effort"], "low");
         assert_eq!(sent["output_config"]["format"]["type"], "json_schema");
         assert_eq!(sent["messages"][0]["role"], "user");
+        // The instructions may be cached: they are the same for every call.
+        assert_eq!(
+            sent["system"],
+            json!([{"type": "text", "text": "classify", "cache_control": {"type": "ephemeral"}}])
+        );
         assert!(sent.get("temperature").is_none());
         assert!(sent.get("fallbacks").is_none());
+    }
+
+    #[test]
+    fn effort_none_turns_thinking_off() {
+        let mut quiet = binding("https://api.anthropic.com");
+        quiet.model = "claude-haiku-5-5".into();
+        quiet.reasoning_effort = Some("none".into());
+        AnthropicTransport::check_binding(&quiet).unwrap();
+        let sent = AnthropicTransport::body(&quiet, &request());
+        assert_eq!(sent["thinking"], json!({"type": "disabled"}));
+        assert_eq!(sent["output_config"]["effort"], "low");
+        // A model that always thinks is refused before any call.
+        let mut always = quiet.clone();
+        always.model = "claude-opus-5-5".into();
+        let refused = AnthropicTransport::check_binding(&always).unwrap_err();
+        assert!(refused.contains("always thinks"), "{refused}");
+        // Any other effort leaves thinking to the model.
+        let sent = AnthropicTransport::body(&binding("https://api.anthropic.com"), &request());
+        assert!(sent.get("thinking").is_none());
+        assert_eq!(sent["output_config"]["effort"], "low");
     }
 
     #[test]

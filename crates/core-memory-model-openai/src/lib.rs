@@ -183,6 +183,12 @@ impl ModelTransport for OpenAiTransport {
             usage: Usage {
                 input_tokens: usage["prompt_tokens"].as_u64().unwrap_or(0),
                 output_tokens: usage["completion_tokens"].as_u64().unwrap_or(0),
+                // The provider caches a long prompt's start by itself, and
+                // says how much of it a call read from the cache.
+                cache_read_tokens: usage["prompt_tokens_details"]["cached_tokens"]
+                    .as_u64()
+                    .unwrap_or(0),
+                cache_write_tokens: 0,
             },
         })
     }
@@ -217,7 +223,8 @@ mod tests {
     }
 
     const OK: &str = r#"{"choices": [{"message": {"role": "assistant", "content": "{\"items\": []}", "refusal": null}, "finish_reason": "stop"}],
-                         "usage": {"prompt_tokens": 50, "completion_tokens": 9}}"#;
+                         "usage": {"prompt_tokens": 50, "completion_tokens": 9,
+                                   "prompt_tokens_details": {"cached_tokens": 32}}}"#;
 
     #[test]
     fn compatible_servers_get_max_tokens_and_no_auth_header() {
@@ -233,6 +240,14 @@ mod tests {
         assert_eq!(
             (response.usage.input_tokens, response.usage.output_tokens),
             (50, 9)
+        );
+        // What the server read from its own cache of the prompt's start.
+        assert_eq!(
+            (
+                response.usage.cache_read_tokens,
+                response.usage.cache_write_tokens
+            ),
+            (32, 0)
         );
         let received = server.join().unwrap();
         assert_eq!(received.request_line, "POST /v1/chat/completions HTTP/1.1");

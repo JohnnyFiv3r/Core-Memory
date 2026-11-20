@@ -411,11 +411,11 @@ fn call(
     let texts: Vec<&str> = batch.iter().map(|turn| turn.text.as_str()).collect();
     let readings = match read::validate(&text, &texts, allowed, Quotes::DropUnfound) {
         Ok(readings) => readings,
-        Err(problems) => {
+        Err(rejected) => {
             tally.invalid += 1;
             println!(
                 "  the engine would reject this reply: {}",
-                problems.first().map(String::as_str).unwrap_or("?")
+                rejected.problems.first().map(String::as_str).unwrap_or("?")
             );
             return Ok(unread("invalid"));
         }

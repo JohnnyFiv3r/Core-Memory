@@ -26,8 +26,8 @@ use crate::model::{
     BindingConfig, ModelRequest, ModelResponse, ModelTransport, TransportError, Usage,
 };
 use crate::read::{
-    ChunkInput, ChunkReading, PROMPT_REV, Quotes, ReadChoice, ReaderConfig, TypeOption,
-    binding_rev, render, repair, validate,
+    ChunkInput, ChunkReading, Fault, MAX_WORKERS, PROMPT_REV, Quotes, ReadChoice, ReaderConfig,
+    Rejected, TypeOption, binding_rev, render, repair, validate,
 };
 use crate::store::{
     CallFinish, CallFinished, CallResult, LeasedChunk, Permit, PermitRequest, PermittedChunk,
@@ -176,6 +176,11 @@ impl CompiledReader {
         if settings.max_attempts == 0 {
             return Err(ConfigError::new("reader.max_attempts must be 1 or more"));
         }
+        if !(1..=MAX_WORKERS).contains(&settings.workers) {
+            return Err(ConfigError::new(format!(
+                "reader.workers must be 1 to {MAX_WORKERS}"
+            )));
+        }
         let needed = binding
             .timeout_ms
             .saturating_mul(2)
@@ -227,16 +232,42 @@ pub struct ReadReport {
     pub calls: u32,
     pub input_tokens: u64,
     pub output_tokens: u64,
+    /// Of `input_tokens`, those read from and written to the provider's
+    /// prompt cache, which it prices differently.
+    pub cache_read_tokens: u64,
+    pub cache_write_tokens: u64,
     /// Why the batch was not read, if it was not.
     pub problem: Option<&'static str>,
+    /// What was wrong with the replies this round rejected, a first reply
+    /// that its repair put right included. Codes only.
+    pub reply_faults: Vec<Fault>,
+    /// Quotes the stored reads left out, because they were not found in
+    /// their chunk on the last attempt, or were past a limit.
+    pub quotes_dropped: u32,
 }
 
 impl ReadReport {
+    /// Notes what was wrong with a rejected reply.
+    pub(crate) fn reject(&mut self, rejected: &Rejected) {
+        for fault in &rejected.faults {
+            if !self.reply_faults.contains(fault) {
+                self.reply_faults.push(*fault);
+            }
+        }
+        self.reply_faults.sort();
+    }
+
     /// Adds what one call used. A provider's own count of tokens is a
     /// number from outside, so the sum stops at the largest it can hold.
     pub(crate) fn count(&mut self, usage: &Usage) {
         self.input_tokens = self.input_tokens.saturating_add(usage.input_tokens);
         self.output_tokens = self.output_tokens.saturating_add(usage.output_tokens);
+        self.cache_read_tokens = self
+            .cache_read_tokens
+            .saturating_add(usage.cache_read_tokens);
+        self.cache_write_tokens = self
+            .cache_write_tokens
+            .saturating_add(usage.cache_write_tokens);
     }
 }
 
@@ -352,14 +383,16 @@ impl Engine {
                 return Ok(ReadRound::Handled(report));
             }
         };
-        let errors = match validate(&response.text, &texts, &allowed, Quotes::MustBeFound) {
+        let rejected = match validate(&response.text, &texts, &allowed, Quotes::MustBeFound) {
             Ok(readings) => {
                 let stored = self.finish_read(store, reader, &first, &readings, response.usage)?;
                 (report.stored, report.dropped) = stored;
+                report.quotes_dropped = dropped_quotes(&readings);
                 return Ok(ReadRound::Handled(report));
             }
-            Err(errors) => errors,
+            Err(rejected) => rejected,
         };
+        report.reject(&rejected);
         // The reply is recorded as rejected. The work stays leased for the
         // repair, which is a call of its own.
         self.finish(
@@ -376,7 +409,7 @@ impl Engine {
         )?;
 
         // ---- the one repair ----
-        let repair_request = repair(&request, &response.text, &errors);
+        let repair_request = repair(&request, &response.text, &rejected.problems);
         // The repair carries the chunks, the rejected reply and what was
         // wrong with it.
         let repair_len = repair_request.system.len() + repair_request.user.len();
@@ -442,8 +475,10 @@ impl Engine {
             Ok(readings) => {
                 let stored = self.finish_read(store, reader, &second, &readings, response.usage)?;
                 (report.stored, report.dropped) = stored;
+                report.quotes_dropped = dropped_quotes(&readings);
             }
-            Err(_) => {
+            Err(rejected) => {
+                report.reject(&rejected);
                 // Twice invalid. Each chunk is tried on its own from now
                 // on, so one the model cannot read holds no other back.
                 let work = self.retries(&batch, &again, true, "reply_invalid");
@@ -687,6 +722,13 @@ struct Finished<'a> {
     call_id: CallId,
     result: CallResult,
     usage: Option<Usage>,
+}
+
+/// Quotes the readings leave out.
+fn dropped_quotes(readings: &[ChunkReading]) -> u32 {
+    readings.iter().fold(0u32, |sum, reading| {
+        sum.saturating_add(reading.spans_rejected)
+    })
 }
 
 fn inputs(chunks: &[PermittedChunk]) -> Vec<ChunkInput<'_>> {

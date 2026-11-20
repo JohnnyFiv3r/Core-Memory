@@ -210,7 +210,16 @@ core-memory scope disallow acme --binding small   # no later call is permitted
 
 `core-memory serve` reads in the background while it serves. Chunks admitted
 while a reader is configured are queued by themselves. For what was stored
-before, run `core-memory read queue <scope>`.
+before, run `core-memory read queue <scope>`. Reading, reading tool calls and
+judging each run on threads of their own, so a slow judge never holds reading
+back. To read a backlog faster, give the reader more workers, as many batches
+at once as your provider's rate limits allow:
+
+```toml
+[reader]
+binding = "small"
+workers = 4          # 1 by default, at most 16
+```
 
 For each chunk the model picks one type from your vocabulary, or abstains and
 says why, and quotes the chunk's entities, actions and outcomes. A quote is

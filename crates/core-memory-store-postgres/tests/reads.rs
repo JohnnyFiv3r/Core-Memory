@@ -13,6 +13,7 @@ use core_memory_contract::{Abstention, EntityKind, ReadDecision, SpanKind};
 use core_memory_core::model::{
     FnTransport, ModelRequest, ModelResponse, ScriptedTransport, TransportError, Usage,
 };
+use core_memory_core::read::Fault;
 use core_memory_core::store::{
     CallFinish, CallResult, Change, Permit, PermitRequest, Purpose, ReadWrite, Sending, Store,
 };
@@ -77,6 +78,7 @@ fn reply(items: Vec<Value>) -> Result<ModelResponse, TransportError> {
         usage: Usage {
             input_tokens: 100,
             output_tokens: 20,
+            ..Usage::default()
         },
     })
 }
@@ -128,6 +130,7 @@ fn a_chunk_is_read_and_what_was_found_is_stored_as_ranges() {
             input_tokens: 100,
             output_tokens: 20,
             problem: None,
+            ..ReadReport::default()
         }
     );
     // The model was shown the chunk's exact text and who wrote it, and
@@ -137,9 +140,10 @@ fn a_chunk_is_read_and_what_was_found_is_stored_as_ranges() {
         shown(&requests[0]),
         [("C1".into(), Some("user".into()), text.to_string())]
     );
-    let user: Value = serde_json::from_str(&requests[0].user).unwrap();
+    let listed: Value =
+        serde_json::from_str(requests[0].system.rsplit_once('\n').unwrap().1).unwrap();
     assert_eq!(
-        user["types"],
+        listed["types"],
         json!([{"key": "decision"}, {"key": "outcome"}])
     );
 
@@ -631,6 +635,9 @@ fn a_rejected_reply_is_repaired_once() {
     let report = handled(round(&mut w, &transport));
     assert_eq!((report.calls, report.stored, report.problem), (2, 1, None));
     assert_eq!((report.input_tokens, report.output_tokens), (200, 40));
+    // Why the first reply was rejected is told by its kind, never its text.
+    assert_eq!(report.reply_faults, [Fault::QuoteNotFound]);
+    assert_eq!(report.quotes_dropped, 0);
     let requests = transport.requests();
     assert!(requests[1].user.starts_with(&requests[0].user));
     assert!(requests[1].user.contains("is not in the chunk as written"));
@@ -670,6 +677,10 @@ fn on_the_last_attempt_a_quote_that_is_not_found_is_dropped_and_counted() {
     let report = handled(round(&mut w, &transport));
     assert_eq!((report.calls, report.stored), (2, 1));
     assert_eq!(
+        (report.reply_faults.as_slice(), report.quotes_dropped),
+        ([Fault::QuoteNotFound].as_slice(), 1)
+    );
+    assert_eq!(
         w.count("SELECT spans_rejected::bigint FROM core_memory.chunk_reads"),
         1
     );
@@ -699,6 +710,7 @@ fn a_reply_that_stays_invalid_sends_each_chunk_alone_from_then_on() {
     let report = handled(round(&mut w, &transport));
     assert_eq!((report.chunks, report.calls, report.stored), (3, 2, 0));
     assert_eq!(report.problem, Some("reply_invalid"));
+    assert_eq!(report.reply_faults, [Fault::MissingChunk]);
     assert_eq!(
         w.count(
             "SELECT count(*) FROM core_memory.work WHERE alone AND state = 'ready' AND attempts = 1"
@@ -922,6 +934,7 @@ fn the_end_of_a_call_is_recorded_once_and_a_wild_token_count_is_no_obstacle() {
         usage: Some(Usage {
             input_tokens: u64::MAX,
             output_tokens: 7,
+            ..Usage::default()
         }),
         reads: &reads,
         tool_outcome: None,
@@ -1141,8 +1154,9 @@ fn a_batch_is_one_scope_and_one_profile_and_a_profile_narrows_the_types() {
     let batches = Arc::new(Mutex::new(Vec::new()));
     let seen = Arc::clone(&batches);
     let transport = FnTransport(move |request: &ModelRequest| {
-        let user: Value = serde_json::from_str(&request.user).unwrap();
-        let types: Vec<String> = user["types"]
+        let listed: Value =
+            serde_json::from_str(request.system.rsplit_once('\n').unwrap().1).unwrap();
+        let types: Vec<String> = listed["types"]
             .as_array()
             .unwrap()
             .iter()

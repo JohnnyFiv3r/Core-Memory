@@ -475,8 +475,9 @@ the same.
 ### What a read is
 
 The model is shown a batch of chunks, all of one scope and one source
-profile, under handles (`C1`, `C2`, ...), with the types it may choose
-from. For each chunk it answers with:
+profile, under handles (`C1`, `C2`, ...). The types it may choose from
+follow its instructions, so every batch of one vocabulary starts with the
+same text (prompt revision 5). For each chunk it answers with:
 
 - **a type**: one key of the vocabulary, or an abstention (`no_fit`,
   `insufficient_evidence`, `ambiguous`). An abstention is a completed
@@ -492,13 +493,31 @@ from. For each chunk it answers with:
 A quote is looked up in the chunk and kept as the byte range where it was
 found. Nothing the model wrote is stored: a type is a key of the
 vocabulary, and a span is a range of text the source wrote. A quote that is
-not in the chunk is not a finding.
+not in the chunk is not a finding. A quote that is nowhere in the chunk
+exactly is looked for again loosely (validator revision 2):
+
+- runs of whitespace are read as one space;
+- curly quotation marks and apostrophes, dashes and an ellipsis are read as
+  `"`, `'`, `-` and `...`;
+- invisible characters are left out.
+
+Models write a straight apostrophe for a curly one, and a space for a line
+break. Either way the range kept is of what the source wrote.
 
 A reply that breaks the shape is rejected whole and repaired once: the
 model gets its reply back with what was wrong. On that second attempt a
 quote that is still not found is dropped and counted (`spans_rejected`)
 rather than failing the batch. A source profile's `types` narrows which
 types its chunks may be given.
+
+The problems quote the reply, so they go back to the model and nowhere
+else. The round's log line lists what kinds of thing its rejected replies
+had wrong (`reply_faults`), a first reply that the repair put right
+included: `not_json`, `shape`, `unknown_chunk`, `unknown_type`,
+`unknown_abstention`, `unknown_entity_kind`, `answered_twice`,
+`missing_chunk`, `quote_not_found` and `quote_limit` (a quote too long, or
+too many of one kind). It also counts the quotes the stored reads left out
+(`quotes_dropped`). Together they say what a repair cost was spent on.
 
 Every read records its reader: the binding's ID and model, the prompt
 revision, and `binding_rev`, a hash of everything that affects what the
@@ -578,6 +597,19 @@ permitted, no receipt is written, and the work is set aside.
    `HTTPS_PROXY` names unless `NO_PROXY` lists the host, and check the
    server against the public web roots plus an optional private CA
    (`[models] ca_file`).
+
+   A request's instructions are the same for every call of a reader, a
+   tool reader or a judge, and come first. The Anthropic adapter marks
+   them for the provider's prompt cache. What a call reads from the cache
+   costs a tenth of the input price or less (a twentieth on Claude Opus
+   5.5), and what it writes there a quarter more than that price; an entry
+   lasts five minutes past its last use. A judge's instructions are most of
+   what it sends. Instructions too short to cache
+   are sent the same way and are not cached. OpenAI caches a long prompt's
+   start by itself. Either way the round's log line counts the input tokens
+   read from and written to the cache (`cache_read_tokens`,
+   `cache_write_tokens`), which are part of `input_tokens`. Caching changes
+   nothing a model says, and is not part of a binding's revision.
 3. **Validate** the reply against the closed shape above. The engine checks
    every reply itself. It asks the provider to hold the judge's and the
    tool reader's replies to their shape, and not the chunk reader's: held
@@ -626,8 +658,17 @@ configured one or, for chunks, with another vocabulary.
 A reader claims a batch of chunks, or one tool call, with `FOR UPDATE SKIP
 LOCKED`, so readers never wait for each other, and holds it under a lease.
 A reader that dies leaves its work to be claimed again when the lease runs
-out. Where more than one kind of work is due (chunks, tool calls, beads to
-judge), each kind goes first in its turn.
+out.
+
+Each kind of work (chunks, tool calls, beads to judge) is done in a lane of
+its own: a thread with its own store connection and transport, so a slow
+call of one kind holds no other back. Chunks get `reader.workers` lanes (1
+by default, at most 16), each reading a batch at a time, so a backlog is
+read that many times as fast, as far as the provider's rate limits allow.
+Lanes share nothing but the store. Two lanes never get one item, and a
+day's budget is checked under the workspace's lock, so lanes together
+spend no more than one would. Changing the number of workers changes no
+read's identity.
 
 | What happened | What becomes of the work | `problem` |
 |---|---|---|
@@ -641,7 +682,7 @@ judge), each kind goes first in its turn.
 | The request did not fit the model's context, or the reply was cut off at `max_output_tokens` | Tried again alone, as above. | `did_not_fit` |
 | The reply was invalid twice | Tried again alone. | `reply_invalid` |
 | A chunk of the batch was erased before the repair | Nothing more is sent. The rest is tried again after `retry_backoff_ms`. | `batch_changed` |
-| The provider turned the request itself down | Tried again after ten minutes. An operator has to fix the binding. The command makes no other call of that kind (chunks, tool calls or judging) for those ten minutes: a wrong key or model fails every call alike. | `binding_rejected` |
+| The provider turned the request itself down | Tried again after ten minutes. An operator has to fix the binding. No lane of that kind (chunks, tool calls or judging) starts another call for those ten minutes: a wrong key or model fails every call alike. Lanes that were already calling may each be turned down too. | `binding_rejected` |
 | A tool call's stored text does not hold what its event says | Set aside at once. Nothing is sent. | `text_unreadable` |
 | The work was handed out `max_attempts` times and never settled | Set aside, when it would have been handed out again. | `attempts_spent` |
 
@@ -659,9 +700,10 @@ call is made more than `max_attempts` times for one item, whatever fails.
 `core-memory read status` shows the counts, one line for each kind of
 work: chunks, tool calls, beads to judge and arrows to read a second time.
 
-`core-memory serve` runs the configured readers and the judge beside the
-server, on a thread and a store connection of their own. `core-memory read
-run` does what is due and stops.
+`core-memory serve` runs the lanes beside the server for as long as it
+serves. `core-memory read run` runs them all at once and stops when no lane
+has anything due. A lane that finds nothing waits while others work, since
+reading a chunk can make its bead due to be judged.
 
 ### What is never written down
 

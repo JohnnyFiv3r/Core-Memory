@@ -1083,7 +1083,15 @@ fn completion(request: &Value) -> Value {
             "usage": {"prompt_tokens": 700, "completion_tokens": 40},
         });
     }
-    let first_type = shown["types"][0]["key"].clone();
+    // The types follow the instructions, as their last line.
+    let system = request["messages"][0]["content"]
+        .as_str()
+        .unwrap_or_default();
+    let listed: Value = system
+        .rsplit_once('\n')
+        .and_then(|(_, types)| serde_json::from_str(types).ok())
+        .unwrap_or(Value::Null);
+    let first_type = listed["types"][0]["key"].clone();
     let items: Vec<Value> = shown["chunks"]
         .as_array()
         .map(Vec::as_slice)
@@ -1250,6 +1258,58 @@ fn chunks_are_read_once_their_scope_allows_the_model() {
 }
 
 #[test]
+fn several_workers_read_every_chunk_once() {
+    let model = StandIn::start();
+    let q = Quickstart::ready();
+    q.configure(&model.config("batch_size = 1\nworkers = 4"));
+    q.ok(&["scope", "allow", "acme", "--binding", "local"]);
+    let many: Vec<String> = (1..=12)
+        .map(|n| {
+            format!(
+                r#"{{"scope":"acme","source_ns":"slack/T01","external_id":"m{n}","profile_id":"core.chat_transcript","media_type":"text/plain","content":{{"text":"Message {n} of twelve."}},"parser_contract_version":"1"}}"#
+            )
+        })
+        .collect();
+    std::fs::write(q.dir.path().join("many.jsonl"), many.join("\n")).unwrap();
+    q.ok(&["ingest", "--input", "many.jsonl"]);
+    let chunks = of_kind(&q.ok(&["export"]), "chunk").len();
+    assert_eq!(chunks, 12);
+
+    let rounds = q.ok(&["read", "run"]);
+    assert_eq!(rounds.len(), chunks, "{rounds:?}");
+    assert!(
+        rounds.iter().all(|r| r["read"]["stored"] == 1),
+        "{rounds:?}"
+    );
+    // No chunk was sent twice: each was handed to one worker.
+    let sent: Vec<String> = model
+        .requests()
+        .iter()
+        .map(|r| {
+            let user = r["messages"][1]["content"].as_str().unwrap();
+            let shown: Value = serde_json::from_str(user).unwrap();
+            shown["chunks"][0]["text"].as_str().unwrap().to_string()
+        })
+        .collect();
+    let distinct: std::collections::BTreeSet<&String> = sent.iter().collect();
+    assert_eq!((sent.len(), distinct.len()), (chunks, chunks));
+    assert_eq!(of_kind(&q.ok(&["export"]), "chunk_read").len(), chunks);
+    assert_eq!(q.ok(&["read", "status"])[0]["ready"], 0);
+
+    // More workers than the reader may have is a mistake in the config.
+    let config = q.dir.path().join("core-memory.toml");
+    let text = std::fs::read_to_string(&config).unwrap();
+    std::fs::write(&config, text.replace("workers = 4", "workers = 17")).unwrap();
+    let refused = q.run(&["read", "run"]);
+    assert_eq!(refused.status.code(), Some(1), "{}", stderr(&refused));
+    assert!(
+        stderr(&refused).contains("reader.workers must be 1 to 16"),
+        "{}",
+        stderr(&refused)
+    );
+}
+
+#[test]
 fn what_was_stored_before_a_reader_is_queued_and_failed_reads_are_retried() {
     let model = StandIn::start();
     let q = Quickstart::ready();
@@ -1327,36 +1387,46 @@ fn what_was_stored_before_a_reader_is_queued_and_failed_reads_are_retried() {
 
 #[test]
 fn a_binding_the_provider_turns_down_is_tried_once_per_run() {
-    let model = StandIn::start();
-    let q = Quickstart::ready();
-    q.configure(&model.config("batch_size = 1"));
-    q.ok(&["scope", "allow", "acme", "--binding", "local"]);
-    q.ok(&["ingest", "--input", "events.jsonl"]);
-    let chunks = of_kind(&q.ok(&["export"]), "chunk").len();
-    assert!(chunks > 1, "the test needs more than one batch");
+    for workers in [1u64, 3] {
+        let model = StandIn::start();
+        let q = Quickstart::ready();
+        q.configure(&model.config(&format!("batch_size = 1\nworkers = {workers}")));
+        q.ok(&["scope", "allow", "acme", "--binding", "local"]);
+        q.ok(&["ingest", "--input", "events.jsonl"]);
+        let chunks = of_kind(&q.ok(&["export"]), "chunk").len() as u64;
+        assert!(chunks > workers, "the test needs more batches than workers");
 
-    // A wrong key fails every call alike: one is made, and the rest of the
-    // queue waits instead of spending the day's budget on more.
-    model.fail_with(401);
-    let rounds = q.ok(&["read", "run"]);
-    assert_eq!(rounds.len(), 1, "{rounds:?}");
-    assert_eq!(rounds[0]["read"]["problem"], "binding_rejected");
-    assert_eq!(model.requests().len(), 1);
-    let status = &q.ok(&["read", "status"])[0];
-    assert_eq!(
-        (&status["ready"], &status["failed"]),
-        (&Value::from(chunks), &Value::from(0))
-    );
+        // A wrong key fails every call alike: one is made, and the rest of
+        // the queue waits instead of spending the day's budget on more.
+        // Workers that had already sent a call when the first was turned
+        // down make one each, and no more.
+        model.fail_with(401);
+        let rounds = q.ok(&["read", "run"]);
+        let made = rounds.len() as u64;
+        assert!((1..=workers).contains(&made), "{rounds:?}");
+        assert!(
+            rounds
+                .iter()
+                .all(|round| round["read"]["problem"] == "binding_rejected"),
+            "{rounds:?}"
+        );
+        assert_eq!(model.requests().len() as u64, made);
+        let status = &q.ok(&["read", "status"])[0];
+        assert_eq!(
+            (&status["ready"], &status["failed"]),
+            (&Value::from(chunks), &Value::from(0))
+        );
 
-    // Fixed: what was not tried is read at once, and the chunk whose call
-    // was turned down waits out its pause.
-    model.fail_with(0);
-    let read: u64 = q
-        .ok(&["read", "run"])
-        .iter()
-        .map(|round| round["read"]["stored"].as_u64().unwrap())
-        .sum();
-    assert_eq!(read, chunks as u64 - 1);
+        // Fixed: what was not tried is read at once, and the chunks whose
+        // calls were turned down wait out their pause.
+        model.fail_with(0);
+        let read: u64 = q
+            .ok(&["read", "run"])
+            .iter()
+            .map(|round| round["read"]["stored"].as_u64().unwrap())
+            .sum();
+        assert_eq!(read, chunks - made);
+    }
 }
 
 #[cfg(unix)]

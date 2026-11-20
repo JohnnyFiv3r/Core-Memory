@@ -35,6 +35,7 @@ types = [
 
 [reader]
 binding = "reader"
+workers = 4
 
 [judge]
 binding = "judge"
