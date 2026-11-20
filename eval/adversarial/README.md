@@ -108,3 +108,31 @@ be read.
   verdict (a goal withdrawn, a hypothesis confirmed) were among them. The
   reply schema now requires a label with `SUPERSEDES` and allows none with
   anything else, and codes and labels are read whatever their case.
+
+**2026-11-20, second and third runs** ($0.31 and $0.35, with the reply
+schema above; nothing else changed):
+
+| Run | Reader | Judge right | Wrong | No verdict | Replies rejected |
+|---|---|---|---|---|---|
+| first | 64 of 67 | 23 | 1 | 2 | 46 of 64 calls |
+| second | 63 of 67 | 23 | 3 | 0 | none |
+| third | 65 of 67 | 24 | 2 | 0 | one, put right by its repair |
+
+- **No reply was lost to the validator**: one in the third run was
+  answered twice and put right by its repair. The judge made 18 and 20
+  calls in place of 64.
+- **The same model answers a hard pair differently from run to run.** The
+  contradiction (J04) was `supersede`, then `express`, then `contains`. The
+  reversed decision (J10) was `supersede`, `express`, `supersede`. The move
+  nobody calls a correction (J13) was `supersede`, `express`, `leadsto`.
+  One run says little about a pair, and nothing about a change of rubric.
+- **Wrong in two runs of three:** the contradiction and the move. The third
+  run's `contains` for the contradiction made a group bead: two people's
+  conflicting statements recorded as one memory.
+- **A second read sometimes withholds a label the first gave rightly**:
+  the correction (J02) in the second run and the withdrawn goal (J01) in
+  the third. The gate is doing its work: it costs a label, never adds a
+  wrong one.
+- **The reader's repeated misses:** the sarcastic "ship it on Friday at
+  5pm" (`action`, twice), the vendor's unconfirmed guess about an outage
+  (`incident`, twice) and "I might move to Denver" (`hypothesis`, twice).
