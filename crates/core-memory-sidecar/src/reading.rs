@@ -31,12 +31,14 @@ const IDLE_WAIT: Duration = Duration::from_millis(1_000);
 /// How long it waits after the store could not be reached.
 const STORE_WAIT: Duration = Duration::from_millis(5_000);
 /// How long a lane makes no call after the provider turned its binding
-/// down: a wrong key or model fails every call alike. As long as the
-/// engine puts the work of that call off.
+/// down, or its server's certificate was not trusted: a wrong key, model or
+/// certificate authority fails every call alike. As long as the engine puts
+/// the work of that call off.
 const REJECTED_WAIT: Duration =
     Duration::from_millis(core_memory_core::reader::BINDING_FAULT_BACKOFF_MS);
-/// What a round reports when the provider turned the binding down.
-const BINDING_REJECTED: &str = "binding_rejected";
+/// What a round reports when the provider turned the binding down, and when
+/// the server's certificate was not trusted.
+const BINDING_FAULTS: [&str; 2] = ["binding_rejected", "endpoint_untrusted"];
 
 /// A kind of work.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -347,7 +349,11 @@ impl Lane {
                 JudgeRound::Handled(report) => Some(Round::Judged(report)),
             },
         };
-        if did.as_ref().and_then(Round::problem) == Some(BINDING_REJECTED) {
+        if did
+            .as_ref()
+            .and_then(Round::problem)
+            .is_some_and(|problem| BINDING_FAULTS.contains(&problem))
+        {
             *self.rejected.lock().unwrap_or_else(PoisonError::into_inner) =
                 Some(now + REJECTED_WAIT);
         }

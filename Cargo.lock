@@ -405,6 +405,7 @@ name = "core-memory-model-http"
 version = "2.0.0-alpha.1"
 dependencies = [
  "core-memory-core",
+ "rustls",
  "serde_json",
  "tempfile",
  "ureq",

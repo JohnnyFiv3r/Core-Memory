@@ -87,6 +87,11 @@ while :; do
     why="the API turned the key or a model down; see runs.log"
     break
   fi
+  if [ "$rejected" -eq 2 ]; then
+    why="the model server's TLS certificate was not trusted, so nothing was sent: \
+set MODELS_CA_FILE to the certificate authority of the proxy or gateway that re-signs it"
+    break
+  fi
   if [ "$calls" -eq 0 ]; then
     quiet=$((quiet + 1))
   else

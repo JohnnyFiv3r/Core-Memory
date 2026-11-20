@@ -683,6 +683,7 @@ read's identity.
 | The reply was invalid twice | Tried again alone. | `reply_invalid` |
 | A chunk of the batch was erased before the repair | Nothing more is sent. The rest is tried again after `retry_backoff_ms`. | `batch_changed` |
 | The provider turned the request itself down | Tried again after ten minutes. An operator has to fix the binding. No lane of that kind (chunks, tool calls or judging) starts another call for those ten minutes: a wrong key or model fails every call alike. Lanes that were already calling may each be turned down too. | `binding_rejected` |
+| The server's certificate is not trusted | Nothing was sent: the receipt says `not_sent`. Tried again after ten minutes, and no lane of that kind starts another call meanwhile, as for a binding turned down. An operator has to trust the certificate's authority with `[models] ca_file`, as behind a proxy or gateway that re-signs TLS. | `endpoint_untrusted` |
 | A tool call's stored text does not hold what its event says | Set aside at once. Nothing is sent. | `text_unreadable` |
 | The work was handed out `max_attempts` times and never settled | Set aside, when it would have been handed out again. | `attempts_spent` |
 
