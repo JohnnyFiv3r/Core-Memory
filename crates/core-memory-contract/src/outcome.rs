@@ -11,7 +11,7 @@ use crate::ids::{ChunkId, EventId};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "outcome", rename_all = "snake_case")]
 pub enum AdmissionOutcome {
-    /// Newly admitted. Its records are in the outbox.
+    /// Newly admitted. The event, its chunks and its beads are stored.
     Accepted {
         event_id: EventId,
         chunk_ids: Vec<ChunkId>,
@@ -19,11 +19,17 @@ pub enum AdmissionOutcome {
         /// from a source whose profile declares it editable (ING-04).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         assigned_revision: Option<String>,
+        /// The reader's stored position, if the event carried a checkpoint.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        checkpoint: Option<CheckpointReceipt>,
     },
-    /// Already admitted with identical content. Nothing new was written.
+    /// Already admitted with identical content. No event was written.
     Replay {
         event_id: EventId,
         chunk_ids: Vec<ChunkId>,
+        /// The reader's stored position, if the event carried a checkpoint.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        checkpoint: Option<CheckpointReceipt>,
     },
     /// Already admitted with different content, and the source is not
     /// declared editable.
@@ -31,6 +37,15 @@ pub enum AdmissionOutcome {
         event_id: EventId,
         stored_hash: Sha256Digest,
         offered_hash: Sha256Digest,
+    },
+    /// The event's checkpoint does not follow what is stored. Nothing was
+    /// written. The reader should resume from the stored position.
+    CheckpointConflict {
+        key: String,
+        /// 0 when no checkpoint is stored under the key.
+        stored_sequence: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        stored_hash: Option<Sha256Digest>,
     },
     /// Permanently refused. Retrying the same event will not help.
     Refused {
@@ -62,13 +77,23 @@ impl AdmissionOutcome {
     }
 }
 
+/// A reader's position as the store now holds it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct CheckpointReceipt {
+    pub key: String,
+    pub sequence: u64,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum RefusalReason {
-    /// The event key was erased. Re-admission needs an approver.
+    /// The event was erased. Its key is not admitted again.
     Tombstoned,
-    /// The caller holds no grant for the event's scope.
+    /// The caller holds no grant for the event's scope, or the scope is not
+    /// enrolled.
     ScopeDenied,
+    /// The scope is paused or revoked. Nothing is captured for it.
+    ScopeNotActive,
     /// The event or one of its records exceeds a size limit.
     Oversize,
     /// The named profile does not exist or cannot admit this event.
@@ -81,8 +106,8 @@ pub enum RefusalReason {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum BusyCause {
+    /// The engine or its store cannot take the event right now.
     Capacity,
-    SinkLagging,
 }
 
 /// A pinned reference to a type in the configured vocabulary.
@@ -130,8 +155,8 @@ pub enum PendingReason {
     ProviderError,
     Capacity,
     UnsupportedInput,
-    /// No rule matched and no classifier binding is configured. The chunk
-    /// is classified when a binding is added.
+    /// No classifier binding is configured. The chunk is classified when
+    /// one is added.
     NoClassifier,
 }
 
@@ -150,11 +175,20 @@ mod tests {
         );
         let busy = AdmissionOutcome::Busy {
             retry_after_ms: 500,
-            cause: BusyCause::SinkLagging,
+            cause: BusyCause::Capacity,
         };
         assert_eq!(
             serde_json::to_value(&busy).unwrap(),
-            serde_json::json!({"outcome": "busy", "retry_after_ms": 500, "cause": "sink_lagging"})
+            serde_json::json!({"outcome": "busy", "retry_after_ms": 500, "cause": "capacity"})
+        );
+        let conflict = AdmissionOutcome::CheckpointConflict {
+            key: "session-1".into(),
+            stored_sequence: 0,
+            stored_hash: None,
+        };
+        assert_eq!(
+            serde_json::to_value(&conflict).unwrap(),
+            serde_json::json!({"outcome": "checkpoint_conflict", "key": "session-1", "stored_sequence": 0})
         );
     }
 

@@ -1,9 +1,4 @@
 /target/
 **/*.rs.bk
-*.sqlite
-*.sqlite-journal
-*.sqlite-wal
-*.sqlite-shm
 /.env
 .DS_Store
-examples/**/records.jsonl

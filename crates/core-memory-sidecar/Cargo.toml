@@ -1,6 +1,6 @@
 [package]
 name = "core-memory-sidecar"
-description = "The core-memory command: run the Core Memory engine over JSON Lines"
+description = "The core-memory command: run the Core Memory engine over JSON Lines or HTTP"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -23,23 +23,27 @@ axum.workspace = true
 clap.workspace = true
 core-memory-contract.workspace = true
 core-memory-core.workspace = true
-core-memory-model-anthropic.workspace = true
-core-memory-model-openai.workspace = true
-core-memory-sink-jsonl.workspace = true
-core-memory-sink-memoriesql.workspace = true
-core-memory-sink-webhook.workspace = true
 core-memory-source-jsonl.workspace = true
-core-memory-store-sqlite.workspace = true
+core-memory-store-postgres.workspace = true
 getrandom.workspace = true
+http-body-util.workspace = true
+hyper.workspace = true
+hyper-util.workspace = true
 schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+socket2.workspace = true
 tokio.workspace = true
 toml.workspace = true
+tower-service.workspace = true
+
+[features]
+# Runs the tests that need a PostgreSQL server
+# (CORE_MEMORY_TEST_DATABASE_URL).
+postgres-tests = ["core-memory-store-postgres/testing"]
 
 [dev-dependencies]
-core-memory-model-http = { workspace = true, features = ["testing"] }
-http-body-util.workspace = true
+futures-core.workspace = true
 tempfile.workspace = true
 tower.workspace = true
 

@@ -1,29 +1,24 @@
-//! Admission: SourceEvent in, typed outcome out, records into the outbox.
+//! Admission: SourceEvent in, typed outcome out, the event stored.
 
 use std::collections::BTreeSet;
 use std::ops::Range;
 use std::sync::Arc;
 
 use core_memory_chunker::{ChunkError, LengthUnit, chunk_text};
-use core_memory_contract::record::chunk_record_key;
 use core_memory_contract::{
-    AdmissionOutcome, BusyCause, Catalogs, ChunkBody, ChunkId, ChunkRecord, EventId, EventInfo,
-    EventKey, Memory, PendingReason, RECORD_CONTRACT_V1, Record, RecordBody, RefusalReason,
-    RelationshipStage, Sha256Digest, SourceEvent, Stage, TypeOutcome,
+    AdmissionOutcome, ChunkId, EventDetails, EventId, EventKey, IdKey, OccurredAt, RefusalReason,
+    Sha256Digest, SourceEvent, TimeBasis, TimePrecision, Timestamp,
 };
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
-use crate::classifier::{ClassifierConfig, CompiledClassifier, binding_rev};
-use crate::classify::classify;
 use crate::clock::Clock;
 use crate::content::{accept_content, event_hash};
 use crate::error::{ConfigError, EngineError, StoreError};
 use crate::facets::chunk_facets;
-use crate::model::BindingConfig;
-use crate::profile::{CompiledChunker, CompiledProfile, ProfileRegistry, SourceProfile};
+use crate::profile::{CompiledChunker, ProfileRegistry, SourceProfile};
 use crate::store::{
-    AdmissionWrite, CommitResult, HeldChunk, LedgerEntry, OperationalStore, OutboxRecord, PinKind,
-    PinResult,
+    AdmissionCommit, AdmissionWrite, CheckpointAdvance, CheckpointState, ChunkWrite, PinKind,
+    PinResult, ScopeState, Store, StoredEvent,
 };
 use crate::vocab::{LoadedVocabulary, Vocabulary};
 
@@ -37,40 +32,25 @@ pub struct EngineConfig {
     pub profiles: Vec<SourceProfile>,
     #[serde(default)]
     pub limits: Limits,
-    /// Enables the model tier of classification.
-    #[serde(default)]
-    pub classifier: Option<ClassifierConfig>,
-    #[serde(default, rename = "binding")]
-    pub bindings: Vec<BindingConfig>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct Limits {
-    /// New events are refused with `Busy{sink_lagging}` while this many
-    /// records wait for the slowest required sink.
-    pub max_outbox_backlog: u64,
-    pub busy_retry_after_ms: u64,
     pub max_chunks_per_event: u32,
+    /// Most bytes of metadata one event may carry: everything it declares
+    /// apart from its content, as JSON. A profile's `max_event_bytes`
+    /// bounds the content.
+    pub max_metadata_bytes: u32,
 }
 
 impl Default for Limits {
     fn default() -> Self {
         Self {
-            max_outbox_backlog: 100_000,
-            busy_retry_after_ms: 1_000,
             max_chunks_per_event: 4_096,
+            max_metadata_bytes: 262_144,
         }
     }
-}
-
-/// Admission readiness: new events are refused as busy while the slowest
-/// required sink is `max_backlog` or more records behind.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-pub struct Readiness {
-    pub ready: bool,
-    pub backlog: u64,
-    pub max_backlog: u64,
 }
 
 /// Which scopes a caller may write (SEC-01).
@@ -103,135 +83,44 @@ pub struct Engine {
     pub(crate) registry: ProfileRegistry,
     pub(crate) vocab: Option<LoadedVocabulary>,
     limits: Limits,
-    required_sinks: Vec<String>,
     pub(crate) clock: Arc<dyn Clock>,
-    pub(crate) classifier: Option<CompiledClassifier>,
 }
 
 impl Engine {
-    /// Validates the configuration. `required_sinks` are the sinks whose
-    /// backlog applies backpressure and holds back outbox pruning.
-    pub fn new(
-        config: EngineConfig,
-        required_sinks: Vec<String>,
-        clock: Arc<dyn Clock>,
-    ) -> Result<Self, ConfigError> {
+    /// Validates the configuration.
+    pub fn new(config: EngineConfig, clock: Arc<dyn Clock>) -> Result<Self, ConfigError> {
         let vocab = config.vocabulary.map(LoadedVocabulary::load).transpose()?;
         let registry = ProfileRegistry::new(config.profiles, vocab.as_ref())?;
-        if config.limits.max_chunks_per_event == 0 {
+        if config.limits.max_chunks_per_event == 0 || config.limits.max_metadata_bytes == 0 {
             return Err(ConfigError::new(
-                "limits.max_chunks_per_event must be 1 or more",
+                "limits.max_chunks_per_event and limits.max_metadata_bytes must be 1 or more",
             ));
         }
-        let mut ids = BTreeSet::new();
-        for b in &config.bindings {
-            b.validate()?;
-            if !ids.insert(b.id.as_str()) {
-                return Err(ConfigError::new(format!(
-                    "binding `{}` is defined twice",
-                    b.id
-                )));
-            }
-        }
-        let classifier = match config.classifier {
-            None => None,
-            Some(settings) => {
-                let binding = config
-                    .bindings
-                    .iter()
-                    .find(|b| b.id == settings.binding)
-                    .cloned()
-                    .ok_or_else(|| {
-                        ConfigError::new(format!(
-                            "classifier.binding `{}` is not a configured binding",
-                            settings.binding
-                        ))
-                    })?;
-                if vocab.is_none() {
-                    return Err(ConfigError::new(
-                        "the classifier needs a [vocabulary] to choose types from",
-                    ));
-                }
-                if settings.batch_size == 0 || settings.batch_size > 64 {
-                    return Err(ConfigError::new("classifier.batch_size must be 1 to 64"));
-                }
-                if settings.max_attempts == 0 {
-                    return Err(ConfigError::new(
-                        "classifier.max_attempts must be 1 or more",
-                    ));
-                }
-                let rev = binding_rev(&binding)
-                    .map_err(|e| ConfigError::new(format!("cannot hash binding: {e}")))?;
-                let grants = if binding.scopes.iter().any(|s| s == "*") {
-                    ScopeGrants::All
-                } else {
-                    ScopeGrants::Only(binding.scopes.iter().cloned().collect())
-                };
-                Some(CompiledClassifier {
-                    settings,
-                    binding,
-                    rev,
-                    grants,
-                })
-            }
-        };
         Ok(Self {
             registry,
             vocab,
             limits: config.limits,
-            required_sinks,
             clock,
-            classifier,
         })
-    }
-
-    /// The type keys a profile may be classified into: its declared subset,
-    /// or the whole vocabulary.
-    pub(crate) fn allowed_types<'a>(&'a self, profile: &'a CompiledProfile) -> Vec<&'a str> {
-        match (&profile.def.types, &self.vocab) {
-            (Some(types), _) => types.iter().map(String::as_str).collect(),
-            (None, Some(vocab)) => vocab.keys().collect(),
-            (None, None) => Vec::new(),
-        }
-    }
-
-    /// The model classifier for chunks of `profile` in `scope`, if one may
-    /// be used: configured, permitted to receive the scope's data (MOD-06),
-    /// and with types to choose from.
-    fn model_tier(&self, profile: &CompiledProfile, scope: &str) -> Option<&CompiledClassifier> {
-        self.classifier
-            .as_ref()
-            .filter(|c| c.grants.allows(scope) && !self.allowed_types(profile).is_empty())
     }
 
     pub fn registry(&self) -> &ProfileRegistry {
         &self.registry
     }
 
-    pub fn required_sinks(&self) -> &[String] {
-        &self.required_sinks
+    pub fn vocabulary(&self) -> Option<&LoadedVocabulary> {
+        self.vocab.as_ref()
     }
 
     pub fn limits(&self) -> Limits {
         self.limits
     }
 
-    /// Whether a new event would be admitted now rather than refused as
-    /// busy, so hosts can pause intake (OPS-05).
-    pub fn readiness(&self, store: &dyn OperationalStore) -> Result<Readiness, StoreError> {
-        let backlog = store.outbox_backlog(&self.required_sinks)?;
-        Ok(Readiness {
-            ready: backlog < self.limits.max_outbox_backlog,
-            backlog,
-            max_backlog: self.limits.max_outbox_backlog,
-        })
-    }
-
     /// Pins every profile and chunker revision in the store, refusing to
     /// start if a stored revision has different contents. Changing a profile
     /// or its chunker settings therefore requires a new revision, which keeps
-    /// chunk IDs and decisions reproducible.
-    pub fn pin_profiles(&self, store: &mut dyn OperationalStore) -> Result<(), StartupError> {
+    /// chunk IDs reproducible.
+    pub fn pin_profiles(&self, store: &mut dyn Store) -> Result<(), StartupError> {
         for p in self.registry.iter() {
             let pins = [
                 (PinKind::SourceProfile, p.def.id.clone(), p.def.rev, p.hash),
@@ -257,9 +146,12 @@ impl Engine {
 
     /// Admits one event. Returns `Err` only for store or serialization
     /// failures; every judgment about the event is a typed outcome.
+    ///
+    /// `grants` are the caller's. The scope's own state is read from the
+    /// store, and checked again inside the transaction that writes.
     pub fn admit(
         &self,
-        store: &mut dyn OperationalStore,
+        store: &mut dyn Store,
         grants: &ScopeGrants,
         event: &SourceEvent,
     ) -> Result<AdmissionOutcome, EngineError> {
@@ -298,51 +190,88 @@ impl Engine {
             core_memory_contract::Content::Json(raw) => raw.get().len(),
         };
         if raw_len as u64 > max_bytes {
-            return Ok(oversize(format!("content exceeds {max_bytes} bytes")));
+            return Ok(oversize(
+                "content",
+                format!("content exceeds {max_bytes} bytes"),
+            ));
         }
         let content = match accept_content(&event.content) {
             Ok(c) => c,
             Err(e) => return Ok(A::refused_with(R::Malformed, "content", e.0)),
         };
         if content.text.len() as u64 > max_bytes {
-            return Ok(oversize(format!(
-                "canonical content exceeds {max_bytes} bytes"
-            )));
+            return Ok(oversize(
+                "content",
+                format!("canonical content exceeds {max_bytes} bytes"),
+            ));
+        }
+        // The store keeps content exactly or not at all, and PostgreSQL text
+        // cannot hold U+0000.
+        if content.text.contains('\0') {
+            return Ok(A::refused_with(
+                R::Malformed,
+                "content",
+                "content contains U+0000, which cannot be stored",
+            ));
+        }
+        let details = EventDetails {
+            content_kind: content.kind,
+            source_type: profile.def.source_type,
+            source_system: profile.source_system(event).to_string(),
+            media_type: event.media_type.clone(),
+            occurred_at: event.occurred_at.clone(),
+            actor: event.actor.clone(),
+            structure: event.structure.clone(),
+            attributes: event.attributes.clone(),
+            extra: event.extra.clone(),
+            parser_contract_version: event.parser_contract_version.clone(),
+        };
+        let details_json = serde_json::to_value(&details)?;
+        if has_nul(&details_json) {
+            return Ok(A::refused_with(
+                R::Malformed,
+                "event",
+                "a field contains U+0000, which cannot be stored",
+            ));
+        }
+        let metadata_bytes = details_json.to_string().len();
+        if metadata_bytes > self.limits.max_metadata_bytes as usize {
+            return Ok(oversize(
+                "event",
+                format!(
+                    "the event's metadata is {metadata_bytes} bytes; the limit is {}",
+                    self.limits.max_metadata_bytes
+                ),
+            ));
         }
         let hash = event_hash(event, &content)?;
 
-        // Identity check on the event-level hash, before chunking (ING-03).
-        let mut key = event.key();
-        let mut assigned_revision = None;
-        match store.ledger_get(&key)? {
-            None => {}
-            Some(entry) => match existing_outcome(entry, hash) {
-                Existing::Settled(outcome) => return Ok(outcome),
-                Existing::Changed(outcome) => {
-                    if !(profile.def.editable && event.revision.is_none()) {
-                        return Ok(outcome);
-                    }
-                    // An editable source changed the object in place: admit
-                    // it as a revision derived from its content (ING-04).
-                    let revision = derived_revision(&hash);
-                    key = key.with_revision(revision.clone());
-                    if let Some(entry) = store.ledger_get(&key)? {
-                        let (Existing::Settled(o) | Existing::Changed(o)) =
-                            existing_outcome(entry, hash);
-                        return Ok(o);
-                    }
-                    assigned_revision = Some(revision);
-                }
-            },
+        let Some(scope) = store.scope(&event.scope)? else {
+            return Ok(not_active(None));
+        };
+        if scope.state != ScopeState::Active {
+            return Ok(not_active(Some(scope.state)));
         }
 
-        let backlog = store.outbox_backlog(&self.required_sinks)?;
-        if backlog >= self.limits.max_outbox_backlog {
-            return Ok(A::Busy {
-                retry_after_ms: self.limits.busy_retry_after_ms,
-                cause: BusyCause::SinkLagging,
-            });
-        }
+        // Identity check on the event-level hash, before chunking (ING-03).
+        let offered = Offered {
+            id_key: &scope.id_key,
+            editable: profile.def.editable && event.revision.is_none(),
+            hash,
+        };
+        let first = Target {
+            event_id: EventId::derive(&scope.id_key, &event.key()),
+            key: event.key(),
+            assigned_revision: None,
+            revises: None,
+        };
+        let mut target = match store.event(&first.event_id)? {
+            None => first,
+            Some(stored) => match offered.against(store, &first, stored)? {
+                Ok(revision) => revision,
+                Err(outcome) => return self.settle(store, event, outcome),
+            },
+        };
 
         let spans = match profile.chunker {
             CompiledChunker::Text(cfg) => match chunk_text(&content.text, &cfg) {
@@ -364,151 +293,203 @@ impl Engine {
                     LengthUnit::CodePoints => content.text.chars().count(),
                 };
                 if len > max as usize {
-                    return Ok(oversize(format!(
-                        "record exceeds the chunker's {max} {unit:?} limit"
-                    )));
+                    return Ok(oversize(
+                        "content",
+                        format!("record exceeds the chunker's {max} {unit:?} limit"),
+                    ));
                 }
                 std::iter::once(0..content.text.len()).collect()
             }
         };
         if spans.len() > self.limits.max_chunks_per_event as usize {
-            return Ok(oversize(format!(
-                "event yields {} chunks; the limit is {}",
-                spans.len(),
-                self.limits.max_chunks_per_event
-            )));
+            return Ok(oversize(
+                "content",
+                format!(
+                    "event yields {} chunks; the limit is {}",
+                    spans.len(),
+                    self.limits.max_chunks_per_event
+                ),
+            ));
         }
 
-        let now = self.clock.now();
-        let event_id = EventId::derive(&key);
-        let chunk_ids: Vec<ChunkId> = spans
-            .iter()
-            .map(|r| {
-                ChunkId::derive(
-                    &key,
-                    &profile.chunker_ref.id,
-                    profile.chunker_ref.rev,
-                    r.start as u64,
-                    r.end as u64,
-                )
-            })
-            .collect();
-        let info = EventInfo {
-            event_id,
-            key: key.clone(),
-            engine_assigned_revision: assigned_revision.is_some(),
-            event_hash: hash,
-            content_hash: content.hash,
-            content_kind: content.kind,
-            source_type: profile.def.source_type,
-            source_system: profile.source_system(event).to_string(),
-            media_type: event.media_type.clone(),
-            occurred_at: event.occurred_at.clone(),
-            actor: event.actor.clone(),
-            structure: event.structure.clone(),
-            attributes: event.attributes.clone(),
-            extra: event.extra.clone(),
-            parser_contract_version: event.parser_contract_version.clone(),
-            captured_at: now,
-            chunk_count: u32::try_from(spans.len()).unwrap_or(u32::MAX),
-        };
-        let catalogs = Catalogs {
-            type_catalog: self.vocab.as_ref().map(|v| v.catalog().clone()),
-            predicate: None,
-        };
-
-        let model_tier = self.model_tier(profile, &key.scope);
-        let mut records = Vec::with_capacity(spans.len());
-        let mut held = Vec::new();
+        let captured_at = self.clock.now().truncated_to_micros();
+        let (time_at, time_basis) = ordering_time(event.occurred_at.as_ref(), captured_at);
+        // Facets depend only on the text. Chunk IDs depend on the key too,
+        // so they are derived again if the event becomes a revision.
+        let mut pieces = Vec::with_capacity(spans.len());
         let mut char_pos = 0u64;
-        for (ordinal, (span, chunk_id)) in spans.iter().zip(&chunk_ids).enumerate() {
+        for span in &spans {
             let text = &content.text[Range::clone(span)];
             let facets = chunk_facets(text, content.kind, &profile.identifiers);
             let char_start = char_pos;
             char_pos += facets.lengths.code_points;
-            let mut classification = classify(profile, event, chunk_id, now);
-            // No rule decided and a model may: hold the record for its type
-            // (CLS-05). If the deadline passes first it is delivered as
-            // pending with the reason at that time.
-            let hold = model_tier.filter(|_| {
-                classification.outcome
-                    == TypeOutcome::Pending {
-                        reason: PendingReason::NoClassifier,
-                    }
-            });
-            if hold.is_some() {
-                classification.outcome = TypeOutcome::Pending {
-                    reason: PendingReason::Timeout,
-                };
-            }
-            let record = Record {
-                contract: RECORD_CONTRACT_V1.to_string(),
-                record_key: chunk_record_key(chunk_id),
-                scope: key.scope.clone(),
-                body: RecordBody::Chunk(Box::new(ChunkRecord {
-                    event: info.clone(),
-                    memory: Memory {
-                        chunk: ChunkBody {
-                            chunk_id: *chunk_id,
-                            ordinal: u32::try_from(ordinal).unwrap_or(u32::MAX),
-                            byte_start: span.start as u64,
-                            byte_end: span.end as u64,
-                            char_start,
-                            char_end: char_pos,
-                            content_hash: Sha256Digest::of(text.as_bytes()),
-                            text: text.to_string(),
-                        },
-                        type_outcome: classification.outcome,
-                    },
-                    facets,
-                    source_profile: profile.profile_ref(),
-                    chunker: profile.chunker_ref.clone(),
-                    catalogs: catalogs.clone(),
-                    decision: classification.decision,
-                    relationships: RelationshipStage {
-                        stage: Stage::Off,
-                        binding_ref: None,
-                    },
-                })),
-            };
-            let record = OutboxRecord {
-                record_key: record.record_key.clone(),
-                record_json: serde_json::to_string(&record)?,
-            };
-            match hold {
-                Some(c) => held.push(HeldChunk {
-                    chunk_id: *chunk_id,
-                    event_id,
-                    scope: key.scope.clone(),
-                    profile_id: profile.def.id.clone(),
-                    text: text.to_string(),
-                    record,
-                    deadline_at: now.plus_millis(c.settings.deadline_ms),
-                }),
-                None => records.push(record),
-            }
+            pieces.push((span, char_start, char_pos, facets));
         }
+        let profile_ref = profile.profile_ref();
 
-        let committed = store.commit_admission(AdmissionWrite {
-            key: &key,
-            event_id,
-            event_hash: hash,
-            chunk_ids: &chunk_ids,
-            records,
-            held,
-            admitted_at: now,
-        })?;
-        Ok(match committed {
-            CommitResult::Committed => A::Accepted {
+        // Two passes at most: one under the key as offered, and one under
+        // a derived revision if another first version of an editable
+        // record was stored meanwhile.
+        loop {
+            let chunks: Vec<ChunkWrite> = pieces
+                .iter()
+                .enumerate()
+                .map(|(ordinal, (span, char_start, char_end, facets))| {
+                    let text = &content.text[Range::clone(span)];
+                    ChunkWrite {
+                        chunk_id: ChunkId::derive(
+                            &scope.id_key,
+                            &target.key,
+                            &profile.chunker_ref.id,
+                            profile.chunker_ref.rev,
+                            span.start as u64,
+                            span.end as u64,
+                        ),
+                        ordinal: u32::try_from(ordinal).unwrap_or(u32::MAX),
+                        byte_start: span.start as u64,
+                        byte_end: span.end as u64,
+                        char_start: *char_start,
+                        char_end: *char_end,
+                        content_hash: Sha256Digest::of(text.as_bytes()),
+                        text: text.to_string(),
+                        facets: facets.clone(),
+                    }
+                })
+                .collect();
+            let committed = store.commit_admission(&AdmissionWrite {
+                event_id: target.event_id,
+                workspace: &scope.workspace,
+                key: &target.key,
+                engine_assigned_revision: target.assigned_revision.is_some(),
+                event_hash: hash,
+                content_hash: content.hash,
+                details: &details,
+                profile: &profile_ref,
+                chunker: &profile.chunker_ref,
+                chunks: &chunks,
+                time_at,
+                time_basis,
+                captured_at,
+                checkpoint: event.checkpoint.as_ref(),
+                revises: target.revises,
+            })?;
+            return match committed {
+                AdmissionCommit::Committed { checkpoint } => Ok(A::Accepted {
+                    event_id: target.event_id,
+                    chunk_ids: chunks.iter().map(|c| c.chunk_id).collect(),
+                    assigned_revision: target.assigned_revision,
+                    checkpoint,
+                }),
+                // Another admission of this key committed first. If it was
+                // the first version of an editable record and this is a
+                // different one, this becomes a revision of it.
+                AdmissionCommit::AlreadyPresent(stored) if target.revises.is_none() => {
+                    match offered.against(store, &target, stored)? {
+                        Ok(revision) => {
+                            target = revision;
+                            continue;
+                        }
+                        Err(outcome) => self.settle(store, event, outcome),
+                    }
+                }
+                AdmissionCommit::AlreadyPresent(stored) => {
+                    let (Existing::Settled(o) | Existing::Changed(o)) =
+                        existing_outcome(target.event_id, stored, hash);
+                    self.settle(store, event, o)
+                }
+                AdmissionCommit::RevisedEventErased => Ok(A::refused(R::Tombstoned)),
+                AdmissionCommit::ScopeNotActive(state) => Ok(not_active(state)),
+                AdmissionCommit::CheckpointConflict(stored) => {
+                    Ok(checkpoint_conflict(event, stored))
+                }
+            };
+        }
+    }
+
+    /// Finishes an outcome for an event that was already stored. A replay
+    /// still advances the reader's checkpoint; nothing else does.
+    fn settle(
+        &self,
+        store: &mut dyn Store,
+        event: &SourceEvent,
+        outcome: AdmissionOutcome,
+    ) -> Result<AdmissionOutcome, EngineError> {
+        let (
+            AdmissionOutcome::Replay {
                 event_id,
                 chunk_ids,
-                assigned_revision,
+                ..
             },
-            CommitResult::AlreadyPresent(entry) => {
-                let (Existing::Settled(o) | Existing::Changed(o)) = existing_outcome(entry, hash);
-                o
-            }
+            Some(offered),
+        ) = (&outcome, &event.checkpoint)
+        else {
+            return Ok(outcome);
+        };
+        let at = self.clock.now().truncated_to_micros();
+        Ok(match store.advance_checkpoint(&event.scope, offered, at)? {
+            CheckpointAdvance::Advanced(receipt) => AdmissionOutcome::Replay {
+                event_id: *event_id,
+                chunk_ids: chunk_ids.clone(),
+                checkpoint: Some(receipt),
+            },
+            CheckpointAdvance::Conflict(stored) => checkpoint_conflict(event, stored),
+            CheckpointAdvance::ScopeNotActive(state) => not_active(state),
         })
+    }
+}
+
+/// Where an event is to be stored.
+struct Target {
+    key: EventKey,
+    event_id: EventId,
+    /// The revision the engine derived, when the event is an edit of an
+    /// editable record.
+    assigned_revision: Option<String>,
+    /// The first version of the record, when the event is an edit of it.
+    /// It must still be live when the edit is stored.
+    revises: Option<EventId>,
+}
+
+/// What an admission offers, as far as identity goes.
+struct Offered<'a> {
+    id_key: &'a IdKey,
+    /// The profile edits objects in place and the event names no revision.
+    editable: bool,
+    hash: Sha256Digest,
+}
+
+impl Offered<'_> {
+    /// Decides what to do when `at.key` already holds `stored`: the
+    /// outcome to answer with, or the revision to store the event under.
+    fn against(
+        &self,
+        store: &mut dyn Store,
+        at: &Target,
+        stored: StoredEvent,
+    ) -> Result<Result<Target, AdmissionOutcome>, EngineError> {
+        let conflict = match existing_outcome(at.event_id, stored, self.hash) {
+            Existing::Settled(outcome) => return Ok(Err(outcome)),
+            Existing::Changed(conflict) => conflict,
+        };
+        if !self.editable {
+            return Ok(Err(conflict));
+        }
+        // An editable source changed the object in place: admit it as a
+        // revision derived from its content (ING-04).
+        let revision = derived_revision(&self.hash);
+        let key = at.key.with_revision(revision.clone());
+        let event_id = EventId::derive(self.id_key, &key);
+        if let Some(stored) = store.event(&event_id)? {
+            let (Existing::Settled(o) | Existing::Changed(o)) =
+                existing_outcome(event_id, stored, self.hash);
+            return Ok(Err(o));
+        }
+        Ok(Ok(Target {
+            key,
+            event_id,
+            assigned_revision: Some(revision),
+            revises: Some(at.event_id),
+        }))
     }
 }
 
@@ -519,28 +500,108 @@ enum Existing {
     Changed(AdmissionOutcome),
 }
 
-fn existing_outcome(entry: LedgerEntry, offered: Sha256Digest) -> Existing {
-    match entry {
-        LedgerEntry::Tombstoned => {
+fn existing_outcome(event_id: EventId, stored: StoredEvent, offered: Sha256Digest) -> Existing {
+    match stored {
+        StoredEvent::Erased => {
             Existing::Settled(AdmissionOutcome::refused(RefusalReason::Tombstoned))
         }
-        LedgerEntry::Live {
-            event_id,
+        StoredEvent::Live {
             event_hash,
             chunk_ids,
         } if event_hash == offered => Existing::Settled(AdmissionOutcome::Replay {
             event_id,
             chunk_ids,
+            checkpoint: None,
         }),
-        LedgerEntry::Live {
-            event_id,
-            event_hash,
-            ..
-        } => Existing::Changed(AdmissionOutcome::IdentityConflict {
-            event_id,
-            stored_hash: event_hash,
-            offered_hash: offered,
-        }),
+        StoredEvent::Live { event_hash, .. } => {
+            Existing::Changed(AdmissionOutcome::IdentityConflict {
+                event_id,
+                stored_hash: event_hash,
+                offered_hash: offered,
+            })
+        }
+    }
+}
+
+fn not_active(state: Option<ScopeState>) -> AdmissionOutcome {
+    match state {
+        None => AdmissionOutcome::refused_with(
+            RefusalReason::ScopeDenied,
+            "scope",
+            "the scope is not enrolled",
+        ),
+        Some(state) => AdmissionOutcome::refused_with(
+            RefusalReason::ScopeNotActive,
+            "scope",
+            format!("the scope is {}", state.as_str()),
+        ),
+    }
+}
+
+fn checkpoint_conflict(event: &SourceEvent, stored: CheckpointState) -> AdmissionOutcome {
+    AdmissionOutcome::CheckpointConflict {
+        key: event
+            .checkpoint
+            .as_ref()
+            .map(|c| c.key.clone())
+            .unwrap_or_default(),
+        stored_sequence: stored.sequence,
+        stored_hash: stored.hash,
+    }
+}
+
+/// The time an event is ordered by, best effort: the source's instant, else
+/// the start of the period the source named, else when it was admitted.
+fn ordering_time(occurred: Option<&OccurredAt>, captured_at: Timestamp) -> (Timestamp, TimeBasis) {
+    match occurred.and_then(|o| o.at.map(|at| (at, o.precision))) {
+        Some((at, TimePrecision::Instant | TimePrecision::Second | TimePrecision::Interval)) => {
+            (at.truncated_to_micros(), TimeBasis::Source)
+        }
+        // Events of one period share its start, so within the period they
+        // are ordered by when they were admitted.
+        Some((at, precision)) => (
+            period_start(at, precision).truncated_to_micros(),
+            TimeBasis::SourceBucket,
+        ),
+        None => (captured_at, TimeBasis::Captured),
+    }
+}
+
+/// The start of the minute, hour, day, month or year that `at` falls in,
+/// read in the offset the source gave it in. A time of unknown precision
+/// is kept as given.
+fn period_start(at: Timestamp, precision: TimePrecision) -> Timestamp {
+    use time::{Month, Time};
+    let t = at.0;
+    let start = match precision {
+        TimePrecision::Minute => Time::from_hms(t.hour(), t.minute(), 0)
+            .ok()
+            .map(|time| t.replace_time(time)),
+        TimePrecision::Hour => Time::from_hms(t.hour(), 0, 0)
+            .ok()
+            .map(|time| t.replace_time(time)),
+        TimePrecision::Day => Some(t.replace_time(Time::MIDNIGHT)),
+        TimePrecision::Month => t.replace_time(Time::MIDNIGHT).replace_day(1).ok(),
+        TimePrecision::Year => t
+            .replace_time(Time::MIDNIGHT)
+            .replace_day(1)
+            .ok()
+            .and_then(|first| first.replace_month(Month::January).ok()),
+        TimePrecision::Instant
+        | TimePrecision::Second
+        | TimePrecision::Interval
+        | TimePrecision::Unknown => None,
+    };
+    start.map_or(at, Timestamp)
+}
+
+/// Whether any string or object key in `value` contains U+0000.
+fn has_nul(value: &serde_json::Value) -> bool {
+    match value {
+        serde_json::Value::String(s) => s.contains('\0'),
+        serde_json::Value::Array(items) => items.iter().any(has_nul),
+        serde_json::Value::Object(map) => map.iter().any(|(k, v)| k.contains('\0') || has_nul(v)),
+        _ => false,
     }
 }
 
@@ -550,12 +611,118 @@ fn derived_revision(hash: &Sha256Digest) -> String {
     format!("cm-{}", &hash.to_hex()[..32])
 }
 
-fn oversize(problem: String) -> AdmissionOutcome {
-    AdmissionOutcome::refused_with(RefusalReason::Oversize, "content", problem)
+fn oversize(field: &str, problem: String) -> AdmissionOutcome {
+    AdmissionOutcome::refused_with(RefusalReason::Oversize, field, problem)
 }
 
 /// The key an edited event would be stored under. Exposed for tests and
 /// tooling that need to look an engine-assigned revision up.
 pub fn engine_revision_key(key: &EventKey, hash: &Sha256Digest) -> EventKey {
     key.with_revision(derived_revision(hash))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn at(s: &str) -> Timestamp {
+        Timestamp::parse(s).unwrap()
+    }
+
+    fn occurred(precision: TimePrecision, when: Option<&str>) -> OccurredAt {
+        OccurredAt {
+            at: when.map(at),
+            end: None,
+            precision,
+            raw: Some("as the source wrote it".into()),
+            timezone: None,
+        }
+    }
+
+    #[test]
+    fn events_are_ordered_by_the_best_time_the_source_gave() {
+        let captured = at("2026-11-17T12:00:00Z");
+        let exact = occurred(TimePrecision::Second, Some("2026-11-01T09:30:00Z"));
+        assert_eq!(
+            ordering_time(Some(&exact), captured),
+            (at("2026-11-01T09:30:00Z"), TimeBasis::Source)
+        );
+        let day = occurred(TimePrecision::Day, Some("2026-11-01T00:00:00Z"));
+        assert_eq!(
+            ordering_time(Some(&day), captured),
+            (at("2026-11-01T00:00:00Z"), TimeBasis::SourceBucket)
+        );
+        // A coarse time is ordered by the start of its period, in the
+        // offset the source gave, whatever time of day came with it.
+        for (precision, given, start) in [
+            (
+                TimePrecision::Minute,
+                "2026-11-01T09:30:45.5Z",
+                "2026-11-01T09:30:00Z",
+            ),
+            (
+                TimePrecision::Hour,
+                "2026-11-01T09:30:45Z",
+                "2026-11-01T09:00:00Z",
+            ),
+            (
+                TimePrecision::Day,
+                "2026-11-01T09:30:45Z",
+                "2026-11-01T00:00:00Z",
+            ),
+            (
+                TimePrecision::Day,
+                "2026-11-01T01:00:00+05:00",
+                "2026-10-31T19:00:00Z",
+            ),
+            (
+                TimePrecision::Month,
+                "2026-11-17T09:30:45Z",
+                "2026-11-01T00:00:00Z",
+            ),
+            (
+                TimePrecision::Year,
+                "2026-11-17T09:30:45-08:00",
+                "2026-01-01T08:00:00Z",
+            ),
+            (
+                TimePrecision::Unknown,
+                "2026-11-17T09:30:45Z",
+                "2026-11-17T09:30:45Z",
+            ),
+        ] {
+            assert_eq!(
+                ordering_time(Some(&occurred(precision, Some(given))), captured),
+                (at(start), TimeBasis::SourceBucket),
+                "{precision:?} {given}"
+            );
+        }
+        // The first year's start, east of UTC, is before the earliest
+        // instant that can be written. It is clamped, not a panic.
+        let (earliest, _) = ordering_time(
+            Some(&occurred(
+                TimePrecision::Year,
+                Some("0000-06-01T00:00:00+02:00"),
+            )),
+            captured,
+        );
+        assert_eq!(earliest, at("0000-01-01T00:00:00Z"));
+        let unparsed = occurred(TimePrecision::Day, None);
+        assert_eq!(
+            ordering_time(Some(&unparsed), captured),
+            (captured, TimeBasis::Captured)
+        );
+        assert_eq!(
+            ordering_time(None, captured),
+            (captured, TimeBasis::Captured)
+        );
+    }
+
+    #[test]
+    fn nul_is_found_in_strings_and_keys_at_any_depth() {
+        let clean = serde_json::json!({"a": ["x", {"b": "\\u0000 as six characters"}]});
+        assert!(!has_nul(&clean));
+        assert!(has_nul(&serde_json::json!({"a": ["x", {"b": "y\0"}]})));
+        assert!(has_nul(&serde_json::json!({"k\0": 1})));
+    }
 }

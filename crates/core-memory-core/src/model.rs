@@ -89,10 +89,10 @@ impl BindingConfig {
     }
 
     pub fn validate(&self) -> Result<(), ConfigError> {
-        let err = |m: &str| Err(ConfigError::new(format!("binding `{}`: {m}", self.id)));
         if !is_identifier(&self.id) {
-            return err("id is not a valid identifier");
+            return Err(ConfigError::new("a binding's id is not a valid identifier"));
         }
+        let err = |m: &str| Err(ConfigError::new(format!("binding `{}`: {m}", self.id)));
         for (name, value) in [
             ("provider", &self.provider),
             ("endpoint", &self.endpoint),

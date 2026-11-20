@@ -1,8 +1,10 @@
-//! The versioned Record envelope delivered to sinks (REC-01..03).
+//! The versioned Record envelope: the public JSON form of what the engine
+//! stores (REC-01..03).
 //!
-//! Chunk records are emitted once. Later type decisions arrive as separate
-//! append records keyed by chunk. A full view of a memory is something each
-//! consumer builds for itself.
+//! Each record is one primitive. An event record carries what the source
+//! declared; a chunk record carries one exact slice of its content. Records
+//! are written once and never change. A full view of a memory is something
+//! each consumer builds for itself.
 
 use std::collections::BTreeMap;
 
@@ -11,20 +13,19 @@ use serde::{Deserialize, Serialize};
 
 use crate::event::{Actor, ContentKind, EventKey, OccurredAt, Structure};
 use crate::hash::Sha256Digest;
-use crate::ids::{ChunkId, DecisionId, EventId};
-use crate::outcome::TypeOutcome;
+use crate::ids::{ChunkId, EventId};
 use crate::timestamp::Timestamp;
 
-/// Contract identifier carried by every v1 record.
-pub const RECORD_CONTRACT_V1: &str = "core_memory.record.v1";
+/// Contract identifier carried by every v2 record.
+pub const RECORD_CONTRACT: &str = "core_memory.record.v2";
 
-/// One record as delivered to a sink.
+/// One record.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Record {
-    /// Always [`RECORD_CONTRACT_V1`] for this version.
+    /// Always [`RECORD_CONTRACT`] for this version.
     pub contract: String,
-    /// Idempotency key. A sink that has accepted a key must treat a second
-    /// delivery of it as already accepted.
+    /// Unique per record. A consumer that has taken a key can drop a second
+    /// record with the same key.
     pub record_key: String,
     pub scope: String,
     #[serde(flatten)]
@@ -32,10 +33,28 @@ pub struct Record {
 }
 
 impl Record {
+    pub fn event(event: EventRecord) -> Self {
+        Self {
+            contract: RECORD_CONTRACT.to_string(),
+            record_key: event_record_key(&event.event_id),
+            scope: event.key.scope.clone(),
+            body: RecordBody::Event(Box::new(event)),
+        }
+    }
+
+    pub fn chunk(scope: impl Into<String>, chunk: ChunkRecord) -> Self {
+        Self {
+            contract: RECORD_CONTRACT.to_string(),
+            record_key: chunk_record_key(&chunk.chunk_id),
+            scope: scope.into(),
+            body: RecordBody::Chunk(Box::new(chunk)),
+        }
+    }
+
     pub fn kind(&self) -> RecordKind {
         match &self.body {
+            RecordBody::Event(_) => RecordKind::Event,
             RecordBody::Chunk(_) => RecordKind::Chunk,
-            RecordBody::TypeDecision(_) => RecordKind::TypeDecision,
         }
     }
 }
@@ -43,8 +62,8 @@ impl Record {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "record_kind", rename_all = "snake_case")]
 pub enum RecordBody {
+    Event(Box<EventRecord>),
     Chunk(Box<ChunkRecord>),
-    TypeDecision(Box<TypeDecisionRecord>),
 }
 
 #[derive(
@@ -52,29 +71,19 @@ pub enum RecordBody {
 )]
 #[serde(rename_all = "snake_case")]
 pub enum RecordKind {
+    Event,
     Chunk,
-    TypeDecision,
 }
 
-/// A chunk: the memory unit, with its event, facets and type outcome.
+/// An admitted source event, as the source declared it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
-pub struct ChunkRecord {
-    pub event: EventInfo,
-    pub memory: Memory,
-    pub facets: ChunkFacets,
-    pub source_profile: ProfileRef,
-    pub chunker: ChunkerRef,
-    pub catalogs: Catalogs,
-    /// Provenance of the type outcome. Absent while the outcome is pending.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub decision: Option<Decision>,
-    pub relationships: RelationshipStage,
-}
-
-/// The source event a chunk came from, as the source declared it.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
-pub struct EventInfo {
+pub struct EventRecord {
     pub event_id: EventId,
+    pub workspace: String,
+    /// The workspace's change counter when the event was admitted. Within
+    /// a workspace, rows commit in `seq` order, so a reader that pages by
+    /// `seq` greater than the last one it saw misses nothing.
+    pub seq: u64,
     pub key: EventKey,
     /// True when the engine assigned `key.revision` to an edited event (ING-04).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -83,6 +92,22 @@ pub struct EventInfo {
     pub event_hash: Sha256Digest,
     /// SHA-256 of the exact content bytes (canonical JSON for JSON content).
     pub content_hash: Sha256Digest,
+    #[serde(flatten)]
+    pub details: EventDetails,
+    pub source_profile: ProfileRef,
+    pub chunker: ChunkerRef,
+    /// When the engine admitted the event.
+    pub captured_at: Timestamp,
+    /// The time used to order the event, and where it came from.
+    pub time_at: Timestamp,
+    pub time_basis: TimeBasis,
+    /// How many chunks the event produced.
+    pub chunk_count: u32,
+}
+
+/// What the source declared about an event, apart from its key and content.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct EventDetails {
     pub content_kind: ContentKind,
     pub source_type: SourceType,
     pub source_system: String,
@@ -99,10 +124,39 @@ pub struct EventInfo {
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub extra: BTreeMap<String, serde_json::Value>,
     pub parser_contract_version: String,
-    pub captured_at: Timestamp,
-    /// How many chunks the event produced. A sink that needs a whole event
-    /// at once (memoriesQL) can wait for this many.
-    pub chunk_count: u32,
+}
+
+/// Where an event's ordering time came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum TimeBasis {
+    /// The source gave an instant, to the second or better.
+    Source,
+    /// The source gave a coarser time; `time_at` is the start of that period.
+    SourceBucket,
+    /// The source gave no usable time; `time_at` is when the engine admitted
+    /// the event.
+    Captured,
+}
+
+impl TimeBasis {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            TimeBasis::Source => "source",
+            TimeBasis::SourceBucket => "source_bucket",
+            TimeBasis::Captured => "captured",
+        }
+    }
+
+    pub fn from_name(name: &str) -> Option<Self> {
+        [
+            TimeBasis::Source,
+            TimeBasis::SourceBucket,
+            TimeBasis::Captured,
+        ]
+        .into_iter()
+        .find(|b| b.as_str() == name)
+    }
 }
 
 /// Kind of source. Values match memoriesQL `SourceType`.
@@ -116,18 +170,12 @@ pub enum SourceType {
     Operational,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
-pub struct Memory {
-    pub chunk: ChunkBody,
-    #[serde(rename = "type")]
-    pub type_outcome: TypeOutcome,
-}
-
-/// The chunk itself. `text` is the exact source slice.
+/// A chunk: the memory unit. `text` is the exact source slice.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-pub struct ChunkBody {
+pub struct ChunkRecord {
     pub chunk_id: ChunkId,
-    /// Position within the event under this chunker, from 0.
+    pub event_id: EventId,
+    /// Position within the event under its chunker, from 0.
     pub ordinal: u32,
     /// Byte range in the event content.
     pub byte_start: u64,
@@ -135,9 +183,10 @@ pub struct ChunkBody {
     /// Unicode scalar (code point) range in the event content.
     pub char_start: u64,
     pub char_end: u64,
-    /// SHA-256 of `text` as UTF-8. Matches memoriesQL `SourceUnitInput.content_hash`.
+    /// SHA-256 of `text` as UTF-8.
     pub content_hash: Sha256Digest,
     pub text: String,
+    pub facets: ChunkFacets,
 }
 
 /// Deterministic observations about a chunk (FAC-01, FAC-02). Never model
@@ -197,80 +246,19 @@ pub struct ChunkerRef {
     pub config_hash: Sha256Digest,
 }
 
+/// A vocabulary a decision was made against.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct CatalogRef {
     pub id: String,
     pub hash: Sha256Digest,
 }
 
-/// The vocabularies decisions were made against.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-pub struct Catalogs {
-    #[serde(default, rename = "type", skip_serializing_if = "Option::is_none")]
-    pub type_catalog: Option<CatalogRef>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub predicate: Option<CatalogRef>,
+/// Key of an event record.
+pub fn event_record_key(event_id: &EventId) -> String {
+    format!("event:{event_id}")
 }
 
-/// Decision provenance (MOD-03). A reference, never a rationale or a
-/// confidence score.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-pub struct Decision {
-    pub decision_id: DecisionId,
-    #[serde(flatten)]
-    pub method: DecisionMethod,
-    pub decided_at: Timestamp,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(tag = "method", rename_all = "snake_case")]
-pub enum DecisionMethod {
-    /// A source-profile rule decided.
-    Rule {
-        profile: ProfileRef,
-        rule_id: String,
-    },
-    /// A model binding decided.
-    Model {
-        binding_ref: String,
-        binding_rev: Sha256Digest,
-    },
-}
-
-/// Whether relationship judging applies to this record (REL-01). An empty
-/// relationship list is never proof that nothing is related.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-pub struct RelationshipStage {
-    pub stage: Stage,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub binding_ref: Option<String>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum Stage {
-    Off,
-    On,
-    Skipped,
-}
-
-/// A completed type decision for a chunk whose chunk record said `pending`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-pub struct TypeDecisionRecord {
-    pub chunk_id: ChunkId,
-    pub event_id: EventId,
-    pub outcome: TypeOutcome,
-    pub decision: Decision,
-    pub catalogs: Catalogs,
-}
-
-/// Idempotency key of a chunk record.
+/// Key of a chunk record.
 pub fn chunk_record_key(chunk_id: &ChunkId) -> String {
     format!("chunk:{chunk_id}")
-}
-
-/// Idempotency key of a type decision record. One per chunk: a pending
-/// type completes exactly once.
-pub fn type_decision_record_key(chunk_id: &ChunkId) -> String {
-    format!("type:{chunk_id}")
 }

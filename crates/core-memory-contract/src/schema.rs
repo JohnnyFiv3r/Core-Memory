@@ -1,7 +1,7 @@
 //! JSON Schemas for the published contracts (REC-01).
 //!
-//! Each schema is published with a content hash so sinks and producers can
-//! pin the exact contract they were built against.
+//! Each schema is published with a content hash so producers and consumers
+//! can pin the exact contract they were built against.
 
 use serde_json::Value;
 
@@ -71,7 +71,7 @@ mod tests {
     #[test]
     fn record_schema_names_the_record_kinds() {
         let text = Contract::Record.schema().to_string();
+        assert!(text.contains("\"event\""));
         assert!(text.contains("\"chunk\""));
-        assert!(text.contains("\"type_decision\""));
     }
 }

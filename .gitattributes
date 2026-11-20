@@ -1,0 +1,4 @@
+# A migration's checksum is taken over its text. Keep one line ending
+# everywhere so a checkout on Windows sees the same file.
+*.sql text eol=lf
+*.jsonl text eol=lf

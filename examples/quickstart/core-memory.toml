@@ -1,16 +1,8 @@
 # Quickstart configuration for the core-memory command.
-# Paths are relative to this file.
-
-[store]
-path = "core-memory.sqlite"
-
-[grants]
-scopes = ["acme"]
-
-[[sink]]
-id = "records"
-kind = "jsonl"
-path = "records.jsonl"
+#
+# The store is a PostgreSQL database. Its URL is read from the
+# CORE_MEMORY_DATABASE_URL environment variable, so no password is kept in
+# this file.
 
 # The type vocabulary. With memoriesQL attached, this is an export of its
 # governed registry; the engine never invents types.
@@ -22,8 +14,9 @@ types = [
   { key = "action", rev = 1, definition = "Work someone did or will do." },
 ]
 
-# A source profile for CRM change events. Its rule types closed
-# opportunities from the record's declared structure, not from guesses.
+# A source profile for CRM change events. A profile says how a source is
+# admitted, chunked and faceted. It never assigns a type; it may only narrow
+# which types a model can choose for this source.
 [[profile]]
 id = "acme.crm"
 rev = 1
@@ -34,8 +27,3 @@ editable = true
 types = ["outcome", "action"]
 chunker = { id = "json.whole", rev = 1, max = 65536 }
 identifiers = [{ kind = "opportunity", pattern = "006[A-Za-z0-9]{12}" }]
-
-[[profile.rules]]
-id = "opportunity-closed"
-assign = "outcome"
-when = { "record.object_type" = "Opportunity", "record.action" = ["closed_won", "closed_lost"] }

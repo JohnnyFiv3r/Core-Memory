@@ -99,29 +99,88 @@ pub fn chunk_facets(text: &str, kind: ContentKind, identifiers: &[(String, Regex
 
 /// Drops trailing punctuation that usually ends a sentence rather than a
 /// URL, and closing brackets that have no opening partner in the URL.
-fn trim_url(mut url: &str) -> &str {
-    loop {
-        let Some(last) = url.chars().last() else {
-            return url;
-        };
-        let unbalanced = |open: char, close: char| {
-            last == close && url.matches(close).count() > url.matches(open).count()
-        };
-        if matches!(last, '.' | ',' | ';' | ':' | '!' | '?')
-            || unbalanced('(', ')')
-            || unbalanced('[', ']')
-            || unbalanced('{', '}')
-        {
-            url = &url[..url.len() - last.len_utf8()];
-        } else {
-            return url;
+///
+/// Brackets are counted once and adjusted as characters are dropped, so
+/// the cost is in proportion to the URL's length.
+fn trim_url(url: &str) -> &str {
+    const PAIRS: [(char, char); 3] = [('(', ')'), ('[', ']'), ('{', '}')];
+    let mut opens = [0usize; 3];
+    let mut closes = [0usize; 3];
+    for c in url.chars() {
+        for (i, (open, close)) in PAIRS.iter().enumerate() {
+            opens[i] += usize::from(c == *open);
+            closes[i] += usize::from(c == *close);
         }
     }
+    let mut end = url.len();
+    while let Some(last) = url[..end].chars().next_back() {
+        let pair = PAIRS.iter().position(|(_, close)| *close == last);
+        let drop = match pair {
+            Some(i) => closes[i] > opens[i],
+            None => matches!(last, '.' | ',' | ';' | ':' | '!' | '?'),
+        };
+        if !drop {
+            break;
+        }
+        if let Some(i) = pair {
+            closes[i] -= 1;
+        }
+        end -= last.len_utf8();
+    }
+    &url[..end]
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The trim as first written: it counts the whole URL again for each
+    /// character it drops. Kept as the definition the faster one must match.
+    fn trim_url_by_recounting(mut url: &str) -> &str {
+        loop {
+            let Some(last) = url.chars().last() else {
+                return url;
+            };
+            let unbalanced = |open: char, close: char| {
+                last == close && url.matches(close).count() > url.matches(open).count()
+            };
+            if matches!(last, '.' | ',' | ';' | ':' | '!' | '?')
+                || unbalanced('(', ')')
+                || unbalanced('[', ']')
+                || unbalanced('{', '}')
+            {
+                url = &url[..url.len() - last.len_utf8()];
+            } else {
+                return url;
+            }
+        }
+    }
+
+    #[test]
+    fn trimming_a_url_gives_the_same_result_as_recounting() {
+        // Every string of up to six of these characters.
+        let alphabet = ['a', '.', ',', '(', ')', '[', ']', '{', '}', 'é'];
+        let mut strings = vec![String::new()];
+        for _ in 0..6 {
+            let longer: Vec<String> = strings
+                .iter()
+                .flat_map(|s| alphabet.iter().map(move |c| format!("{s}{c}")))
+                .collect();
+            for s in &longer {
+                assert_eq!(trim_url(s), trim_url_by_recounting(s), "{s}");
+            }
+            strings = longer.into_iter().take(20_000).collect();
+        }
+    }
+
+    #[test]
+    fn a_long_run_of_trailing_brackets_is_trimmed_quickly() {
+        let url = format!("https://example.com/a(b){}", ")".repeat(400_000));
+        let started = std::time::Instant::now();
+        assert_eq!(trim_url(&url), "https://example.com/a(b)");
+        // Recounting takes minutes here.
+        assert!(started.elapsed() < std::time::Duration::from_secs(10));
+    }
 
     #[test]
     fn lengths_count_bytes_code_points_and_lines() {

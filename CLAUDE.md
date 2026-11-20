@@ -4,43 +4,58 @@ The Python 1.x implementation lives on the `v1.x` branch. This tree is the
 Rust rewrite. Do not port 1.x code here; port ideas only when the engine's
 scope below calls for them.
 
+`docs/architecture.md` holds the design behind the invariants in this file.
+Sections it marks *planned* are designed and not built yet.
+
 ---
 
 ## What this repo is
 
 The Core Memory engine turns any stream of source events into durable,
-auditable memory records. For each SourceEvent it:
+auditable memory in PostgreSQL. For each SourceEvent it:
 
 1. admits the event with its exact bytes and a stable identity;
-2. cuts it into deterministic Chunks;
-3. attaches deterministic facets;
-4. assigns a type (profile rules, then a stock model, else `pending`);
-5. optionally judges evidence-backed relationships between chunks;
-6. delivers versioned Records to every configured sink.
+2. cuts it into deterministic chunks and attaches deterministic facets;
+3. commits the event, its chunks, their text and its beads in one
+   transaction;
+4. *planned:* asks a model for each chunk's type and its entities, actions
+   and outcomes;
+5. *planned:* compresses each tool call and asks a model for its action and
+   outcome;
+6. *planned:* asks a judge model how new beads relate to recent ones.
 
-Interpretation that evolves (reclassification, long-range relationships,
-claims, validity, consolidation) happens downstream, in memoriesQL and the
-Dreamer. It is appended as new versioned rows and never rewrites source.
+PostgreSQL is the only store and the system of record. The engine owns the
+`core_memory` schema. A host such as memoriesQL runs the engine against its
+own database, governs it through SQL functions, and reads its tables.
+Interpretation that evolves over long ranges happens in the host and reaches
+the store through the engine as new rows. Nothing rewrites source.
 
-memoriesQL is the priority sink. No change here may break it.
+memoriesQL is the priority host. No change here may break what it reads or
+calls.
 
 ---
 
 ## Guiding principles
 
 - **The full chunk text is the memory.** No summaries, gists, rewrites or
-  framing text ever enter a Record. Naive retrieval over raw text matches or
+  framing text ever stand in for it. Naive retrieval over raw text matches or
   beats transformed memory stores.
-- **Boring primitives, rich views.** Events, chunks, facets, type decisions
-  and relationships are the primitives. Worldlines, tensions, storylines and
-  similar ideas are views computed downstream, not storage concepts here.
+- **Boring primitives, rich views.** Events, chunks, facets, beads, type
+  decisions and relationships are the primitives. Worldlines, tensions,
+  storylines and similar ideas are views computed downstream, not storage
+  concepts here.
 - **The flat-file test.** Before building a feature, ask whether Markdown,
   metadata, embeddings and a periodic summarizer would do. Build it here only
   when that version fails a contested, temporal, distributed or
   action-relevant question.
 - **Honest outcomes.** Every stage reports a typed outcome. `pending`
-  (retryable) is never conflated with `unassigned` (a final judgment), and
-  the engine never fabricates data to satisfy a sink.
+  (retryable) is never conflated with `unassigned` (a final judgment),
+  `unsure` never counts as a no, and the engine never fabricates data to
+  satisfy a consumer. Input that could be read two ways is refused, not
+  interpreted. A failure that would repeat is never reported as one worth
+  retrying: a command told to wait for a database that refuses its login
+  would wait for good. A caller whose own request is not at fault is still
+  told to keep its event and offer it again.
 
 ---
 
@@ -50,16 +65,16 @@ memoriesQL is the priority sink. No change here may break it.
 
 ```
 core-memory-contract -> core-memory-chunker -> core-memory-core
-    -> core-memory-store-* / core-memory-source-* / core-memory-sink-*
+    -> core-memory-store-* / core-memory-source-* / core-memory-model-*
     -> core-memory-sidecar, core-memory (facade)
 ```
 
 - `core-memory-contract` depends on no other crate in this workspace.
 - `core-memory-chunker` may depend only on `core-memory-contract`.
-- `core-memory-core` imports no store, source, sink or model-provider crate.
+- `core-memory-core` imports no store, source or model-provider crate, and
+  no database, network or async-runtime crate.
   `scripts/check_layering.py` enforces this in CI.
-- Core has no code path specific to one sink. Sinks differ only through the
-  capabilities they declare.
+- Core has no code path specific to one host or one model provider.
 
 ### 2. Identity
 
@@ -67,31 +82,103 @@ core-memory-contract -> core-memory-chunker -> core-memory-core
   never derived from ingest order.
 - The identity check compares the event-level hash before chunking, so a
   chunker change never looks like an identity conflict.
-- Chunk IDs derive from the event key, the chunker ID and revision, and the
-  byte range. Never from a global index.
-- Idempotency keys are never evicted. Erasure turns them into tombstones
-  matched by a keyed hash.
+- Event and chunk IDs derive from the event key (and, for chunks, the chunker
+  ID and revision and the byte range) with HMAC-SHA-256 under the workspace's
+  secret key. Never from a global index.
+- A scope belongs to one workspace for good, because its IDs are keyed by it.
+- An erased event's ID is its tombstone. It is never reused or evicted, and
+  no hash of the erased event is kept.
 
 ### 3. Determinism
 
 - Chunk boundaries, chunk IDs and facets are pure functions of their inputs
   and versioned configuration. Changing behavior means bumping a revision.
-- The clock, ID source, model transport and operational store are injected,
-  never global.
+- The clock, ID source, model transport and store are injected, never global.
 - Chunks partition the source text exactly: concatenated in order they
   reproduce it byte for byte.
 
 ### 4. Relationships are judged, never inferred
 
 A relationship is never created from similarity, chronology or shared keys
-alone. Structural links (reply-to, parent, revision-of) are facets and
-candidate seeds, not relationships.
+alone. Code computes a judge's inputs and never proposes or writes an edge;
+a score is never evidence. Structural links (reply-to, parent, revision-of)
+are facets and candidate seeds, not relationships.
 
-### 5. Delivery is at-least-once through the outbox
+### 5. One store, one transaction
 
-Admission writes the ledger entry and its records in one transaction. Sinks
-read from the outbox with their own cursors. Optional sinks never pin
-operational state.
+- Admission commits the event, its chunks, their text, its beads and the
+  reader's checkpoint in one transaction, and only while the scope is active
+  inside that transaction. There is no second copy and no delivery step.
+- Stored rows are immutable. Only erasing changes them.
+- Only the engine writes the `core_memory` data tables. Hosts govern through
+  the SQL functions and read through grants and policies of their own. Row
+  security stays on for every table and nothing is granted to `PUBLIC`.
+- The engine's database role can read and insert. It cannot change or delete
+  what it stored, change a scope's state, or erase.
+
+### 6. Text lives in one place
+
+- Source text is stored once, in `chunk_text`. Every other table holds IDs,
+  ranges, enums and engine-side times.
+- Erasing a message removes its text and everything derived from that text,
+  in one transaction. A new table that holds content must be erased with its
+  source, and must say so in `docs/architecture.md`.
+- Logs, error messages, receipts and work queues never hold source text or
+  the database URL. An error about the configuration repeats a setting's
+  value only once the value has passed that setting's own check, and
+  everything the command prints goes out through `report`, which withholds
+  a message that repeats a URL.
+- An answer never grows with what it refuses: a refusal lists a bounded
+  number of problems, each of bounded length.
+- The HTTP service checks a caller's token before it reads any of the
+  request body, and keeps a connection open between requests only for a
+  caller that has shown one.
+
+### 7. One writer per workspace, and rows commit in order
+
+- Every transaction that writes for a workspace locks its change counter
+  before it reads anything it will act on: the engine through
+  `core_memory.begin_write`, governance functions through
+  `core_memory.lock_workspace`. No writer takes a row lock on a scope
+  first. One lock, taken first, is what keeps writers from deadlocking and
+  keeps a pause or a revocation from being overtaken.
+- Every row the engine writes for a workspace carries a `seq` taken from
+  that counter under the lock. A reader that pages by `seq` greater than
+  the last one it saw must never miss a row. Never number rows from a
+  PostgreSQL sequence or identity column.
+
+### 8. The schema version is fenced
+
+An engine writes only to the schema version it was built for. A released
+migration never changes.
+
+Every migration locks `schema_migrations` first, and that lock is the first
+one everything else takes, so a call that arrives during a migration waits
+holding nothing the migration needs:
+
+- a write starts with `core_memory.begin_write`, which refuses another
+  version;
+- every function a role may call starts with `core_memory.hold_schema`;
+- a read of several statements locks the table before its first query, so
+  its snapshot is never older than a migration it waited for;
+- a read of one statement has `schema_migrations` first in its FROM
+  clause, which is the order PostgreSQL locks in. Naming it first in the
+  select list is not enough.
+
+Tests fail if a function or a store call takes another lock first.
+
+### 9. SQL that cannot be hijacked
+
+- Every function in the schema sets `search_path = pg_catalog, pg_temp`,
+  with `pg_temp` last, and names every object it uses with its schema. A
+  test fails if a function does not.
+- Every function is revoked from `PUBLIC`. The engine role may execute
+  `begin_write` only; the governor role, the governance functions only.
+- Engine sessions and migrations set the same search path, and
+  `READ COMMITTED`.
+- A column that holds what a source said, or a hash of it, is excluded
+  from planner statistics (`SET STATISTICS 0`). The source's own time
+  (`time_at`) is such a column.
 
 ---
 
@@ -99,10 +186,23 @@ operational state.
 
 ```bash
 cargo fmt --all
-cargo +1.99 clippy --workspace --all-targets -- -D warnings   # CI's lint toolchain
+cargo +1.99 clippy --workspace --all-targets --all-features -- -D warnings   # CI's lint toolchain
 cargo test --workspace
 python3 scripts/check_layering.py
 ```
 
+Tests that touch the store need a PostgreSQL server (15 or newer) and run
+behind the `postgres-tests` feature. Each test creates and drops its own
+database:
+
+```bash
+export CORE_MEMORY_TEST_DATABASE_URL=postgresql://postgres:secret@127.0.0.1:5432/postgres
+cargo test --workspace --all-features
+```
+
+There is no in-memory store. The engine's guarantees are transactional, so
+they are tested against PostgreSQL.
+
 Requirement IDs in comments (ING-03, CHK-04, REC-01, ...) refer to the Core
-Memory Engine PRD v1.1.
+Memory Engine PRD v1.1. Where the PRD and `docs/architecture.md` differ, the
+architecture document is current.
