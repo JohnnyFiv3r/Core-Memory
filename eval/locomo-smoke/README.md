@@ -8,7 +8,7 @@ provider, what it stores, and what that costs. It does not answer LoCoMo's
 questions and gives no score.
 
 **It spends real money.** The budgets in `core-memory.toml` hold one UTC
-day's worst case under $25: about $1 for the reader and $22 for the judge, if
+day's worst case under $25: about $1 for the reader and $23 for the judge, if
 every call used all the output it may. Work the budget does not cover is
 left in the queue, and the report says so.
 

@@ -6,9 +6,12 @@
 # what it sends plus max_output_tokens, so:
 #   reader: 400 calls x 4,096 output at $0.50/M, and the rest of 3M tokens
 #           at $0.10/M as input                            <= $0.96
-#   judge:   60 calls x 16,000 output at $20/M, and the rest of 1.6M tokens
-#           at $4/M as input                               <= $21.76
-# Work the budget does not cover is left in the queue, and the report says so.
+#   judge:  120 calls x 8,000 output at $20/M, and the rest of 1.8M tokens
+#           at $4/M as input                               <= $22.56
+# A judge call of the run of 2026-11-20 sent about 6,500 tokens and wrote
+# about 540, and the whole conversation needs about 70 calls: 60 left a
+# quarter of it unjudged. Work the budget does not cover is left in the
+# queue, and the report says so.
 
 # memoriesQL's current bead types at its schema 60 (memoriesql#118), as its
 # engine_vocabulary_v1() returns them: the same keys, revisions, definitions
@@ -55,7 +58,7 @@ provider = "anthropic"
 endpoint = "https://api.anthropic.com"
 model = "claude-opus-5-5"
 reasoning_effort = "medium"
-max_output_tokens = 16000
+max_output_tokens = 8000
 api_key_env = "CORE_MEMORY_ANTHROPIC_KEY"
 timeout_ms = 240000
-budget = { max_requests_per_day = 60, max_tokens_per_day = 1600000 }
+budget = { max_requests_per_day = 120, max_tokens_per_day = 1800000 }
