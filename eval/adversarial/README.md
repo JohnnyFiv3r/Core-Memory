@@ -53,8 +53,8 @@ the reader's cases are compared with nothing, and each thread is judged on
 its own.
 
 **It spends real money, very little:** the reader reads 101 messages, eight
-to a call, and the judge reads 15 threads, with a second read of each label
-it gives. Expect about $1.
+to a call, and the judge reads 15 threads, with a second read of each
+replacement or withdrawal it gives. Expect about $1.
 
 ## Running it
 
@@ -82,12 +82,18 @@ every run. Each repeat costs what one run does.
 - **The reader:** each message's type, or its abstention, against `expect`.
   "abstain" in `expect` stands for any of the reader's three abstentions.
   A case may give `not` instead: any answer but those is right.
-- **The judge:** the verdict of the first read of each pair a case names,
-  written from the first message's side: `leadsto` means the first brought
-  the second about, `supersedes:retract` that the first withdraws the
-  second. A pair with no verdict, because the judge was never shown it or
-  every reply about it was rejected, counts apart, never as a no. A verdict
-  of the second read, and any label bead made, are shown beside it.
+- **The judge:** the arrow of the first read of each pair a case names,
+  written from the first message's side, so that "a *arrow* b" is true:
+  `withdraws` means the first withdraws the second, `cause-by` that the
+  first was caused by the second. A case may give an arrow, a type (any
+  arrow of it, either way), `ends` (a replacement or withdrawal, either
+  way), `none` or `unsure`. A pair with no verdict, because the judge was
+  never shown it or every reply about it was rejected, counts apart, never
+  as a no. A verdict of the second read, and an arrow that ends currency
+  and was written, are shown beside it.
+  Runs before rubric revision 4 were scored with the codes and labels of
+  their time (`supersedes:retract` and so on); their findings below keep
+  those words.
 - **Names:** a name pair that should be linked as one entity, and a name
   that should be linked to nothing.
 

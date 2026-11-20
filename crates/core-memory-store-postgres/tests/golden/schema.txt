@@ -1,3 +1,20 @@
+table arrows
+  arrow text not null
+  edge_type text not null
+  forward text not null
+  inverse text null
+  inverse_name text null
+  ends_currency boolean not null
+  disputes boolean not null
+  origin text not null
+  may: engine select
+  row security: on; policies: engine (select to core_memory_engine)
+  trigger arrows_fixed BEFORE DELETE OR UPDATE FOR EACH ROW EXECUTE FUNCTION core_memory.refuse_change()
+  trigger arrows_no_truncate BEFORE TRUNCATE FOR EACH STATEMENT EXECUTE FUNCTION core_memory.refuse_change()
+  unique arrows_arrow_edge_type_key (arrow, edge_type)
+  unique arrows_inverse_key (inverse)
+  primary key arrows_pkey (arrow)
+
 table beads
   bead_id uuid not null
   workspace_id text not null
@@ -110,6 +127,7 @@ table edges
   workspace_id text not null
   seq bigint not null
   edge_type text not null
+  arrow text not null
   from_bead uuid not null
   to_bead uuid not null
   call_id uuid not null
@@ -120,9 +138,11 @@ table edges
   trigger edges_live BEFORE INSERT FOR EACH ROW EXECUTE FUNCTION core_memory.stored_only_for_live_beads('from_bead', 'to_bead')
   trigger edges_no_truncate BEFORE TRUNCATE FOR EACH STATEMENT EXECUTE FUNCTION core_memory.refuse_change()
   trigger edges_shape BEFORE INSERT FOR EACH ROW EXECUTE FUNCTION core_memory.edges_keep_their_shape()
-  unique edges_edge_type_from_bead_to_bead_key (edge_type, from_bead, to_bead)
+  unique edges_arrow_from_bead_to_bead_key (arrow, from_bead, to_bead)
+  index edges_disputes_idx (workspace_id) partial
+  unique edges_ended_once_idx (to_bead) partial
+  index edges_from_idx (from_bead, edge_type)
   primary key edges_pkey (workspace_id, seq)
-  unique edges_superseded_once_idx (to_bead) partial
   index edges_to_idx (to_bead, edge_type)
 
 table erasures
@@ -194,21 +214,6 @@ table judge_reads
   primary key judge_reads_pkey (call_id)
   unique judge_reads_workspace_id_seq_key (workspace_id, seq)
 
-table labels
-  bead_id uuid not null
-  workspace_id text not null
-  label text not null
-  source_bead uuid not null
-  call_id uuid not null
-  may: engine select insert
-  row security: on; policies: engine (all to core_memory_engine)
-  trigger labels_fixed BEFORE DELETE OR UPDATE FOR EACH ROW EXECUTE FUNCTION core_memory.refuse_change()
-  trigger labels_live BEFORE INSERT FOR EACH ROW EXECUTE FUNCTION core_memory.stored_only_for_live_beads('bead_id', 'source_bead')
-  trigger labels_no_truncate BEFORE TRUNCATE FOR EACH STATEMENT EXECUTE FUNCTION core_memory.refuse_change()
-  index labels_conflict_idx (workspace_id) partial
-  primary key labels_pkey (bead_id)
-  unique labels_source_bead_key (source_bead)
-
 table name_links
   workspace_id text not null
   seq bigint not null
@@ -271,21 +276,21 @@ table outbound_results
   trigger outbound_results_no_truncate BEFORE TRUNCATE FOR EACH STATEMENT EXECUTE FUNCTION core_memory.refuse_change()
   primary key outbound_results_pkey (call_id)
 
-table pending_labels
+table pending_chains
   source_bead uuid not null
   workspace_id text not null
-  label text not null
+  arrow text not null
   head_beads uuid[] not null
   ordinal bigint not null
   call_id uuid not null
   proposed_at timestamp with time zone not null
   may: engine select insert delete
   row security: on; policies: engine (all to core_memory_engine)
-  trigger pending_labels_fixed BEFORE UPDATE FOR EACH ROW EXECUTE FUNCTION core_memory.refuse_change()
-  trigger pending_labels_live BEFORE INSERT FOR EACH ROW EXECUTE FUNCTION core_memory.stored_only_for_live_beads('source_bead', 'head_beads')
-  trigger pending_labels_no_truncate BEFORE TRUNCATE FOR EACH STATEMENT EXECUTE FUNCTION core_memory.refuse_change()
-  primary key pending_labels_pkey (source_bead)
-  unique pending_labels_workspace_id_ordinal_key (workspace_id, ordinal)
+  trigger pending_chains_fixed BEFORE UPDATE FOR EACH ROW EXECUTE FUNCTION core_memory.refuse_change()
+  trigger pending_chains_live BEFORE INSERT FOR EACH ROW EXECUTE FUNCTION core_memory.stored_only_for_live_beads('source_bead', 'head_beads')
+  trigger pending_chains_no_truncate BEFORE TRUNCATE FOR EACH STATEMENT EXECUTE FUNCTION core_memory.refuse_change()
+  primary key pending_chains_pkey (source_bead)
+  unique pending_chains_workspace_id_ordinal_key (workspace_id, ordinal)
 
 table pins
   kind text not null
@@ -366,8 +371,8 @@ table verdicts
   earlier_scope text not null
   later_scope text not null
   verdict text not null
+  arrow text null
   direction text not null
-  label text null
   note text null
   call_id uuid not null
   columns jsonb not null

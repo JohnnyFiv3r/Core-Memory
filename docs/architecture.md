@@ -64,7 +64,7 @@ Three rules keep ownership clear:
 | Scope | One connection to one source, such as one agent harness. Capture, model consent, pausing and revocation are per scope. A scope belongs to one workspace for good. |
 | Event | One SourceEvent: one message, record change, document or tool call. Identified by `(scope, source_ns, external_id, revision)`. |
 | Chunk | A byte range of an event's content. Chunks partition the content exactly. |
-| Bead | An unchanging pointer that other things link to. Every chunk of a message is a bead, and a tool call is one bead whatever its length. These are beads of source content. A judge makes two more kinds, which hold no text: a label bead and a group bead (see [Relationships](#relationships)). |
+| Bead | An unchanging pointer that other things link to. Every chunk of a message is a bead, and a tool call is one bead whatever its length. These are beads of source content. A judge makes one more kind, which holds no text: a group bead (see [Relationships](#relationships)). |
 | Checkpoint | A reader's durable position in its source, advanced in the same transaction as an admission. |
 | Binding | A pinned model configuration: provider, endpoint, model snapshot and settings. |
 | Destination | The host, and port if any, of a binding's endpoint. Model consent is given per scope and per destination. |
@@ -81,7 +81,7 @@ All tables are in the `core_memory` schema.
 | `events` | Identity, hashes, source metadata (`info`), profile and chunker revisions, ordering time, `seq`. | Key fields, hashes and `info` are cleared. The row and its ID stay. |
 | `chunks` | Chunk ID, event, ordinal and ranges. No text. | Stays. |
 | `chunk_text` | The chunk's text, its hash and its facets. This is the only copy of source text. | Deleted. |
-| `beads` | Bead ID, kind (`chunk`, `tool`, `label`, `group`), source pointer or the judge's call that made it, ordering time, state, `seq`. | Marked `erased`. The row and its ID stay. |
+| `beads` | Bead ID, kind (`chunk`, `tool`, `group`), source pointer or the judge's call that made it, ordering time, state, `seq`. | Marked `erased`. The row and its ID stay. |
 | `checkpoints` | A reader's sequence and hash per `(scope, key)`. | Not erased. |
 | `pins` | The hash of each profile and chunker revision ever used. | Not erased. |
 | `erasures` | The journal of erasures: IDs, reason, actor, time, `seq`. | Kept. Replayed after a backup restore. |
@@ -93,11 +93,11 @@ All tables are in the `core_memory` schema.
 | `tool_outcomes` | What a model wrote about one tool call: a short action, a short outcome and a status, with the reader and the compressor that produced them, `seq`. | Deleted. |
 | `judge_reads` | One row for each read by a judge that was stored: the beads it was shown, by ID, the rubric and binding revisions, `seq`. | Kept. |
 | `verdicts` | One row for every pair a judge was shown: the two beads and the scope of each, what it said, the direction, and what code computed about the pair at that moment (`columns`), `seq`. No text. | Deleted, for a pair with an erased bead. |
-| `edges` | A relationship from one bead to another: type, the two IDs, `seq`. | Kept. They hold IDs. |
-| `labels` | What a label bead says (`supersede`, `retract`, `reaffirm`, `conflict`) and the bead it stands for. | Kept. The label bead is marked erased with its source. |
-| `pending_labels` | A label a judge proposed that waits for a second read: IDs only. | Deleted. |
+| `arrows` | The arrows a judge may give: each one's type, forward and inverse names, whether it ends currency or disputes, and where its names come from (see [The arrows](#the-arrows)). | Not erased. |
+| `edges` | A relationship from one bead to another: its arrow and the arrow's type, the two IDs, `seq`. | Kept. They hold IDs. |
+| `pending_chains` | An arrow that replaces or withdraws, which a judge gave and which waits for a second read: IDs only. | Deleted. |
 | `name_links` | Two names for one entity, each as a byte range of its own chunk, with the scope of each chunk's bead, `seq`. | Deleted, for a link with an erased bead. |
-| `work` | What is still owed: chunks and tool calls to be read, beads to be judged, labels to be read a second time. IDs, attempts, when to try next and a problem code. No text. | Deleted. |
+| `work` | What is still owed: chunks and tool calls to be read, beads to be judged, arrows to be read a second time. IDs, attempts, when to try next and a problem code. No text. | Deleted. |
 
 Text is kept in one place on purpose. Erasing a message deletes its
 `chunk_text` rows and every row derived from that text, in one transaction.
@@ -117,7 +117,7 @@ planner's statistics.
 Rows are immutable. Triggers refuse updates and deletes on `events`,
 `chunks`, `chunk_text`, `beads`, `pins`, `erasures`, `outbound_calls`,
 `outbound_results`, `chunk_reads`, `chunk_read_spans`, `tool_outcomes`,
-`judge_reads`, `verdicts`, `edges`, `labels` and `name_links`, and refuse
+`judge_reads`, `verdicts`, `arrows`, `edges` and `name_links`, and refuse
 `TRUNCATE` on every table above. The one exception is an erase, and the
 triggers allow exactly what an erase does: an event or a bead goes from
 live to erased and keeps its engine-side columns; text, reads, spans and
@@ -129,20 +129,21 @@ them.
 
 The same tables refuse a new row about what was erased, whoever writes it:
 a read or a tool outcome only for an event that is live, and a verdict, an
-edge, a label, a held label or a name link only for beads that are live and
+edge, a held arrow or a name link only for beads that are live and
 of the row's own workspace. An erase would not reach such a row again. A
 name link's ranges lie inside the text of their chunks.
 
 The graph keeps its shape in the table too. An edge joins two beads of its
-own workspace and points at a bead of source content. Only a label bead
-supersedes, and it follows one bead or two. Only a group bead contains. A
-bead is superseded at most once, and only the label of a statement that is
-still current supersedes, so a chain grows at its head and no circle can
-close.
+own workspace and points at a bead of source content, and its arrow is one
+of the directory's, of that arrow's type. Only a group bead `consists` of
+members; every other arrow joins two beads of source content. A bead is
+replaced or withdrawn at most once, a statement ends at most two beads and
+with one arrow, and only a current statement ends a current bead, so a
+chain grows at its head and no circle can close.
 
 `work` is the one table the engine changes in place. It is a queue, not a
 record: a row says what is still owed and is deleted when it is done.
-`pending_labels` is the same kind of thing: a row is a label that waits,
+`pending_chains` is the same kind of thing: a row is an arrow that waits,
 and it is deleted when a second read settles it.
 
 ## Identity
@@ -335,7 +336,7 @@ and so does `ORDER BY time_at, seq` with a limit. A host that filters on
 
 | Role | May |
 |---|---|
-| `core_memory_engine` | Read and write the data tables. It reads model consent and cannot give it. What it stored it cannot change or delete, with two exceptions: its queue (`work`), and a label that waits for a second read (`pending_labels`), which it deletes once that read is stored. The engine's login role is a member. |
+| `core_memory_engine` | Read and write the data tables. It reads model consent and cannot give it. What it stored it cannot change or delete, with two exceptions: its queue (`work`), and an arrow that waits for a second read (`pending_chains`), which it deletes once that read is stored. The engine's login role is a member. |
 | `core_memory_governor` | Execute the governance functions, which include giving and withdrawing model consent. Holds no table privileges. |
 
 Both are created by the first migration if they do not exist. Every table
@@ -654,7 +655,7 @@ out. That work is handed out again, and the call made again, but only
 until its attempts are spent. Then it is set aside as `attempts_spent`. No
 call is made more than `max_attempts` times for one item, whatever fails.
 `core-memory read status` shows the counts, one line for each kind of
-work: chunks, tool calls, beads to judge and labels to read a second time.
+work: chunks, tool calls, beads to judge and arrows to read a second time.
 
 `core-memory serve` runs the configured readers and the judge beside the
 server, on a thread and a store connection of their own. `core-memory read
@@ -667,7 +668,8 @@ problem codes. They hold no source text and nothing a model or a provider
 said: a provider's error message can quote the request. What a model wrote
 about a tool call is in `tool_outcomes` and nowhere else. Of what a judge
 wrote, nothing is kept as text at all: a verdict is one of a fixed set of
-words, and a name is a range of a chunk.
+words, an arrow is a key of a fixed directory, and a name is a range of a
+chunk.
 
 ## Relationships
 
@@ -678,28 +680,117 @@ shown and records what it says. Code never proposes an edge and never picks
 a pair: a bead is shown because of when it happened and for no other
 reason, and a score is never evidence.
 
+### The arrows
+
+The relationships are those of Mark Burgess's Semantic Spacetime, as his
+SSTorytime implements them. Every relationship is an *arrow*, and every
+arrow belongs to one of four types of association:
+
+| Type | Burgess | What it says |
+|---|---|---|
+| `near` | 0, proximity | The two are close: alike, about one matter, or easily confused. No direction. |
+| `leadsto` | 1, follows | One follows from the other: cause, result, dependency, implementation, replacement. |
+| `contains` | 2, membership | One is a part of the other, or both are parts of one memory. |
+| `express` | 3, expresses | One states something of the other: a note, an example, an attribute, a definition, a source. |
+
+An arrow has a forward name and, unless it is symmetric, an inverse, as in
+his `SSTconfig` files: `cause` reads "causes", `cause-by` "is caused by".
+It is stored by its forward name, from the bead the forward name is said
+of: `A cause B` is an edge from A to B. A judge names the arrow from the
+new bead's side, the forward name or its inverse, and the name says which
+way it runs, so there are no direction codes to settle separately. The
+arrows of `near` have one name and no direction, and are stored from the
+smaller ID to the larger. A `near` arrow whose name starts with `!` says
+that two are *not* alike, as his files mark it: nearness is never completed
+through it.
+
+| Arrow | Inverse | Type | A judge gives it when | Names from |
+|---|---|---|---|---|
+| `cause` causes | `cause-by` | leadsto | what one describes brought about what the other describes | SSTorytime |
+| `result` results in | `result-of` | leadsto | the other is what came of an action, a fix, a call or a test | SSTorytime |
+| `enables` | `enabled-by` | leadsto | one had to be in place for the other to happen | SSTorytime |
+| `implem` implements | `implorg` | leadsto | a step carries out a decision, a plan or a request | SSTorytime |
+| `repl` replaces | `repl-by` | leadsto | a later statement on the very matter replaces the earlier: a changed date, a corrected figure, a reversed decision | SSTorytime |
+| `withdraws` | `withdrawn-by` | leadsto | a later statement takes the earlier back and puts nothing in its place | engine |
+| `has-pt` has a part | `pt-of` | contains | one is a whole, a plan, a list, a meeting, and the other one of its items | SSTorytime |
+| `same-memory` | | contains | the two are pieces of one message or document, or of one account its author runs on | engine |
+| `consists` consists of | `mkpt` | contains | not given by a judge: a group bead's edge to each member | SSTorytime |
+| `note` note/remark | `isnotefor` | express | one is a note or remark about the other | SSTorytime |
+| `e.g.` has example | `ex` | express | one is an example of what the other says | SSTorytime |
+| `i.e.` in other words | `clarify` | express | one says the other in other words | SSTorytime |
+| `attr` has an attribute | `attr-of` | express | one states an attribute of what the other is about | SSTorytime |
+| `def` defined as | `def-of` | express | one defines what the other names | SSTorytime |
+| `source` has source | `source-of` | express | one is where the other came from | SSTorytime |
+| `solution` potential solution | `issolution` | express | one is a potential solution to a problem the other states | SSTorytime |
+| `answers` | `answered-by` | express | one answers a question the other asks | engine |
+| `confirms` | `confirmed-by` | express | a later statement says again what the earlier says | engine |
+| `see` see also | | near | both are about one particular matter, and nothing above holds | SSTorytime |
+| `sim` similar to | | near | the two say much the same of different matters | SSTorytime |
+| `!confuse` don't confuse with | | near | the two are easily taken for one, by a name or the same words, and are not | SSTorytime |
+| `!contradicts` | | near | the two cannot both hold, and neither replaces or withdraws the other | engine |
+
+The directory is the table `arrows`, which a host may read; it changes only
+with a migration. Five arrows are this engine's own, written in the form his
+files use for a user's additions: `withdraws` (a promise withdrawn, in his
+Promise Theory), `same-memory`, `answers`, `confirms` and `!contradicts`.
+
+Two arrows **end currency**: `repl` and `withdraws`. A bead of source
+content is **current** while no `repl` or `withdraws` edge points at it.
+Nothing else makes a bead stop being current. In particular a
+contradiction does not: Burgess keeps a contradiction as a difference that
+each observer assesses for itself, and so does the engine. Both statements
+of a `!contradicts` stay current, and the dispute is **open** for as long as
+they both are.
+
+What is taken from his implementation and what is not:
+
+- **The four types and named arrows within them**, with forward and inverse
+  names, are his. His short names are used as he gives them.
+- **Sequence is the store's, not a judge's.** His `(then)` arrow, and the
+  `_sequence_` sections his text tool writes, join each event to the next
+  in the order of the stream. The store holds that order already, as each
+  bead's time and `seq`, so a judge adds only what order alone does not
+  say. A relationship is never made from chronology alone.
+- **Nearness is not completed.** SSTorytime closes cliques of `near` arrows
+  (A near B and B near C makes A near C). His own paper on knowledge
+  representation holds that transitivity cannot be promised for an
+  arbitrary association, and invariant 4 says a relationship is judged,
+  never inferred. Completing nearness is a view a host may compute.
+- **A link has no context and no weight here.** His links carry both. The
+  context of a judgment is its read: the call, which names the beads shown
+  and their scopes. Weights are a host's.
+- **One arrow for a pair in a read**: the one a reader most needs. His
+  graphs allow several, and a pair judged again may gain another.
+- **`wrongabt` is not offered.** "Is wrong about" asserts which side is
+  wrong, which a judge cannot know; a dispute is recorded as
+  `!contradicts`.
+
+Sources: Burgess, *Spacetimes with Semantics (III)* (arXiv:1608.02193),
+section 5.4.9 and table 1, and section 5.6.3 on negative associations; *A
+Spacetime Approach to Generalized Cognitive Reasoning in Multi-scale
+Learning* (arXiv:1702.04638), table I; *Testing the Quantitative Spacetime
+Hypothesis using Artificial Narrative Comprehension (II)* (arXiv:2010.08125),
+the four types as applied to narrative; *Spacetimes with Semantics (I)*
+(arXiv:1411.5563); the *Book of Promises*
+(`markburgess.org/BookOfPromises.pdf`) on incompatible and withdrawn
+promises; and his code: `pkg/SST/SST.go` of
+SemanticSpaceTime, and `SSTconfig/arrows-*.sst` and `docs/N4L.md` of
+SSTorytime.
+
 ### What the judge writes
 
 | Thing | What it is |
 |---|---|
-| Verdict | One row for every pair the judge was shown, whatever it said: `near`, `leadsto`, `contains`, `express`, `supersedes`, `none` or `unsure`. It holds no text. `unsure`, and a pair that was never shown, are not a no. |
-| Edge | `near`, `leadsto`, `contains`, `express` or `supersedes`, from one bead to another. An edge has no state and no weight, and is never changed or deleted. The same relationship between the same two beads is one edge, however often it is judged. |
-| Label bead | A bead that says a later statement `supersede`s, `retract`s or `reaffirm`s an earlier one, or is in `conflict` with it. It holds no text. `supersedes` edges run from it to the one or two beads it follows. |
-| Group bead | A bead that marks several beads as parts of one memory, in one message or across messages. `contains` edges run from it to each member. |
+| Verdict | One row for every pair the judge was shown, whatever it said: the type of the arrow it gave (`near`, `leadsto`, `contains`, `express`) and the arrow, or `none`, or `unsure`. It holds no text. `unsure`, and a pair that was never shown, are not a no. |
+| Edge | An arrow from one bead to another, with its type. An edge has no state and no weight, and is never changed or deleted. The same arrow between the same two beads is one edge, however often it is judged. |
+| Group bead | A bead that marks several beads as parts of one memory, in one message or across messages: a hub, as Burgess builds one in his narrative work. `consists` edges run from it to each member. |
 | Name link | Two different names for one entity, each kept as the byte range where it stands in its own chunk. The same two names linked again are one link. |
 
-`leadsto` and `express` run from one bead of source content to another.
-`near` has no direction, and is stored from the smaller ID to the larger.
-
-A bead of source content is **current** while no `supersedes` edge points
-at it. A chain has one head and never branches: a bead is superseded at
-most once, and a label bead follows at most two beads. A label bead stands
-for its source, the bead of the later statement. Its ID is derived from the
-source's, so there is one label for a source: a statement that follows a
-second bead does so through the same label bead, with the same label. A
-statement labelled `conflict` and the one it conflicts with are both shown
-to the judge first, for as long as the conflict is open, which is until
-something supersedes the later of the two.
+A chain has one head and never branches: a bead is replaced or withdrawn at
+most once, and a statement ends at most two beads, all with one arrow.
+The edge runs from the later statement itself to each bead it ends. The
+beads of an open dispute are both shown to the judge first, for as long as
+the dispute is open.
 
 ### A judge read
 
@@ -735,14 +826,14 @@ reply comes at last.
 under the workspace's lock, by time alone: the live beads of source content
 whose time lies between the new beads, or within `window_ms` before the
 earliest or after the latest, nearest first, up to `max_window_beads` beads
-and `max_window_bytes` of content. The beads of open conflicts come before
-them, up to `max_conflict_beads`. A bead that is itself waiting to be
-judged is left out. Its pairs are read when its own turn comes, with these
-beads in its window, so a pair is read once, whichever of the two arrived
-first. So is a bead this judge has already read with every new bead: that
-happens when beads stored before there was a judge are queued after later
-ones were read beside them. A pair the limits kept out of every window was
-never shown, and nothing is recorded for it.
+and `max_window_bytes` of content. The beads of open disputes come before
+them, most recent first, up to `max_conflict_beads`. A bead that is itself
+waiting to be judged is left out. Its pairs are read when its own turn
+comes, with these beads in its window, so a pair is read once, whichever of
+the two arrived first. So is a bead this judge has already read with every
+new bead: that happens when beads stored before there was a judge are
+queued after later ones were read beside them. A pair the limits kept out
+of every window was never shown, and nothing is recorded for it.
 
 Each bead is decided on its own: it is shown only while its scope is active
 and has granted the judge's destination. The permit locks the workspace,
@@ -758,58 +849,63 @@ window and `N1`, `N2`, ... for the new beads, each list in time order.
 With it come its time and how precise that is, the kind of source, opaque
 handles for its scope, its author, its message, its thread and its
 session, where it stands in its message, what it replies to if that is in
-the lists, its type if a model read one, whether it is still current, its
-label and its group. A message's bead is shown with its chunk's text. A
-tool call's bead is shown with its tool, and the action, outcome and status
-a model wrote of the call.
+the lists, its type if a model read one, whether it is still current, the
+arrow by which it already replaced or withdrew another (`chain`), and its
+group. A message's bead is shown with its chunk's text. A tool call's bead
+is shown with its tool, and the action, outcome and status a model wrote of
+the call.
 
 **What it answers.** One entry for each new bead: the pairs that have a
-relationship, each with a code, and the pairs it cannot decide. A new bead
-is compared with every bead of the window and every new bead before it. A
-pair it leaves out is a `none`: it compared the two and found nothing. The
-codes say the direction from the new bead's side (`LEADSTO>` runs from the
-other bead to the new one, `LEADSTO<` from the new one to the other), and
-the rubric has the judge settle direction first: which statement is the
-later one, which thing happened first, whatever order the messages arrived
-in.
+relationship, each with an arrow, and the pairs it cannot decide. A new
+bead is compared with every bead of the window and every new bead before
+it. A pair it leaves out is a `none`: it compared the two and found
+nothing. The arrow is named so that "the new memory *arrow* the other" is
+true, which settles its direction: `repl` when the new bead replaces the
+other, `repl-by` when the other, a later statement that arrived first,
+replaces it.
 
 The rubric also says what a relationship is not. That one message answers,
 thanks or reacts to another, or comes next in a conversation, is already
-kept as structure (`reply_to`, thread, session), and is not a relationship
-by itself: a question and its answer are not `leadsto`. The first live run
-(`eval/locomo-smoke`) showed why: without that rule, most of what the judge
-wrote joined a message to the reply next to it.
+kept as structure (`reply_to`, thread, session, the times), and is not a
+relationship by itself: that one replies to or mentions the other is not
+`leadsto`, and a question and its answer are `answers`, not `leadsto`. The
+first live run (`eval/locomo-smoke`) showed why: without that rule, most of
+what the judge wrote joined a message to the reply next to it.
 
 Since rubric revision 3, messages by different people are never parts of
-one memory (`CONTAINS`), and two statements that give different values for
-one fact are `supersedes`, with the later one superseding, whether or not
-either mentions the other: `supersede` when the later one changes or
-corrects the earlier, `conflict` when either could still be right. In
-three runs of `eval/adversarial` under revision 2, a contradiction between
-two people came back `supersede`, `express` and `contains`, the last
-joining both into one memory, and a move that no message called a
-correction came back `supersede`, `express` and `leadsto`.
+one memory, and two statements that give different values for one fact are
+related whether or not either mentions the other. Since revision 4, which
+brought the arrows, that relationship is `repl` from the later statement
+when it changes or corrects the earlier, and `!contradicts` when either
+could still be right: both then stay current. Under revisions 2 and 3, a
+contradiction was a label on the chain, which made the later statement
+current by recency; in six runs of `eval/adversarial` the judge called such
+a pair `express` five times.
 
-The provider holds the reply to its shape, and the shape requires a label
-with a `SUPERSEDES` code and allows none with another: the two are two
-branches of an `anyOf`, since a provider's schema cannot make one field
-depend on another. A provider holds an enum value to its list but not to
-its case, so codes and labels are read whatever their case, as a tool
-call's status is. The adversarial run of 2026-11-20 (`eval/adversarial`)
-lost 46 of its 64 judge calls to replies the provider let through and the
-validator refused, each of them for a code or a label (four also for a
-handle the entry could not answer about).
+A pair gets one arrow: one that ends currency if one holds, else
+`same-memory`, else another of `leadsto`, else one of `contains`, else one
+of `express`, else one of `near`.
+
+The provider holds the reply to its shape: an arrow is one of the
+directory's names, forward or inverse, of every arrow a judge may give. A
+provider holds an enum value to its list but not to its case, so an arrow is
+read whatever its case, as a tool call's status is. The adversarial run of
+2026-11-20 (`eval/adversarial`) lost 46 of its 64 judge calls to replies
+the provider let through and the validator refused, under the codes and
+labels of revision 2; revision 3 made the shape exact, and revision 4 keeps
+it so with one field.
 
 A reply is rejected whole, and repaired once, if it is not of that shape,
 if a new bead has no entry or a pair two answers, or if what it says would
 break a rule of the store:
 
-- a `SUPERSEDES` has no label, or another answer has one;
-- a bead that is no longer current supersedes or is superseded;
-- a bead is superseded twice, supersedes more than two beads or with two
-  labels, or beads supersede each other in a circle;
-- beads are tied into one memory by `CONTAINS` answers without each pair
-  of them being `CONTAINS`, or members of two groups would become one;
+- an arrow is not one a judge may give;
+- a bead that is no longer current replaces or withdraws, or is replaced or
+  withdrawn;
+- a bead is ended twice, a statement ends more than two beads or both
+  replaces and withdraws, or statements end each other in a circle;
+- beads are tied into one memory by `same-memory` answers without each pair
+  of them being `same-memory`, or members of two groups would become one;
 - a name link joins beads that were not compared, or a tool call, which
   has no text to copy a name from.
 
@@ -824,71 +920,73 @@ else. What kind each one was is a code from a fixed set, and the round's
 log line lists the kinds its rejected replies had (`reply_faults`), a first
 reply that the repair put right included: `not_json`, `shape`,
 `unknown_memory` (a handle the entry may not answer for or about),
-`relationship` (a code or label not allowed there), `answered_twice`,
-`missing_entry`, `not_current`, `chain`, `group` and `name`.
+`relationship` (an arrow not allowed), `answered_twice`, `missing_entry`,
+`not_current`, `chain`, `group` and `name`.
 
 ### What a read stores
 
 One transaction, under the workspace's write lock, stores a row for the
-read itself, a verdict row for every pair, the edges, the label and group
-beads with their edges, and the name links. Something is stored only for a
-bead the call's receipt names, that is still live, in a scope that is still
-active, and whose work this call still holds under its lease: a bead erased
-while the judge was reading, or handed to another worker, gets nothing. A
-new bead whose scope stopped being active is put back in the queue, its
-attempt given back, so that no lease is left behind to keep other judges
-out of the workspace.
+read itself, a verdict row for every pair, the edges, the group beads with
+their edges, and the name links. Something is stored only for a bead the
+call's receipt names, that is still live, in a scope that is still active,
+and whose work this call still holds under its lease: a bead erased while
+the judge was reading, or handed to another worker, gets nothing. A new
+bead whose scope stopped being active is put back in the queue, its attempt
+given back, so that no lease is left behind to keep other judges out of the
+workspace.
 
-A verdict row holds the two beads in time order, the scope of each, an
-explicit direction, the label if the verdict is `supersedes`, the rubric
-and binding revisions, and the pair's `columns` as they were at that
-moment: the gap in time, whether the beads
-share a scope, an event, a thread, a session or an actor, whether one
-replies to the other, how many identifiers and URLs they share, their kinds
-and types, and whether each was current and new to the judge. The columns
-are numbers, flags and vocabulary keys. They are for a host that learns
-which pairs are worth showing a judge. Nothing in the engine reads them
-back.
+A verdict row holds the two beads in time order, the scope of each, the
+arrow and its type, an explicit direction, the rubric and binding
+revisions, and the pair's `columns` as they were at that moment: the gap in
+time, whether the beads share a scope, an event, a thread, a session or an
+actor, whether one replies to the other, how many identifiers and URLs
+they share, their kinds and types, and whether each was current and new to
+the judge. The columns are numbers, flags and vocabulary keys. They are for
+a host that learns which pairs are worth showing a judge. Nothing in the
+engine reads them back.
 
-A chain grows at its head. When a read is stored, a label is written only
-if its source and each bead it follows are still current, and its source
-carries no other kind of label and has room for it. Otherwise the verdict
-is kept and noted: `not_current`, or `label_taken`.
+A chain grows at its head. When a read is stored, an arrow that ends
+currency is written only if its source and each bead it ends are still
+current, and its source ends no beads with the other arrow and has room for
+these. Otherwise the verdict is kept and noted: `not_current`, or
+`chain_taken`.
 
-A label that changes what a reader would take as current is not written by
-the read that proposes it. That is every label but a `reaffirm` of one
-statement by a source that carries no label yet. The label is held, its
-verdict is noted `awaits_second_read`, and the pair is read a second time:
-the source and the beads it would follow, alone, without the first answer.
-If the second read gives the same label for the same beads, the label is
-written. If it does not, nothing changes, and its verdict is noted
-`second_read_differs`. A second read stores its verdicts and at most that
-label, and nothing else. This rule is the setting `second_read`, which is
-on unless it is turned off.
+An arrow that ends currency changes what a reader takes as current, so it
+is not written by the read that gives it. It is held, its verdict is noted
+`awaits_second_read`, and the pair is read a second time: the source and the
+beads it would end, alone, without the first answer. If the second read
+gives the same arrow for the same beads, it is written. If it does not,
+nothing changes, and its verdict is noted `second_read_differs` when its
+arrow too would have ended a bead. A second read stores its verdicts and at
+most that arrow, and nothing else. This rule is the setting `second_read`,
+which is on unless it is turned off. Every other arrow, `confirms` and
+`!contradicts` included, is written by the read that gives it.
 
-Labels that share a bead are settled in order. A label that shares a bead
-with one that waits for its second read waits too, whatever kind it is:
-written at once, a reaffirmation of a statement whose own replacement waits
-would supersede that statement first, and the replacement could then never
-be written. Held labels are read a second time in the order they were
-held, and one that shares a bead with an earlier held label waits for it,
-unless that one was set aside as failed. A chain given in one read is so
-written from its oldest statement on. A held label that can no longer be
-written when its turn comes, because a bead it is about was superseded or
-its source took another label, is dropped without a call, and its first
+Arrows that share a bead are settled in order. An arrow that ends currency
+and shares a bead with one that waits for its second read waits too:
+written at once, a withdrawal of a statement whose own replacement waits
+would end that statement first, and the replacement could then never be
+written. Held arrows are read a second time in the order they were held,
+and one that shares a bead with an earlier held arrow waits for it, unless
+that one was set aside as failed. A chain given in one read is so written
+from its oldest statement on. A held arrow that can no longer be written
+when its turn comes, because a bead it is about was ended meanwhile or its
+source took the other arrow, is dropped without a call, and its first
 verdict keeps its note.
 
-A group is what the judge affirmed pair by pair. A new bead joins the one
-group its partners already share, or a new group is made of beads that
-belong to none. Nothing becomes part of a memory by way of a third bead.
+A group is what the judge affirmed pair by pair with `same-memory`. A new
+bead joins the one group its partners already share, or a new group is made
+of beads that belong to none. Nothing becomes part of a memory by way of a
+third bead. A `has-pt` arrow makes no group: the whole and its part stay
+memories of their own.
 
 A pair is read once by a judge. When beads are queued again for another
 judge, with `read queue --reread`, its verdict on a pair is a new row
 beside the first, under its own binding revision. Neither replaces the
 other: a later `none` is evidence against an edge for whoever weighs edges,
-and the edge stays. A relationship both judges give is one edge, a name
-link both give is one link, and a second judge cannot supersede a bead
-that is already superseded.
+and the edge stays. An arrow both judges give is one edge, a name link both
+give is one link, and a second judge cannot end a bead that is already
+ended.
 
 The judge's work follows the same rules as a reader's (see
 [The queue](#the-queue)): put off without counting an attempt when no bead
@@ -902,18 +1000,16 @@ judge said of them:
 
 - **Verdicts** about an erased bead are deleted. Their columns were
   computed from its content.
-- **Name links** to an erased bead are deleted, and so is a label that
+- **Name links** to an erased bead are deleted, and so is an arrow that
   waits for its second read, with that read.
 - **Edges stay.** They hold IDs, and a link to a tombstone says only that
-  there was one.
-- **A label bead whose source is erased** is marked erased and keeps its
-  place in the chain: what it superseded does not become current again.
-  Erasing a bead in the middle of a chain, or the earlier statement of a
-  label, leaves the chain as it was.
+  there was one. So what an erased statement replaced or withdrew does not
+  become current again, and erasing a bead in the middle of a chain leaves
+  the chain as it was.
 - **A group bead** is marked erased when its last live member is.
 
-After an erase the tables take no new verdict, edge, label or name link
-about the erased bead, whoever writes it.
+After an erase the tables take no new verdict, edge, held arrow or name
+link about the erased bead, whoever writes it.
 
 ### Pairs beyond the window
 
@@ -932,9 +1028,11 @@ Lines, one workspace after another, each in `seq` order: an event with its
 chunks, then what a model read in them or wrote about the tool call as it
 was read, what a judge said as it was stored, and an erasure where an event
 was erased. A read by a judge is exported as its verdicts first, one for
-each pair, and then what they amounted to: the label and group beads, the
-edges and the name links. A `bead` record is a bead a judge made; a bead of
-source content is its chunk, or its tool call's event, under the same ID.
+each pair, and then what they amounted to: the edges that end currency,
+the other edges, the group beads with their edges, and the name links. A
+`bead` record is a group bead a judge made; a bead of source content is its
+chunk, or its tool call's event, under the same ID. An `edge` record names
+its arrow and the arrow's type.
 
 An erased event's own records, and what was read in it or judged of it, are
 not exported. An edge is: it holds two IDs. Each record carries its `seq`,

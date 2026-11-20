@@ -10,15 +10,15 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use core_memory_contract::{
-    BeadId, BeadRecord, CallId, ChunkFacets, Direction, EdgeRecord, EdgeType, EventDetails,
-    EventKey, IdKey, JudgeRef, Label, MadeBead, NameLinkRecord, PairColumns, ReaderRef, TimeBasis,
+    Arrow, BeadId, BeadRecord, CallId, ChunkFacets, Direction, EdgeRecord, EdgeType, EventDetails,
+    EventKey, IdKey, JudgeRef, MadeBead, NameLinkRecord, PairColumns, ReaderRef, TimeBasis,
     Timestamp, ToolStatus, Verdict, VerdictNote, VerdictRecord,
 };
 use core_memory_core::StoreError;
 use core_memory_core::store::{
-    Change, JudgeBatch, JudgeClaim, JudgePermit, JudgePermitRequest, JudgeWork, JudgmentFinish,
-    JudgmentFinished, JudgmentWrite, LabelWrite, LeasedBead, Purpose, ScopeState, Sending, Shown,
-    ShownBead, ShownContent, WindowOf, Withheld,
+    ChainWrite, Change, JudgeBatch, JudgeClaim, JudgePermit, JudgePermitRequest, JudgeWork,
+    JudgmentFinish, JudgmentFinished, JudgmentWrite, LeasedBead, Purpose, ScopeState, Sending,
+    Shown, ShownBead, ShownContent, WindowOf, Withheld,
 };
 use postgres::GenericClient;
 use postgres::types::Json;
@@ -118,12 +118,15 @@ fn load_beads<C: GenericClient>(
                       WHERE r.chunk_id = b.chunk_id ORDER BY r.seq DESC LIMIT 1),
                     o.status, o.action, o.outcome,
                     NOT EXISTS (SELECT 1 FROM core_memory.edges AS x
-                                 WHERE x.to_bead = b.bead_id AND x.edge_type = 'supersedes'),
-                    l.label,
+                                 WHERE x.to_bead = b.bead_id
+                                   AND x.arrow IN ('repl', 'withdraws')),
+                    (SELECT x.arrow FROM core_memory.edges AS x
+                      WHERE x.from_bead = b.bead_id AND x.arrow IN ('repl', 'withdraws')
+                      ORDER BY x.seq LIMIT 1),
                     (SELECT g.from_bead
                        FROM core_memory.edges AS g
                        JOIN core_memory.beads AS gb ON gb.bead_id = g.from_bead
-                      WHERE g.to_bead = b.bead_id AND g.edge_type = 'contains'
+                      WHERE g.to_bead = b.bead_id AND g.arrow = 'consists'
                         AND gb.state = 'live'
                       ORDER BY g.seq LIMIT 1),
                     EXISTS (SELECT 1 FROM core_memory.work AS w
@@ -133,7 +136,6 @@ fn load_beads<C: GenericClient>(
                JOIN core_memory.events AS e ON e.event_id = b.event_id
                LEFT JOIN core_memory.chunks AS c ON c.chunk_id = b.chunk_id
                LEFT JOIN core_memory.chunk_text AS t ON t.chunk_id = b.chunk_id
-               LEFT JOIN core_memory.labels AS l ON l.source_bead = b.bead_id
                LEFT JOIN LATERAL (
                    SELECT x.status, x.action, x.outcome
                      FROM core_memory.tool_outcomes AS x
@@ -182,11 +184,11 @@ fn load_beads<C: GenericClient>(
                 let facets: Option<Json<ChunkFacets>> = row.try_get(16).map_err(|e| {
                     corrupt(format!("the facets of bead {id} do not read back: {e}"))
                 })?;
-                let label = row
+                let chain = row
                     .get::<_, Option<&str>>(22)
                     .map(|name| {
-                        Label::from_name(name)
-                            .ok_or_else(|| corrupt(format!("unknown label `{name}`")))
+                        Arrow::from_name(name)
+                            .ok_or_else(|| corrupt(format!("unknown arrow `{name}`")))
                     })
                     .transpose()?;
                 let chunks: i32 = row.get(13);
@@ -208,7 +210,7 @@ fn load_beads<C: GenericClient>(
                     content,
                     type_key: row.get(17),
                     is_head: row.get(21),
-                    label,
+                    chain,
                     group: row.get::<_, Option<Uuid>>(23).map(BeadId),
                     part,
                     key: EventKey {
@@ -264,7 +266,7 @@ fn unread_with(new: &str, rev: &str) -> String {
 }
 
 /// The beads near the new ones that a judge may be shown, most wanted
-/// first: the beads of open conflicts, then by distance in time.
+/// first: the beads of open disputes, then by distance in time.
 fn near<C: GenericClient>(
     tx: &mut C,
     request: &JudgePermitRequest<'_>,
@@ -293,21 +295,22 @@ fn near<C: GenericClient>(
         }
     };
 
-    // Open conflicts, most recent first: the statement that is current,
-    // then what it conflicts with.
+    // Open disputes, most recent first: two beads that contradict each
+    // other while both are live and current.
     if conflict_beads > 0 {
         let rows = tx
             .query(
-                "SELECT l.source_bead, e.to_bead
-                   FROM core_memory.labels AS l
-                   JOIN core_memory.beads AS lb ON lb.bead_id = l.bead_id
-                   JOIN core_memory.edges AS e
-                     ON e.from_bead = l.bead_id AND e.edge_type = 'supersedes'
-                  WHERE l.workspace_id = $1 AND l.label = 'conflict' AND lb.state = 'live'
+                "SELECT e.from_bead, e.to_bead
+                   FROM core_memory.edges AS e
+                   JOIN core_memory.beads AS a ON a.bead_id = e.from_bead
+                   JOIN core_memory.beads AS b ON b.bead_id = e.to_bead
+                  WHERE e.workspace_id = $1 AND e.arrow = '!contradicts'
+                    AND a.state = 'live' AND b.state = 'live'
                     AND NOT EXISTS (
                         SELECT 1 FROM core_memory.edges AS x
-                         WHERE x.to_bead = l.source_bead AND x.edge_type = 'supersedes')
-                  ORDER BY lb.seq DESC, e.seq
+                         WHERE x.to_bead IN (e.from_bead, e.to_bead)
+                           AND x.arrow IN ('repl', 'withdraws'))
+                  ORDER BY e.seq DESC
                   LIMIT $2",
                 &[&request.workspace, &at_most(conflict_beads)],
             )
@@ -429,24 +432,29 @@ fn near<C: GenericClient>(
     Ok(wanted)
 }
 
-/// What became of a label a read gave.
+/// What became of an arrow that ends currency which a read gave.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum LabelFate {
+enum ChainFate {
     Written,
     Held,
     NotCurrent,
     Taken,
 }
 
-impl LabelFate {
+impl ChainFate {
     fn note(self) -> Option<VerdictNote> {
         match self {
-            LabelFate::Written => None,
-            LabelFate::Held => Some(VerdictNote::AwaitsSecondRead),
-            LabelFate::NotCurrent => Some(VerdictNote::NotCurrent),
-            LabelFate::Taken => Some(VerdictNote::LabelTaken),
+            ChainFate::Written => None,
+            ChainFate::Held => Some(VerdictNote::AwaitsSecondRead),
+            ChainFate::NotCurrent => Some(VerdictNote::NotCurrent),
+            ChainFate::Taken => Some(VerdictNote::ChainTaken),
         }
     }
+}
+
+/// The arrow a stored key names.
+fn arrow_named(name: &str) -> Result<Arrow, StoreError> {
+    Arrow::from_name(name).ok_or_else(|| corrupt(format!("unknown arrow `{name}`")))
 }
 
 /// Numbers from the workspace's change counter, handed out in order.
@@ -552,8 +560,8 @@ impl PostgresStore {
                 .collect()
         };
 
-        // A label that is held comes first: until it is settled, what is
-        // current in its chain is not. Labels that share a bead are read
+        // An arrow that is held comes first: until it is settled, what is
+        // current in its chain is not. Arrows that share a bead are read
         // in the order they were held, so a chain is written from its
         // oldest statement on. One whose earlier neighbour was set aside
         // as failed does not wait for it.
@@ -563,12 +571,12 @@ impl PostgresStore {
                     &format!(
                         "SELECT w.item_id
                            FROM core_memory.work AS w
-                           LEFT JOIN core_memory.pending_labels AS p
+                           LEFT JOIN core_memory.pending_chains AS p
                              ON p.source_bead = w.item_id
                           WHERE w.workspace_id = $2 AND w.kind = 'second_read' AND {DUE}
                             AND NOT EXISTS (
                                 SELECT 1
-                                  FROM core_memory.pending_labels AS e
+                                  FROM core_memory.pending_chains AS e
                                   JOIN core_memory.work AS ew
                                     ON ew.kind = 'second_read' AND ew.item_id = e.source_bead
                                  WHERE e.workspace_id = p.workspace_id
@@ -590,27 +598,28 @@ impl PostgresStore {
             let source: Uuid = row.get(0);
             let Some(held) = tx
                 .query_opt(
-                    "SELECT p.label, p.head_beads,
+                    "SELECT p.arrow, p.head_beads,
                             (SELECT bool_and(b.state = 'live') FROM core_memory.beads AS b
                               WHERE b.bead_id = p.source_bead OR b.bead_id = ANY (p.head_beads)),
                             EXISTS (
                                 SELECT 1 FROM core_memory.edges AS x
-                                 WHERE x.edge_type = 'supersedes'
+                                 WHERE x.arrow IN ('repl', 'withdraws')
                                    AND (x.to_bead = p.source_bead
                                         OR x.to_bead = ANY (p.head_beads))),
-                            (SELECT l.label FROM core_memory.labels AS l
-                              WHERE l.source_bead = p.source_bead),
-                            (SELECT count(*) FROM core_memory.labels AS l
-                               JOIN core_memory.edges AS e
-                                 ON e.from_bead = l.bead_id AND e.edge_type = 'supersedes'
-                              WHERE l.source_bead = p.source_bead)
-                       FROM core_memory.pending_labels AS p
+                            (SELECT e.arrow FROM core_memory.edges AS e
+                              WHERE e.from_bead = p.source_bead
+                                AND e.arrow IN ('repl', 'withdraws')
+                              ORDER BY e.seq LIMIT 1),
+                            (SELECT count(*) FROM core_memory.edges AS e
+                              WHERE e.from_bead = p.source_bead
+                                AND e.arrow IN ('repl', 'withdraws'))
+                       FROM core_memory.pending_chains AS p
                       WHERE p.source_bead = $1",
                     &[&source],
                 )
                 .map_err(backend)?
             else {
-                // The label is no longer held, so its second read is no
+                // The arrow is no longer held, so its second read is no
                 // longer owed.
                 tx.execute(
                     "DELETE FROM core_memory.work WHERE kind = 'second_read' AND item_id = $1",
@@ -619,28 +628,24 @@ impl PostgresStore {
                 .map_err(backend)?;
                 continue;
             };
-            let label: &str = held.get(0);
-            let label = Label::from_name(label)
-                .ok_or_else(|| corrupt(format!("unknown label `{label}`")))?;
+            let arrow = arrow_named(held.get(0))?;
             let heads: Vec<Uuid> = held.get(1);
             let live = held.get::<_, Option<bool>>(2).unwrap_or(false);
-            let superseded: bool = held.get(3);
+            let ended: bool = held.get(3);
             let carried = held
                 .get::<_, Option<&str>>(4)
-                .map(|name| {
-                    Label::from_name(name).ok_or_else(|| corrupt(format!("unknown label `{name}`")))
-                })
+                .map(arrow_named)
                 .transpose()?;
-            let follows = usize::try_from(held.get::<_, i64>(5)).unwrap_or(usize::MAX);
+            let ends = usize::try_from(held.get::<_, i64>(5)).unwrap_or(usize::MAX);
             let room = carried
-                .is_none_or(|carried| carried == label && follows.saturating_add(heads.len()) <= 2);
-            if !live || superseded || !room {
-                // The label can no longer be written: a bead it is about
-                // was superseded meanwhile, or its source took a label it
-                // cannot join. No second read is made for it, and its
-                // first verdict keeps its note.
+                .is_none_or(|carried| carried == arrow && ends.saturating_add(heads.len()) <= 2);
+            if !live || ended || !room {
+                // The arrow can no longer be written: a bead it is about
+                // was replaced or withdrawn meanwhile, or its source ended
+                // beads with an arrow it cannot join. No second read is
+                // made for it, and its first verdict keeps its note.
                 tx.execute(
-                    "DELETE FROM core_memory.pending_labels WHERE source_bead = $1",
+                    "DELETE FROM core_memory.pending_chains WHERE source_bead = $1",
                     &[&source],
                 )
                 .map_err(backend)?;
@@ -661,7 +666,7 @@ impl PostgresStore {
                         bead_id: BeadId(source),
                         attempts: attempts.get(&source).copied().unwrap_or(1),
                     },
-                    label,
+                    arrow,
                     heads: heads.into_iter().map(BeadId).collect(),
                 },
             }));
@@ -1040,29 +1045,19 @@ impl PostgresStore {
 }
 
 /// The one scope a bead's content belongs to: its own for a bead of source
-/// content. A bead a judge made belongs to one scope when the beads it was
-/// made with all do: a label bead's source and the beads its label first
-/// followed, a group bead's first members. Those were written with it, by
-/// the same call, and never change, so what an export of one scope gives
-/// stays given. A head or a member added later from another scope is left
-/// out of that export with its edge. `bead` is an SQL expression.
+/// content. A group bead belongs to one scope when the members it was made
+/// with all do. Those were written with it, by the same call, and never
+/// change, so what an export of one scope gives stays given. A member added
+/// later from another scope is left out of that export with its edge.
+/// `bead` is an SQL expression.
 fn home_scope(bead: &str) -> String {
     format!(
         "(SELECT CASE h.kind
-                 WHEN 'label' THEN (
-                     SELECT CASE WHEN bool_and(tb.scope = sb.scope) THEN min(sb.scope) END
-                       FROM core_memory.labels AS hl
-                       JOIN core_memory.beads AS sb ON sb.bead_id = hl.source_bead
-                       JOIN core_memory.edges AS he
-                         ON he.from_bead = hl.bead_id AND he.edge_type = 'supersedes'
-                        AND he.call_id = h.call_id
-                       JOIN core_memory.beads AS tb ON tb.bead_id = he.to_bead
-                      WHERE hl.bead_id = h.bead_id)
                  WHEN 'group' THEN (
                      SELECT CASE WHEN count(DISTINCT mb.scope) = 1 THEN min(mb.scope) END
                        FROM core_memory.edges AS hm
                        JOIN core_memory.beads AS mb ON mb.bead_id = hm.to_bead
-                      WHERE hm.from_bead = h.bead_id AND hm.edge_type = 'contains'
+                      WHERE hm.from_bead = h.bead_id AND hm.arrow = 'consists'
                         AND hm.call_id = h.call_id)
                  ELSE h.scope
                  END
@@ -1101,7 +1096,7 @@ pub(crate) fn exported_seqs() -> String {
     format!(
         "UNION ALL
          SELECT b.seq FROM core_memory.beads AS b
-          WHERE b.workspace_id = $1 AND b.seq > $2 AND b.kind IN ('label', 'group')
+          WHERE b.workspace_id = $1 AND b.seq > $2 AND b.kind = 'group'
             AND b.state = 'live' AND {beads}
          UNION ALL
          SELECT x.seq FROM core_memory.edges AS x
@@ -1135,11 +1130,10 @@ pub(crate) fn export_judgments(
     let rows = tx
         .query(
             &format!(
-                "SELECT b.bead_id, b.seq, b.kind, b.call_id, b.created_at, l.label, l.source_bead
+                "SELECT b.bead_id, b.seq, b.call_id, b.created_at
                    FROM core_memory.beads AS b
-                   LEFT JOIN core_memory.labels AS l ON l.bead_id = b.bead_id
                   WHERE b.workspace_id = $1 AND b.seq > $2 AND b.seq <= $3
-                    AND b.kind IN ('label', 'group') AND b.state = 'live' AND {inside}
+                    AND b.kind = 'group' AND b.state = 'live' AND {inside}
                   ORDER BY b.seq",
                 inside = inside("$4", &["b.bead_id"])
             ),
@@ -1148,28 +1142,16 @@ pub(crate) fn export_judgments(
         .map_err(backend)?;
     for row in &rows {
         let bead_id = BeadId(row.get::<_, Uuid>(0));
-        let made = match (
-            row.get::<_, &str>(2),
-            row.get::<_, Option<&str>>(5),
-            row.get::<_, Option<Uuid>>(6),
-        ) {
-            ("label", Some(label), Some(source)) => MadeBead::Label {
-                label: Label::from_name(label).ok_or_else(|| named(label, "label"))?,
-                source: BeadId(source),
-            },
-            ("group", _, _) => MadeBead::Group,
-            _ => return Err(corrupt(format!("label bead {bead_id} has no label"))),
-        };
-        let call: Option<Uuid> = row.get(3);
+        let call: Option<Uuid> = row.get(2);
         let record = BeadRecord {
             bead_id,
             workspace: workspace.to_string(),
             seq: to_u64(row.get(1), "change number")?,
-            made,
+            made: MadeBead::Group,
             call_id: CallId(
                 call.ok_or_else(|| corrupt(format!("bead {bead_id} names no judge's call")))?,
             ),
-            created_at: at(row, 4),
+            created_at: at(row, 3),
         };
         changes.insert(record.seq, Change::Bead(Box::new(record)));
     }
@@ -1178,7 +1160,8 @@ pub(crate) fn export_judgments(
     let rows = tx
         .query(
             &format!(
-                "SELECT x.seq, x.edge_type, x.from_bead, x.to_bead, x.call_id, x.created_at
+                "SELECT x.seq, x.edge_type, x.from_bead, x.to_bead, x.call_id, x.created_at,
+                        x.arrow
                    FROM core_memory.edges AS x
                   WHERE x.workspace_id = $1 AND x.seq > $2 AND x.seq <= $3 AND {inside}
                   ORDER BY x.seq",
@@ -1194,6 +1177,7 @@ pub(crate) fn export_judgments(
             seq: to_u64(row.get(0), "change number")?,
             edge_type: EdgeType::from_name(edge_type)
                 .ok_or_else(|| named(edge_type, "relationship"))?,
+            arrow: arrow_named(row.get(6))?,
             from_bead: BeadId(row.get::<_, Uuid>(2)),
             to_bead: BeadId(row.get::<_, Uuid>(3)),
             call_id: CallId(row.get::<_, Uuid>(4)),
@@ -1206,7 +1190,7 @@ pub(crate) fn export_judgments(
     let rows = tx
         .query(
             &format!(
-                "SELECT v.seq, v.earlier_bead, v.later_bead, v.verdict, v.direction, v.label,
+                "SELECT v.seq, v.earlier_bead, v.later_bead, v.verdict, v.direction, v.arrow,
                         v.note, v.columns, v.columns_rev, v.call_id, r.read_no, r.rubric_rev,
                         r.binding_id, r.binding_rev, r.model, r.judged_at, v.earlier_scope,
                         v.later_scope
@@ -1235,12 +1219,9 @@ pub(crate) fn export_judgments(
             earlier_scope: row.get(16),
             later_scope: row.get(17),
             verdict: Verdict::from_name(verdict).ok_or_else(|| named(verdict, "verdict"))?,
+            arrow: row.get::<_, Option<&str>>(5).map(arrow_named).transpose()?,
             direction: Direction::from_name(direction)
                 .ok_or_else(|| named(direction, "direction"))?,
-            label: row
-                .get::<_, Option<&str>>(5)
-                .map(|label| Label::from_name(label).ok_or_else(|| named(label, "label")))
-                .transpose()?,
             note: row
                 .get::<_, Option<&str>>(6)
                 .map(|note| VerdictNote::from_name(note).ok_or_else(|| named(note, "note")))
@@ -1303,12 +1284,12 @@ fn stored_by<C: GenericClient>(tx: &mut C, call: CallId) -> Result<JudgmentFinis
                        FROM core_memory.judge_reads AS r WHERE r.call_id = $1),
                     (SELECT count(*) FROM core_memory.verdicts WHERE call_id = $1),
                     (SELECT count(*) FROM core_memory.edges
-                      WHERE call_id = $1 AND edge_type NOT IN ('supersedes', 'contains')),
+                      WHERE call_id = $1 AND arrow NOT IN ('repl', 'withdraws', 'consists')),
                     (SELECT count(DISTINCT from_bead) FROM core_memory.edges
-                      WHERE call_id = $1 AND edge_type = 'supersedes'),
-                    (SELECT count(*) FROM core_memory.pending_labels WHERE call_id = $1),
+                      WHERE call_id = $1 AND arrow IN ('repl', 'withdraws')),
+                    (SELECT count(*) FROM core_memory.pending_chains WHERE call_id = $1),
                     (SELECT count(DISTINCT from_bead) FROM core_memory.edges
-                      WHERE call_id = $1 AND edge_type = 'contains'),
+                      WHERE call_id = $1 AND arrow = 'consists'),
                     (SELECT count(*) FROM core_memory.name_links WHERE call_id = $1)",
             &[&call.0],
         )
@@ -1330,9 +1311,9 @@ fn stored_by<C: GenericClient>(tx: &mut C, call: CallId) -> Result<JudgmentFinis
         judged: count(0),
         verdicts: count(1),
         edges: count(2),
-        labels: count(3),
+        chains: count(3),
         held: count(4),
-        labels_dropped: 0,
+        chains_dropped: 0,
         groups: count(5),
         names: count(6),
         dropped: 0,
@@ -1422,11 +1403,11 @@ fn store_judgment(
     if owed.is_empty() {
         return Ok(finished);
     }
-    // A valid second read settles the label it was held for, whatever it
-    // says: the label is written below if this read gives it again.
+    // A valid second read settles the arrow it was held for, whatever it
+    // says: the arrow is written below if this read gives it again.
     if let Some(source) = f.settles.filter(|source| owed.contains(&source.0)) {
         tx.execute(
-            "DELETE FROM core_memory.pending_labels WHERE source_bead = $1",
+            "DELETE FROM core_memory.pending_chains WHERE source_bead = $1",
             &[&source.0],
         )
         .map_err(backend)?;
@@ -1444,9 +1425,9 @@ fn store_judgment(
         .iter()
         .filter(|e| is_owed(&e.read_for) && is_valid(&e.from) && is_valid(&e.to))
         .collect();
-    let (labels, unwritten): (Vec<&LabelWrite>, Vec<&LabelWrite>) =
-        j.labels.iter().partition(|l| {
-            l.read_for.iter().all(is_owed) && is_valid(&l.source) && l.heads.iter().all(is_valid)
+    let (chains, unwritten): (Vec<&ChainWrite>, Vec<&ChainWrite>) =
+        j.chains.iter().partition(|c| {
+            c.read_for.iter().all(is_owed) && is_valid(&c.source) && c.heads.iter().all(is_valid)
         });
     let names: Vec<_> = j
         .names
@@ -1473,11 +1454,11 @@ fn store_judgment(
         .collect();
 
     // Numbers for every row this may write: the read, each verdict, each
-    // relationship, each bead a label or a group may need with its
-    // edges, and each name link.
-    let label_rows: usize = labels.iter().map(|l| 1 + l.heads.len()).sum();
+    // relationship, each arrow that ends currency or the held arrow in its
+    // place, each group bead with its edges, and each name link.
+    let chain_rows: usize = chains.iter().map(|c| c.heads.len().max(1)).sum();
     let group_rows: usize = groups.iter().map(|(_, _, members)| 1 + members.len()).sum();
-    let count = 1 + verdicts.len() + edges.len() + label_rows + group_rows + names.len();
+    let count = 1 + verdicts.len() + edges.len() + chain_rows + group_rows + names.len();
     let take = i32::try_from(count).map_err(|_| corrupt("a judgment is too large to store"))?;
     let first = begin_workspace_write(tx, f.workspace, Some(take))?
         .ok_or_else(|| corrupt("a workspace gave no change number"))?;
@@ -1516,58 +1497,53 @@ fn store_judgment(
     .map_err(backend)?;
     finished.judged = judged.len() as u32;
     // The verdicts are numbered first and written once it is known what
-    // became of their labels: a reader of the changes gets what the judge
+    // became of their arrows: a reader of the changes gets what the judge
     // said of each pair, and then what that amounted to.
     let verdict_seqs: Vec<i64> = verdicts
         .iter()
         .map(|_| numbers.take())
         .collect::<Result<_, _>>()?;
 
-    // ---- labels ----
-    // What is current, and which sources carry a label, as the workspace
-    // stands now. Both change as this read's own labels are written.
+    // ---- arrows that end currency ----
+    // What is current, and which sources already end beads, as the
+    // workspace stands now. Both change as this read's own arrows are
+    // written.
     let mut involved: Vec<Uuid> = Vec::new();
-    for label in &labels {
-        involved.push(label.source.0);
-        involved.extend(label.heads.iter().map(|head| head.0));
+    for chain in &chains {
+        involved.push(chain.source.0);
+        involved.extend(chain.heads.iter().map(|head| head.0));
     }
-    let mut superseded: BTreeSet<Uuid> = tx
+    let mut ended: BTreeSet<Uuid> = tx
         .query(
             "SELECT to_bead FROM core_memory.edges
-              WHERE edge_type = 'supersedes' AND to_bead = ANY ($1)",
+              WHERE arrow IN ('repl', 'withdraws') AND to_bead = ANY ($1)",
             &[&involved],
         )
         .map_err(backend)?
         .iter()
         .map(|row| row.get(0))
         .collect();
-    // For each source that carries a label: its label bead, the label,
-    // and how many beads it follows.
-    let mut carried: BTreeMap<Uuid, (Uuid, Label, usize)> = BTreeMap::new();
+    // For each source that already ends beads: the arrow, and how many.
+    let mut carried: BTreeMap<Uuid, (Arrow, usize)> = BTreeMap::new();
     for row in &tx
         .query(
-            "SELECT l.source_bead, l.bead_id, l.label,
-                    (SELECT count(*) FROM core_memory.edges AS e
-                      WHERE e.from_bead = l.bead_id AND e.edge_type = 'supersedes')
-               FROM core_memory.labels AS l
-              WHERE l.source_bead = ANY ($1)",
+            "SELECT from_bead, min(arrow), count(*) FROM core_memory.edges
+              WHERE arrow IN ('repl', 'withdraws') AND from_bead = ANY ($1)
+              GROUP BY from_bead",
             &[&involved],
         )
         .map_err(backend)?
     {
-        let name: &str = row.get(2);
-        let label =
-            Label::from_name(name).ok_or_else(|| corrupt(format!("unknown label `{name}`")))?;
-        let follows = usize::try_from(row.get::<_, i64>(3)).unwrap_or(usize::MAX);
-        carried.insert(row.get(0), (row.get(1), label, follows));
+        let ends = usize::try_from(row.get::<_, i64>(2)).unwrap_or(usize::MAX);
+        carried.insert(row.get(0), (arrow_named(row.get(1))?, ends));
     }
-    // The labels that wait for a second read and share a bead with this
+    // The arrows that wait for a second read and share a bead with this
     // read's: their sources, and every bead they are about.
     let mut held: BTreeSet<Uuid> = BTreeSet::new();
     let mut touched: BTreeSet<Uuid> = BTreeSet::new();
     for row in &tx
         .query(
-            "SELECT source_bead, head_beads FROM core_memory.pending_labels
+            "SELECT source_bead, head_beads FROM core_memory.pending_chains
               WHERE workspace_id = $2 AND (source_bead = ANY ($1) OR head_beads && $1)",
             &[&involved, &f.workspace],
         )
@@ -1579,51 +1555,49 @@ fn store_judgment(
         touched.insert(source);
         touched.extend(heads);
     }
-    // What became of the label of each pair of a later statement and a
-    // bead it follows.
-    let mut fates: BTreeMap<(Uuid, Uuid), LabelFate> = BTreeMap::new();
-    for label in &unwritten {
+    // What became of the arrow of each pair of a later statement and a
+    // bead it would end.
+    let mut fates: BTreeMap<(Uuid, Uuid), ChainFate> = BTreeMap::new();
+    for chain in &unwritten {
         // One of its beads may no longer have anything stored about it.
-        for head in &label.heads {
-            fates.insert((label.source.0, head.0), LabelFate::NotCurrent);
+        for head in &chain.heads {
+            fates.insert((chain.source.0, head.0), ChainFate::NotCurrent);
         }
     }
-    for label in &labels {
-        let source = label.source.0;
-        let heads: Vec<Uuid> = label.heads.iter().map(|head| head.0).collect();
-        // A chain grows at its head: the later statement and each bead
-        // it follows must be current.
-        let current =
-            !superseded.contains(&source) && heads.iter().all(|head| !superseded.contains(head));
+    for chain in &chains {
+        let source = chain.source.0;
+        let heads: Vec<Uuid> = chain.heads.iter().map(|head| head.0).collect();
+        // A chain grows at its head: the later statement and each bead it
+        // ends must be current.
+        let current = !ended.contains(&source) && heads.iter().all(|head| !ended.contains(head));
         let room = match carried.get(&source) {
             None => true,
-            Some((_, carries, follows)) => *carries == label.label && follows + heads.len() <= 2,
+            Some((carries, ends)) => *carries == chain.arrow && ends + heads.len() <= 2,
         };
-        // A label that shares a bead with one that waits for its second
+        // An arrow that shares a bead with one that waits for its second
         // read waits too, and is read again after it. Written now, it
-        // could make the other unwritable: a reaffirmation of a statement
-        // whose own replacement is held would supersede that statement
-        // first.
-        // A second read settles the oldest held label of those it shares
-        // a bead with: the later ones wait for it, and not it for them.
+        // could make the other unwritable: a replacement of a statement
+        // whose own replacement is held would end that statement first.
+        // A second read settles the oldest held arrow of those it shares a
+        // bead with: the later ones wait for it, and not it for them.
         let touches = !second_read
             && std::iter::once(&source)
                 .chain(heads.iter())
                 .any(|bead| touched.contains(bead));
         let fate = if !current {
-            LabelFate::NotCurrent
+            ChainFate::NotCurrent
         } else if !room || held.contains(&source) {
-            LabelFate::Taken
-        } else if label.hold || touches {
+            ChainFate::Taken
+        } else if chain.hold || touches {
             tx.execute(
-                "INSERT INTO core_memory.pending_labels
-                     (source_bead, workspace_id, label, head_beads, ordinal, call_id,
+                "INSERT INTO core_memory.pending_chains
+                     (source_bead, workspace_id, arrow, head_beads, ordinal, call_id,
                       proposed_at)
                  VALUES ($1, $2, $3, $4, $5, $6, $7)",
                 &[
                     &source,
                     &f.workspace,
-                    &label.label.as_str(),
+                    &chain.arrow.as_str(),
                     &heads,
                     &numbers.take()?,
                     &f.call_id.0,
@@ -1646,67 +1620,35 @@ fn store_judgment(
             held.insert(source);
             touched.insert(source);
             touched.extend(heads.iter().copied());
-            LabelFate::Held
+            ChainFate::Held
         } else {
-            let label_bead = match carried.get(&source) {
-                Some((label_bead, _, _)) => *label_bead,
-                None => {
-                    tx.execute(
-                        "INSERT INTO core_memory.beads (
-                             bead_id, workspace_id, scope, kind, state, event_id, chunk_id,
-                             created_by, call_id, time_at, time_basis, created_at, seq
-                         ) VALUES ($1, $2, NULL, 'label', 'live', NULL, NULL, 'judge', $3, $4,
-                                   'captured', $4, $5)",
-                        &[
-                            &label.bead_id.0,
-                            &f.workspace,
-                            &f.call_id.0,
-                            &f.at.0,
-                            &numbers.take()?,
-                        ],
-                    )
-                    .map_err(backend)?;
-                    tx.execute(
-                        "INSERT INTO core_memory.labels
-                             (bead_id, workspace_id, label, source_bead, call_id)
-                         VALUES ($1, $2, $3, $4, $5)",
-                        &[
-                            &label.bead_id.0,
-                            &f.workspace,
-                            &label.label.as_str(),
-                            &source,
-                            &f.call_id.0,
-                        ],
-                    )
-                    .map_err(backend)?;
-                    label.bead_id.0
-                }
-            };
             for head in &heads {
                 tx.execute(
                     "INSERT INTO core_memory.edges
-                         (workspace_id, seq, edge_type, from_bead, to_bead, call_id, created_at)
-                     VALUES ($1, $2, 'supersedes', $3, $4, $5, $6)",
+                         (workspace_id, seq, edge_type, arrow, from_bead, to_bead, call_id,
+                          created_at)
+                     VALUES ($1, $2, 'leadsto', $3, $4, $5, $6, $7)",
                     &[
                         &f.workspace,
                         &numbers.take()?,
-                        &label_bead,
+                        &chain.arrow.as_str(),
+                        &source,
                         head,
                         &f.call_id.0,
                         &f.at.0,
                     ],
                 )
                 .map_err(backend)?;
-                superseded.insert(*head);
+                ended.insert(*head);
             }
-            let follows = carried.get(&source).map_or(0, |(_, _, follows)| *follows);
-            carried.insert(source, (label_bead, label.label, follows + heads.len()));
-            LabelFate::Written
+            let ends = carried.get(&source).map_or(0, |(_, ends)| *ends);
+            carried.insert(source, (chain.arrow, ends + heads.len()));
+            ChainFate::Written
         };
         match fate {
-            LabelFate::Written => finished.labels += 1,
-            LabelFate::Held => finished.held += 1,
-            LabelFate::NotCurrent | LabelFate::Taken => finished.labels_dropped += 1,
+            ChainFate::Written => finished.chains += 1,
+            ChainFate::Held => finished.held += 1,
+            ChainFate::NotCurrent | ChainFate::Taken => finished.chains_dropped += 1,
         }
         for head in heads {
             fates.insert((source, head), fate);
@@ -1714,15 +1656,15 @@ fn store_judgment(
     }
 
     // ---- verdicts ----
-    // A row for every pair, a no included. A `supersedes` verdict whose
-    // label was not written says why.
+    // A row for every pair, a no included. A verdict whose arrow ends
+    // currency and was not written says why.
     let (mut earlier, mut later) = (Vec::new(), Vec::new());
     let (mut said, mut directions) = (Vec::new(), Vec::new());
     let (mut given, mut notes): (Vec<Option<&str>>, Vec<Option<&str>>) = (Vec::new(), Vec::new());
     let mut columns = Vec::new();
     for verdict in &verdicts {
-        let note = match (verdict.verdict, verdict.note) {
-            (Verdict::Supersedes, None) => {
+        let note = match (verdict.arrow, verdict.note) {
+            (Some(arrow), None) if arrow.ends_currency() => {
                 let (from, to) = match verdict.direction {
                     Direction::EarlierToLater => (verdict.earlier, verdict.later),
                     _ => (verdict.later, verdict.earlier),
@@ -1730,10 +1672,10 @@ fn store_judgment(
                 fates
                     .get(&(from.0, to.0))
                     .copied()
-                    // A second read that does not give the held label
+                    // A second read that does not give the held arrow
                     // again says so itself. Anything else without a
-                    // label was not written.
-                    .unwrap_or(LabelFate::NotCurrent)
+                    // fate was not written.
+                    .unwrap_or(ChainFate::NotCurrent)
                     .note()
             }
             (_, note) => note,
@@ -1742,20 +1684,20 @@ fn store_judgment(
         later.push(verdict.later.0);
         said.push(verdict.verdict.as_str());
         directions.push(verdict.direction.as_str());
-        given.push(verdict.label.map(Label::as_str));
+        given.push(verdict.arrow.map(Arrow::as_str));
         notes.push(note.map(VerdictNote::as_str));
         columns.push(Json(&verdict.columns));
     }
     tx.execute(
         "INSERT INTO core_memory.verdicts (
-             workspace_id, seq, earlier_bead, later_bead, verdict, direction, label, note,
+             workspace_id, seq, earlier_bead, later_bead, verdict, direction, arrow, note,
              call_id, columns, columns_rev
          )
-         SELECT $1, v.seq, v.earlier, v.later, v.verdict, v.direction, v.label, v.note, $2,
+         SELECT $1, v.seq, v.earlier, v.later, v.verdict, v.direction, v.arrow, v.note, $2,
                 v.columns, $3
            FROM UNNEST($4::int8[], $5::uuid[], $6::uuid[], $7::text[], $8::text[], $9::text[],
                        $10::text[], $11::jsonb[])
-                AS v (seq, earlier, later, verdict, direction, label, note, columns)",
+                AS v (seq, earlier, later, verdict, direction, arrow, note, columns)",
         &[
             &f.workspace,
             &f.call_id.0,
@@ -1781,13 +1723,15 @@ fn store_judgment(
         finished.edges += tx
             .execute(
                 "INSERT INTO core_memory.edges
-                     (workspace_id, seq, edge_type, from_bead, to_bead, call_id, created_at)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7)
-                 ON CONFLICT (edge_type, from_bead, to_bead) DO NOTHING",
+                     (workspace_id, seq, edge_type, arrow, from_bead, to_bead, call_id,
+                      created_at)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                 ON CONFLICT (arrow, from_bead, to_bead) DO NOTHING",
                 &[
                     &f.workspace,
                     &numbers.take()?,
-                    &edge.edge_type.as_str(),
+                    &edge.arrow.edge_type().as_str(),
+                    &edge.arrow.as_str(),
                     &edge.from.0,
                     &edge.to.0,
                     &f.call_id.0,
@@ -1805,7 +1749,7 @@ fn store_judgment(
                 "SELECT g.to_bead, g.from_bead
                    FROM core_memory.edges AS g
                    JOIN core_memory.beads AS gb ON gb.bead_id = g.from_bead
-                  WHERE g.edge_type = 'contains' AND g.to_bead = ANY ($1)
+                  WHERE g.arrow = 'consists' AND g.to_bead = ANY ($1)
                     AND gb.state = 'live'",
                 &[members],
             )
@@ -1847,8 +1791,9 @@ fn store_judgment(
         for member in members.iter().filter(|m| !member_of.contains_key(*m)) {
             tx.execute(
                 "INSERT INTO core_memory.edges
-                     (workspace_id, seq, edge_type, from_bead, to_bead, call_id, created_at)
-                 VALUES ($1, $2, 'contains', $3, $4, $5, $6)",
+                     (workspace_id, seq, edge_type, arrow, from_bead, to_bead, call_id,
+                      created_at)
+                 VALUES ($1, $2, 'contains', 'consists', $3, $4, $5, $6)",
                 &[
                     &f.workspace,
                     &numbers.take()?,
@@ -1890,7 +1835,7 @@ fn store_judgment(
             )
             .map_err(backend)? as u32;
     }
-    // The labels of beads that may no longer be written about.
-    finished.labels_dropped += unwritten.len() as u32;
+    // The arrows of beads that may no longer be written about.
+    finished.chains_dropped += unwritten.len() as u32;
     Ok(finished)
 }

@@ -61,7 +61,7 @@ pub struct Reader {
 pub enum Round {
     /// A batch of chunks or one tool call was read.
     Read(ReadReport),
-    /// New beads were judged, or one held label was read a second time.
+    /// New beads were judged, or one held arrow was read a second time.
     Judged(JudgeReport),
 }
 
@@ -134,9 +134,9 @@ pub fn describe(round: &Round) -> serde_json::Value {
             "judged": report.judged,
             "verdicts": report.verdicts,
             "edges": report.edges,
-            "labels": report.labels,
+            "chains": report.chains,
             "held": report.held,
-            "labels_dropped": report.labels_dropped,
+            "chains_dropped": report.chains_dropped,
             "groups": report.groups,
             "names": report.names,
             "names_rejected": report.names_rejected,

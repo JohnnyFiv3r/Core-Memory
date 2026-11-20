@@ -147,9 +147,9 @@ fn nothing(request: &ModelRequest) -> Result<ModelResponse, TransportError> {
 }
 
 /// A judge that says what `relates` says: for each new memory, the pairs
-/// it relates, as `(text of the other memory, code, label)`.
+/// it relates, as `(text of the new memory, text of the other, arrow)`.
 fn judge_saying(
-    relates: &'static [(&'static str, &'static str, &'static str, &'static str)],
+    relates: &'static [(&'static str, &'static str, &'static str)],
 ) -> impl Fn(&ModelRequest) -> Result<ModelResponse, TransportError> + Send + Sync {
     move |request| {
         let (listed, new) = shown(request);
@@ -161,13 +161,9 @@ fn judge_saying(
                 let related: Vec<Value> = relates
                     .iter()
                     .filter(|(of, ..)| text.contains(of))
-                    .filter_map(|(_, other, rel, label)| {
+                    .filter_map(|(_, other, arrow)| {
                         let to = handle(&all, other)?;
-                        Some(if label.is_empty() {
-                            json!({"to": to, "rel": rel})
-                        } else {
-                            json!({"to": to, "rel": rel, "label": label})
-                        })
+                        Some(json!({"to": to, "arrow": arrow}))
                     })
                     .collect();
                 json!({"id": memory["id"], "related": related, "unsure": []})
@@ -202,12 +198,12 @@ fn rows(w: &World, sql: &str) -> Vec<Vec<String>> {
         .collect()
 }
 
-/// The verdicts stored, as `(earlier, later, verdict, direction, label, note)`
+/// The verdicts stored, as `(earlier, later, verdict, direction, arrow, note)`
 /// with each bead named by the text of its chunk.
 fn verdicts(w: &World) -> Vec<Vec<String>> {
     rows(
         w,
-        "SELECT a.text, b.text, v.verdict, v.direction, coalesce(v.label, ''),
+        "SELECT a.text, b.text, v.verdict, v.direction, coalesce(v.arrow, ''),
                 coalesce(v.note, '')
            FROM core_memory.verdicts AS v
            JOIN core_memory.chunk_text AS a ON a.chunk_id = v.earlier_bead
@@ -231,8 +227,8 @@ fn new_beads_are_judged_against_the_beads_near_them_and_every_pair_gets_a_verdic
 
     let requests: Mutex<Vec<ModelRequest>> = Mutex::new(Vec::new());
     let says = judge_saying(&[
-        ("launch slips", "export still takes", "LEADSTO>", ""),
-        ("launch slips", "launch is on Thursday", "NEAR", ""),
+        ("launch slips", "export still takes", "cause-by"),
+        ("launch slips", "launch is on Thursday", "see"),
     ]);
     let transport = FnTransport(|request: &ModelRequest| {
         requests.lock().unwrap().push(request.clone());
@@ -293,7 +289,7 @@ fn new_beads_are_judged_against_the_beads_near_them_and_every_pair_gets_a_verdic
                 "So the launch slips a day.",
                 "near",
                 "undirected",
-                "",
+                "see",
                 ""
             ]),
             row(&[
@@ -301,7 +297,7 @@ fn new_beads_are_judged_against_the_beads_near_them_and_every_pair_gets_a_verdic
                 "So the launch slips a day.",
                 "leadsto",
                 "earlier_to_later",
-                "",
+                "cause",
                 ""
             ]),
         ]
@@ -394,6 +390,42 @@ fn new_beads_are_judged_against_the_beads_near_them_and_every_pair_gets_a_verdic
 }
 
 #[test]
+fn the_arrow_directory_in_the_store_is_the_contracts() {
+    use core_memory_contract::{Arrow, ArrowOrigin};
+    // What a host reads of the arrows is what the engine writes by: each
+    // arrow's type, names and nature, row for row.
+    let w = judging("");
+    let mut stored = rows(
+        &w,
+        "SELECT arrow, edge_type, forward, coalesce(inverse, ''), coalesce(inverse_name, ''),
+                ends_currency::text, disputes::text, origin
+           FROM core_memory.arrows",
+    );
+    stored.sort();
+    let mut expected: Vec<Vec<String>> = Arrow::ALL
+        .iter()
+        .map(|arrow| {
+            let (inverse, inverse_name) = arrow.backward().unwrap_or(("", ""));
+            row(&[
+                arrow.as_str(),
+                arrow.edge_type().as_str(),
+                arrow.forward(),
+                inverse,
+                inverse_name,
+                &arrow.ends_currency().to_string(),
+                &arrow.disputes().to_string(),
+                match arrow.origin() {
+                    ArrowOrigin::Sstorytime => "sstorytime",
+                    ArrowOrigin::Engine => "engine",
+                },
+            ])
+        })
+        .collect();
+    expected.sort();
+    assert_eq!(stored, expected);
+}
+
+#[test]
 fn a_bead_is_shown_only_while_its_own_scope_allows_the_judge() {
     let mut w = judging("");
     w.store.enroll_scope("beta", "w1").unwrap();
@@ -475,56 +507,38 @@ fn a_bead_is_shown_only_while_its_own_scope_allows_the_judge() {
     );
 }
 
-/// Labels, as `(label, text of the later statement, state of its bead)`.
-fn labels(w: &World) -> Vec<Vec<String>> {
-    rows(
-        w,
-        "SELECT l.label, t.text, b.state
-           FROM core_memory.labels AS l
-           JOIN core_memory.beads AS b ON b.bead_id = l.bead_id
-           LEFT JOIN core_memory.chunk_text AS t ON t.chunk_id = l.source_bead
-          ORDER BY b.seq",
-    )
-}
-
-/// `supersedes` edges, as `(text of the later statement, text of the bead it
-/// follows)`.
+/// The arrows that end currency, as `(arrow, text of the later statement,
+/// text of the bead it ends)`. A bead that was erased has no text.
 fn chain(w: &World) -> Vec<Vec<String>> {
     rows(
         w,
-        "SELECT s.text, t.text
+        "SELECT e.arrow, coalesce(s.text, ''), coalesce(t.text, '')
            FROM core_memory.edges AS e
-           JOIN core_memory.labels AS l ON l.bead_id = e.from_bead
-           JOIN core_memory.chunk_text AS s ON s.chunk_id = l.source_bead
-           JOIN core_memory.chunk_text AS t ON t.chunk_id = e.to_bead
-          WHERE e.edge_type = 'supersedes'
+           LEFT JOIN core_memory.chunk_text AS s ON s.chunk_id = e.from_bead
+           LEFT JOIN core_memory.chunk_text AS t ON t.chunk_id = e.to_bead
+          WHERE e.arrow IN ('repl', 'withdraws')
           ORDER BY e.seq",
     )
 }
 
 #[test]
-fn a_label_that_changes_what_is_current_waits_for_a_second_read_that_agrees() {
+fn an_arrow_that_changes_what_is_current_waits_for_a_second_read_that_agrees() {
     let mut w = judging("second_read = true");
     bead(&mut w, &said("1", 0, "The launch is on Thursday."));
     bead(&mut w, &said("2", 9, "The launch moves to Friday."));
     let requests: Mutex<Vec<ModelRequest>> = Mutex::new(Vec::new());
-    let says = judge_saying(&[(
-        "moves to Friday",
-        "is on Thursday",
-        "SUPERSEDES<",
-        "supersede",
-    )]);
+    let says = judge_saying(&[("moves to Friday", "is on Thursday", "repl")]);
     let transport = FnTransport(|request: &ModelRequest| {
         requests.lock().unwrap().push(request.clone());
         says(request)
     });
 
-    // The first read gives the label. It is held: nothing is superseded.
+    // The first read gives the arrow. It is held: nothing is replaced.
     let report = handled(round(&mut w, &transport));
     assert_eq!(
         (
             report.verdicts,
-            report.labels,
+            report.chains,
             report.held,
             report.second_read
         ),
@@ -535,13 +549,13 @@ fn a_label_that_changes_what_is_current_waits_for_a_second_read_that_agrees() {
         [row(&[
             "The launch is on Thursday.",
             "The launch moves to Friday.",
-            "supersedes",
+            "leadsto",
             "later_to_earlier",
-            "supersede",
+            "repl",
             "awaits_second_read"
         ])]
     );
-    assert!(labels(&w).is_empty() && chain(&w).is_empty());
+    assert!(chain(&w).is_empty());
     assert_eq!(
         rows(&w, "SELECT kind, state FROM core_memory.work"),
         [row(&["second_read", "ready"])]
@@ -549,9 +563,9 @@ fn a_label_that_changes_what_is_current_waits_for_a_second_read_that_agrees() {
     assert_eq!(
         rows(
             &w,
-            "SELECT label, cardinality(head_beads)::text FROM core_memory.pending_labels"
+            "SELECT arrow, cardinality(head_beads)::text FROM core_memory.pending_chains"
         ),
-        [row(&["supersede", "1"])]
+        [row(&["repl", "1"])]
     );
 
     // The second read is of those two beads alone, and is not told what
@@ -563,7 +577,7 @@ fn a_label_that_changes_what_is_current_waits_for_a_second_read_that_agrees() {
             report.new_beads,
             report.window_beads,
             report.verdicts,
-            report.labels,
+            report.chains,
             report.held
         ),
         (true, 1, 1, 1, 1, 0)
@@ -573,16 +587,13 @@ fn a_label_that_changes_what_is_current_waits_for_a_second_read_that_agrees() {
     assert_eq!((listed.len(), new.len()), (1, 1));
     assert_eq!(listed[0]["text"], "The launch is on Thursday.");
     assert_eq!(new[0]["text"], "The launch moves to Friday.");
-    assert!(!second.user.contains("supersede") && !second.user.contains("label"));
-    // It agrees, so the label is written: a bead of its own that stands
-    // for the later statement, and an edge to the bead it follows.
-    assert_eq!(
-        labels(&w),
-        [row(&["supersede", "The launch moves to Friday.", "live"])]
-    );
+    assert!(!second.user.contains("\"repl\"") && !second.user.contains("\"chain\""));
+    // It agrees, so the arrow is written: an edge from the later statement
+    // to the bead it replaces, and no bead of its own.
     assert_eq!(
         chain(&w),
         [row(&[
+            "repl",
             "The launch moves to Friday.",
             "The launch is on Thursday."
         ])]
@@ -592,35 +603,35 @@ fn a_label_that_changes_what_is_current_waits_for_a_second_read_that_agrees() {
         row(&[
             "The launch is on Thursday.",
             "The launch moves to Friday.",
-            "supersedes",
+            "leadsto",
             "later_to_earlier",
-            "supersede",
+            "repl",
             ""
         ])
     );
     assert_eq!(
-        w.count("SELECT count(*) FROM core_memory.pending_labels"),
+        w.count("SELECT count(*) FROM core_memory.pending_chains"),
         0
     );
     assert_eq!(w.count("SELECT count(*) FROM core_memory.work"), 0);
     assert_eq!(
         rows(
             &w,
-            "SELECT b.kind, b.created_by, (b.scope IS NULL AND b.event_id IS NULL)::text, j.read_no::text,
-                    o.purpose
-               FROM core_memory.beads AS b
-               JOIN core_memory.judge_reads AS j ON j.call_id = b.call_id
-               JOIN core_memory.outbound_calls AS o ON o.call_id = b.call_id
-              WHERE b.kind = 'label'"
-        )
-        .iter()
-        .map(|r| r.iter().map(String::as_str).collect::<Vec<_>>().join(" "))
-        .collect::<Vec<_>>(),
-        ["label judge true 2 second_read"]
+            "SELECT e.edge_type, j.read_no::text, o.purpose
+               FROM core_memory.edges AS e
+               JOIN core_memory.judge_reads AS j ON j.call_id = e.call_id
+               JOIN core_memory.outbound_calls AS o ON o.call_id = e.call_id
+              WHERE e.arrow = 'repl'"
+        ),
+        [row(&["leadsto", "2", "second_read"])]
+    );
+    assert_eq!(
+        w.count("SELECT count(*) FROM core_memory.beads WHERE created_by = 'judge'"),
+        0
     );
 
     // From now on the judge is shown which of the two is current, and
-    // what the later one said of the earlier.
+    // the arrow by which the later one ended the earlier.
     bead(&mut w, &said("3", 12, "Friday works for everyone."));
     handled(round(
         &mut w,
@@ -631,8 +642,8 @@ fn a_label_that_changes_what_is_current_waits_for_a_second_read_that_agrees() {
     ));
     let (listed, _) = shown(requests.lock().unwrap().last().unwrap());
     assert_eq!(listed[0]["current"], false);
-    assert_eq!(listed[1]["label"], "supersede");
-    assert!(listed[1].get("current").is_none() && listed[0].get("label").is_none());
+    assert_eq!(listed[1]["chain"], "repl");
+    assert!(listed[1].get("current").is_none() && listed[0].get("chain").is_none());
 }
 
 #[test]
@@ -640,25 +651,15 @@ fn a_second_read_that_differs_changes_nothing_and_both_verdicts_are_kept() {
     let mut w = judging("second_read = true");
     bead(&mut w, &said("1", 0, "The launch is on Thursday."));
     bead(&mut w, &said("2", 9, "Maybe Friday would be better?"));
-    let first = FnTransport(judge_saying(&[(
-        "Maybe Friday",
-        "is on Thursday",
-        "SUPERSEDES<",
-        "supersede",
-    )]));
+    let first = FnTransport(judge_saying(&[("Maybe Friday", "is on Thursday", "repl")]));
     assert_eq!(handled(round(&mut w, &first)).held, 1);
     // Read again, the judge sees a question and not a decision.
-    let second = FnTransport(judge_saying(&[(
-        "Maybe Friday",
-        "is on Thursday",
-        "NEAR",
-        "",
-    )]));
+    let second = FnTransport(judge_saying(&[("Maybe Friday", "is on Thursday", "see")]));
     let report = handled(round(&mut w, &second));
     assert_eq!(
         (
             report.second_read,
-            report.labels,
+            report.chains,
             report.edges,
             report.verdicts
         ),
@@ -670,9 +671,9 @@ fn a_second_read_that_differs_changes_nothing_and_both_verdicts_are_kept() {
             row(&[
                 "The launch is on Thursday.",
                 "Maybe Friday would be better?",
-                "supersedes",
+                "leadsto",
                 "later_to_earlier",
-                "supersede",
+                "repl",
                 "awaits_second_read"
             ]),
             row(&[
@@ -680,49 +681,40 @@ fn a_second_read_that_differs_changes_nothing_and_both_verdicts_are_kept() {
                 "Maybe Friday would be better?",
                 "near",
                 "undirected",
-                "",
+                "see",
                 ""
             ]),
         ]
     );
-    // Nothing is superseded, no label is held any more, and the second
-    // read wrote no relationship of its own.
-    assert!(labels(&w).is_empty());
+    // Nothing is replaced, no arrow is held any more, and the second read
+    // wrote no relationship of its own.
+    assert!(chain(&w).is_empty());
     assert_eq!(w.count("SELECT count(*) FROM core_memory.edges"), 0);
     assert_eq!(
-        w.count("SELECT count(*) FROM core_memory.pending_labels"),
+        w.count("SELECT count(*) FROM core_memory.pending_chains"),
         0
     );
     assert_eq!(w.count("SELECT count(*) FROM core_memory.work"), 0);
 
-    // The same when it gives another label: the two reads do not agree.
+    // The same when it gives the other arrow that ends currency: the two
+    // reads do not agree.
     bead(&mut w, &said("3", 20, "It is Friday. Decided."));
-    let first = FnTransport(judge_saying(&[(
-        "Decided",
-        "is on Thursday",
-        "SUPERSEDES<",
-        "supersede",
-    )]));
+    let first = FnTransport(judge_saying(&[("Decided", "is on Thursday", "repl")]));
     assert_eq!(handled(round(&mut w, &first)).held, 1);
-    let second = FnTransport(judge_saying(&[(
-        "Decided",
-        "is on Thursday",
-        "SUPERSEDES<",
-        "conflict",
-    )]));
-    assert_eq!(handled(round(&mut w, &second)).labels, 0);
+    let second = FnTransport(judge_saying(&[("Decided", "is on Thursday", "withdraws")]));
+    assert_eq!(handled(round(&mut w, &second)).chains, 0);
     assert_eq!(
         verdicts(&w).last().unwrap(),
         &row(&[
             "The launch is on Thursday.",
             "It is Friday. Decided.",
-            "supersedes",
+            "leadsto",
             "later_to_earlier",
-            "conflict",
+            "withdraws",
             "second_read_differs"
         ])
     );
-    assert!(labels(&w).is_empty());
+    assert!(chain(&w).is_empty());
 }
 
 #[test]
@@ -731,92 +723,102 @@ fn a_chain_has_one_head_and_grows_only_there() {
     bead(&mut w, &said("1", 0, "The launch is on Thursday."));
     bead(&mut w, &said("2", 5, "The launch moves to Friday."));
     let transport = FnTransport(judge_saying(&[
-        (
-            "moves to Friday",
-            "is on Thursday",
-            "SUPERSEDES<",
-            "supersede",
-        ),
-        (
-            "Friday is confirmed",
-            "moves to Friday",
-            "SUPERSEDES<",
-            "reaffirm",
-        ),
+        ("moves to Friday", "is on Thursday", "repl"),
+        ("Friday is final", "moves to Friday", "repl"),
         // A statement that arrives late and is older than the one that
-        // is current: the current one is the later statement.
-        (
-            "was Wednesday at first",
-            "Friday is confirmed",
-            "SUPERSEDES>",
-            "reaffirm",
-        ),
-        (
-            "Saturday, says ops",
-            "Friday is confirmed",
-            "SUPERSEDES<",
-            "conflict",
-        ),
+        // is current: the current one replaces it too.
+        ("was Wednesday at first", "Friday is final", "repl-by"),
+        ("Saturday, says ops", "Friday is final", "!contradicts"),
+        ("launch is off", "Friday is final", "withdraws"),
     ]));
-    // With no second read, a label is written by the read that gives it.
+    // With no second read, an arrow is written by the read that gives it.
     let report = handled(round(&mut w, &transport));
-    assert_eq!((report.labels, report.held), (1, 0));
-    bead(&mut w, &said("3", 9, "Friday is confirmed."));
-    assert_eq!(handled(round(&mut w, &transport)).labels, 1);
+    assert_eq!((report.chains, report.held), (1, 0));
+    bead(&mut w, &said("3", 9, "Friday is final, not Thursday."));
+    assert_eq!(handled(round(&mut w, &transport)).chains, 1);
     assert_eq!(
         chain(&w),
         [
-            row(&["The launch moves to Friday.", "The launch is on Thursday."]),
-            row(&["Friday is confirmed.", "The launch moves to Friday."]),
+            row(&[
+                "repl",
+                "The launch moves to Friday.",
+                "The launch is on Thursday."
+            ]),
+            row(&[
+                "repl",
+                "Friday is final, not Thursday.",
+                "The launch moves to Friday."
+            ]),
         ]
     );
 
-    // The late arrival is followed by the statement that is current,
-    // which already carries a label of that kind and follows one bead:
-    // its label now follows two.
+    // The late arrival is replaced by the statement that is current, which
+    // already replaces one bead: it now replaces two.
     bead(&mut w, &said("4", 2, "It was Wednesday at first."));
     let report = handled(round(&mut w, &transport));
-    assert_eq!((report.labels, report.labels_dropped), (1, 0));
+    assert_eq!((report.chains, report.chains_dropped), (1, 0));
     assert_eq!(
         chain(&w)[2],
-        row(&["Friday is confirmed.", "It was Wednesday at first."])
+        row(&[
+            "repl",
+            "Friday is final, not Thursday.",
+            "It was Wednesday at first."
+        ])
     );
-    assert_eq!(w.count("SELECT count(*) FROM core_memory.labels"), 2);
     assert_eq!(
         verdicts(&w).last().unwrap(),
         &row(&[
             "It was Wednesday at first.",
-            "Friday is confirmed.",
-            "supersedes",
+            "Friday is final, not Thursday.",
+            "leadsto",
             "later_to_earlier",
-            "reaffirm",
+            "repl",
             ""
         ])
     );
 
-    // A conflict follows the head like any label, and is then the head,
-    // with its label for all to see.
+    // A contradiction ends nothing: both stay current, and it is an edge
+    // between them that has no direction.
     bead(&mut w, &said("5", 15, "Saturday, says ops."));
-    assert_eq!(handled(round(&mut w, &transport)).labels, 1);
+    let report = handled(round(&mut w, &transport));
+    assert_eq!((report.chains, report.edges), (0, 1));
     assert_eq!(
-        labels(&w).last().unwrap(),
-        &row(&["conflict", "Saturday, says ops.", "live"])
+        rows(
+            &w,
+            "SELECT e.edge_type FROM core_memory.edges AS e WHERE e.arrow = '!contradicts'"
+        ),
+        [row(&["near"])]
     );
-    // Every bead but the last statement has been superseded, each once.
+    // A withdrawal grows the chain at its head like a replacement.
+    bead(&mut w, &said("6", 20, "The launch is off."));
+    assert_eq!(handled(round(&mut w, &transport)).chains, 1);
+    assert_eq!(
+        chain(&w).last().unwrap(),
+        &row(&[
+            "withdraws",
+            "The launch is off.",
+            "Friday is final, not Thursday."
+        ])
+    );
+    // What is current: what nothing has replaced or withdrawn, the
+    // statement that contradicted a withdrawn one included. Each bead was
+    // ended at most once.
     assert_eq!(
         rows(
             &w,
             "SELECT t.text FROM core_memory.beads AS b
                JOIN core_memory.chunk_text AS t ON t.chunk_id = b.chunk_id
               WHERE NOT EXISTS (SELECT 1 FROM core_memory.edges AS e
-                                 WHERE e.to_bead = b.bead_id AND e.edge_type = 'supersedes')"
+                                 WHERE e.to_bead = b.bead_id
+                                   AND e.arrow IN ('repl', 'withdraws'))
+              ORDER BY b.time_at"
         ),
-        [row(&["Saturday, says ops."])]
+        [row(&["Saturday, says ops."]), row(&["The launch is off."])]
     );
     assert_eq!(
         w.count(
             "SELECT count(*) FROM (SELECT to_bead FROM core_memory.edges
-                                    WHERE edge_type = 'supersedes'
+                                    WHERE arrow IN ('repl', 'withdraws')
                                     GROUP BY to_bead HAVING count(*) > 1) AS twice"
         ),
         0
@@ -824,7 +826,7 @@ fn a_chain_has_one_head_and_grows_only_there() {
 }
 
 #[test]
-fn a_label_its_source_cannot_carry_is_not_written_and_the_verdict_says_so() {
+fn an_arrow_its_source_cannot_join_is_not_written_and_the_verdict_says_so() {
     let mut w = judging("");
     bead(&mut w, &said("1", 0, "The launch is on Thursday."));
     bead(&mut w, &said("2", 1, "The budget is forty thousand."));
@@ -834,40 +836,27 @@ fn a_label_its_source_cannot_carry_is_not_written_and_the_verdict_says_so() {
         &said("4", 9, "Launch Friday, budget fifty, owner Sam."),
     );
     let transport = FnTransport(judge_saying(&[
-        (
-            "Launch Friday, budget",
-            "is on Thursday",
-            "SUPERSEDES<",
-            "supersede",
-        ),
-        (
-            "Launch Friday, budget",
-            "budget is forty",
-            "SUPERSEDES<",
-            "supersede",
-        ),
-        // Later reads: the same statement is found to follow a third bead,
-        // and to carry another label.
-        ("Now about the owner", "owner is Priya", "NEAR", ""),
+        ("Launch Friday, budget", "is on Thursday", "repl"),
+        ("Launch Friday, budget", "budget is forty", "repl"),
     ]));
-    assert_eq!(handled(round(&mut w, &transport)).labels, 1);
+    assert_eq!(handled(round(&mut w, &transport)).chains, 1);
     assert_eq!(chain(&w).len(), 2);
 
-    // A judge that now says the same statement follows a third bead: its
-    // label follows two already. The verdict is stored, and says why no
-    // label was written.
+    // A judge that now says the same statement replaces a third bead: it
+    // replaces two already. The verdict is stored, and says why no edge
+    // was written.
     let third = FnTransport(|request: &ModelRequest| {
         let (listed, new) = shown(request);
         let source = handle(&listed, "Launch Friday, budget").unwrap();
         answer(
             json!({"new": [{"id": new[0]["id"], "unsure": [], "related": [
-            {"to": source, "rel": "SUPERSEDES>", "label": "supersede"}]}], "names": []}),
+            {"to": source, "arrow": "repl-by"}]}], "names": []}),
         )
     });
     bead(&mut w, &said("5", 3, "The owner was Priya until now."));
     let report = handled(round(&mut w, &third));
     assert_eq!(
-        (report.labels, report.labels_dropped, report.verdicts),
+        (report.chains, report.chains_dropped, report.verdicts),
         (0, 1, 4)
     );
     assert_eq!(
@@ -875,28 +864,34 @@ fn a_label_its_source_cannot_carry_is_not_written_and_the_verdict_says_so() {
         &row(&[
             "The owner was Priya until now.",
             "Launch Friday, budget fifty, owner Sam.",
-            "supersedes",
+            "leadsto",
             "later_to_earlier",
-            "supersede",
-            "label_taken"
+            "repl",
+            "chain_taken"
         ])
     );
     assert_eq!(chain(&w).len(), 2);
 
-    // And one that gives it another label than the one it carries.
+    // And one that says it withdraws a bead, where it already replaces.
     let other = FnTransport(|request: &ModelRequest| {
         let (listed, new) = shown(request);
         let source = handle(&listed, "Launch Friday, budget").unwrap();
         answer(
             json!({"new": [{"id": new[0]["id"], "unsure": [], "related": [
-            {"to": source, "rel": "SUPERSEDES>", "label": "retract"}]}], "names": []}),
+            {"to": source, "arrow": "withdrawn-by"}]}], "names": []}),
         )
     });
     bead(&mut w, &said("6", 4, "Sam was never the owner before."));
     let report = handled(round(&mut w, &other));
-    assert_eq!((report.labels, report.labels_dropped), (0, 1));
-    assert_eq!(verdicts(&w).last().unwrap()[5], "label_taken");
-    assert_eq!(w.count("SELECT count(*) FROM core_memory.labels"), 1);
+    assert_eq!((report.chains, report.chains_dropped), (0, 1));
+    assert_eq!(verdicts(&w).last().unwrap()[5], "chain_taken");
+    assert_eq!(
+        w.count(
+            "SELECT count(DISTINCT from_bead) FROM core_memory.edges
+              WHERE arrow IN ('repl', 'withdraws')"
+        ),
+        1
+    );
 }
 
 #[test]
@@ -911,12 +906,12 @@ fn chunks_of_one_memory_become_a_group_and_a_later_part_joins_it() {
     allow(&w, "acme");
     let requests: Mutex<Vec<ModelRequest>> = Mutex::new(Vec::new());
     let says = judge_saying(&[
-        ("Phase two", "Phase one", "CONTAINS", ""),
-        ("Phase three", "Phase one", "CONTAINS", ""),
-        ("Phase three", "Phase two", "CONTAINS", ""),
-        ("Phase four", "Phase one", "CONTAINS", ""),
-        ("Phase four", "Phase two", "CONTAINS", ""),
-        ("Phase four", "Phase three", "CONTAINS", ""),
+        ("Phase two", "Phase one", "same-memory"),
+        ("Phase three", "Phase one", "same-memory"),
+        ("Phase three", "Phase two", "same-memory"),
+        ("Phase four", "Phase one", "same-memory"),
+        ("Phase four", "Phase two", "same-memory"),
+        ("Phase four", "Phase three", "same-memory"),
     ]);
     let transport = FnTransport(|request: &ModelRequest| {
         requests.lock().unwrap().push(request.clone());
@@ -946,7 +941,7 @@ fn chunks_of_one_memory_become_a_group_and_a_later_part_joins_it() {
             w,
             "SELECT g.bead_id::text, count(*)::text, g.state
                FROM core_memory.beads AS g
-               JOIN core_memory.edges AS e ON e.from_bead = g.bead_id AND e.edge_type = 'contains'
+               JOIN core_memory.edges AS e ON e.from_bead = g.bead_id AND e.arrow = 'consists'
               WHERE g.kind = 'group'
               GROUP BY g.bead_id, g.state",
         )
@@ -973,6 +968,39 @@ fn chunks_of_one_memory_become_a_group_and_a_later_part_joins_it() {
     assert_eq!(
         (joined[0][0].as_str(), joined[0][1].as_str()),
         (made[0][0].as_str(), "4")
+    );
+}
+
+#[test]
+fn a_part_of_a_whole_is_an_edge_and_makes_no_group() {
+    let mut w = judging("");
+    let agenda = bead(&mut w, &said("1", 0, "Agenda: budget, hiring, offsite."));
+    let item = bead(&mut w, &said("2", 3, "On hiring: we open two roles."));
+    let says = judge_saying(&[("On hiring", "Agenda", "pt-of")]);
+    let report = handled(round(&mut w, &FnTransport(says)));
+    assert_eq!((report.edges, report.groups), (1, 0));
+    let edges: Vec<(String, String, uuid::Uuid, uuid::Uuid)> =
+        w.db.connect()
+            .query(
+                "SELECT edge_type, arrow, from_bead, to_bead FROM core_memory.edges",
+                &[],
+            )
+            .unwrap()
+            .iter()
+            .map(|row| (row.get(0), row.get(1), row.get(2), row.get(3)))
+            .collect();
+    assert_eq!(
+        edges,
+        [(
+            "contains".to_string(),
+            "has-pt".to_string(),
+            agenda.0,
+            item.0
+        )]
+    );
+    assert_eq!(
+        w.count("SELECT count(*) FROM core_memory.beads WHERE kind = 'group'"),
+        0
     );
 }
 
@@ -1046,7 +1074,7 @@ fn erase(w: &World, event: EventId) {
         .unwrap();
 }
 
-/// The texts of the beads nothing has superseded.
+/// The texts of the beads nothing has replaced or withdrawn.
 fn current(w: &World) -> Vec<Vec<String>> {
     rows(
         w,
@@ -1054,7 +1082,7 @@ fn current(w: &World) -> Vec<Vec<String>> {
            JOIN core_memory.chunk_text AS t ON t.chunk_id = b.chunk_id
           WHERE b.state = 'live'
             AND NOT EXISTS (SELECT 1 FROM core_memory.edges AS e
-                             WHERE e.to_bead = b.bead_id AND e.edge_type = 'supersedes')
+                             WHERE e.to_bead = b.bead_id AND e.arrow IN ('repl', 'withdraws'))
           ORDER BY b.seq",
     )
 }
@@ -1064,30 +1092,20 @@ fn erasing_a_message_removes_what_was_said_about_it_and_leaves_the_chain_as_it_w
     let mut w = judging("");
     bead(&mut w, &said("1", 0, "The launch is on Thursday."));
     let (middle, _) = message(&mut w, &said("2", 5, "The launch moves to Friday."));
-    let (head, _) = message(&mut w, &said("3", 9, "Friday is confirmed."));
+    let (head, _) = message(&mut w, &said("3", 9, "Friday is final."));
     let requests: Mutex<Vec<ModelRequest>> = Mutex::new(Vec::new());
     let says = judge_saying(&[
-        (
-            "moves to Friday",
-            "is on Thursday",
-            "SUPERSEDES<",
-            "supersede",
-        ),
-        (
-            "Friday is confirmed",
-            "moves to Friday",
-            "SUPERSEDES<",
-            "reaffirm",
-        ),
-        ("Friday is confirmed", "is on Thursday", "NEAR", ""),
+        ("moves to Friday", "is on Thursday", "repl"),
+        ("Friday is final", "moves to Friday", "repl"),
+        ("Friday is final", "is on Thursday", "see"),
     ]);
     let transport = FnTransport(|request: &ModelRequest| {
         requests.lock().unwrap().push(request.clone());
         says(request)
     });
     let report = handled(round(&mut w, &transport));
-    assert_eq!((report.verdicts, report.labels, report.edges), (3, 2, 1));
-    assert_eq!(current(&w), [row(&["Friday is confirmed."])]);
+    assert_eq!((report.verdicts, report.chains, report.edges), (3, 2, 1));
+    assert_eq!(current(&w), [row(&["Friday is final."])]);
 
     // The middle of the chain is erased. Every verdict about it goes: its
     // columns were computed from what it said.
@@ -1096,41 +1114,32 @@ fn erasing_a_message_removes_what_was_said_about_it_and_leaves_the_chain_as_it_w
         verdicts(&w),
         [row(&[
             "The launch is on Thursday.",
-            "Friday is confirmed.",
+            "Friday is final.",
             "near",
             "undirected",
-            "",
+            "see",
             ""
         ])]
     );
-    // Its label bead is erased with it and keeps its place: the edges
-    // stay, as IDs, and what it superseded is not current again.
+    // Its edges stay, as IDs, so what it replaced is not current again.
     assert_eq!(
-        labels(&w),
+        chain(&w),
         [
-            row(&["supersede", "", "erased"]),
-            row(&["reaffirm", "Friday is confirmed.", "live"])
+            row(&["repl", "", "The launch is on Thursday."]),
+            row(&["repl", "Friday is final.", ""])
         ]
     );
     assert_eq!(w.count("SELECT count(*) FROM core_memory.edges"), 3);
-    assert_eq!(current(&w), [row(&["Friday is confirmed."])]);
+    assert_eq!(current(&w), [row(&["Friday is final."])]);
     // A consumer is told of the erasure. It still gets the edges, which
-    // name a bead it no longer has, and no bead record for a label whose
-    // statement is gone.
+    // name a bead it no longer has.
     let changes = w.changes();
     let kinds: Vec<&str> = changes.iter().map(kind_of).collect();
     assert_eq!(
         kinds,
         [
-            "event", "event", "verdict", "edge", "bead", "edge", "edge", "erasure"
+            "event", "event", "verdict", "edge", "edge", "edge", "erasure"
         ]
-    );
-    let Some(Change::Bead(kept)) = changes.iter().find(|c| kind_of(c) == "bead") else {
-        panic!("no bead record");
-    };
-    assert_eq!(
-        serde_json::to_value(&kept.made).unwrap()["label"],
-        "reaffirm"
     );
 
     // The next read is shown what is left: the first statement, still
@@ -1145,7 +1154,7 @@ fn erasing_a_message_removes_what_was_said_about_it_and_leaves_the_chain_as_it_w
             .collect::<Vec<_>>(),
         [
             ("The launch is on Thursday.", Some(false)),
-            ("Friday is confirmed.", None)
+            ("Friday is final.", None)
         ]
     );
 
@@ -1153,10 +1162,10 @@ fn erasing_a_message_removes_what_was_said_about_it_and_leaves_the_chain_as_it_w
     // and nothing it stood on comes back as current.
     erase(&w, head);
     assert_eq!(
-        labels(&w),
+        chain(&w),
         [
-            row(&["supersede", "", "erased"]),
-            row(&["reaffirm", "", "erased"])
+            row(&["repl", "", "The launch is on Thursday."]),
+            row(&["repl", "", ""])
         ]
     );
     assert_eq!(current(&w), [row(&["When is the launch again?"])]);
@@ -1173,7 +1182,7 @@ fn erasing_a_message_removes_what_was_said_about_it_and_leaves_the_chain_as_it_w
         ])]
     );
     // No table holds a word of what was erased.
-    for word in ["moves to Friday", "confirmed"] {
+    for word in ["moves to Friday", "Friday is final"] {
         assert_eq!(
             w.count(&format!(
                 "SELECT count(*) FROM core_memory.chunk_text WHERE text LIKE '%{word}%'"
@@ -1184,7 +1193,7 @@ fn erasing_a_message_removes_what_was_said_about_it_and_leaves_the_chain_as_it_w
 }
 
 #[test]
-fn erasing_reaches_name_links_held_labels_and_groups() {
+fn erasing_reaches_name_links_held_arrows_and_groups() {
     let mut w = judging("second_read = true");
     let (asked, _) = message(&mut w, &said("1", 0, "Ask Priya Raman about the export."));
     let (answered, _) = message(&mut w, &said("2", 1, "PR says the export takes an hour."));
@@ -1196,9 +1205,9 @@ fn erasing_reaches_name_links_held_labels_and_groups() {
         }
         answer(json!({"new": [
             {"id": "N1", "related": [], "unsure": []},
-            {"id": "N2", "related": [{"to": "N1", "rel": "CONTAINS"}], "unsure": []},
+            {"id": "N2", "related": [{"to": "N1", "arrow": "same-memory"}], "unsure": []},
             {"id": "N3", "unsure": [], "related": [
-                {"to": "N2", "rel": "SUPERSEDES<", "label": "supersede"}]},
+                {"to": "N2", "arrow": "repl"}]},
         ], "names": [{"a": "N2", "a_name": "PR", "b": "N1", "b_name": "Priya Raman"},
                      {"a": "N3", "a_name": "PR", "b": "N1", "b_name": "Priya Raman"}]}))
     });
@@ -1207,7 +1216,7 @@ fn erasing_reaches_name_links_held_labels_and_groups() {
     let counts = |w: &World| {
         (
             w.count("SELECT count(*) FROM core_memory.name_links"),
-            w.count("SELECT count(*) FROM core_memory.pending_labels"),
+            w.count("SELECT count(*) FROM core_memory.pending_chains"),
             w.count("SELECT count(*) FROM core_memory.work WHERE kind = 'second_read'"),
             w.count(
                 "SELECT count(*) FROM core_memory.beads WHERE kind = 'group' AND state = 'live'",
@@ -1216,8 +1225,8 @@ fn erasing_reaches_name_links_held_labels_and_groups() {
     };
     assert_eq!(counts(&w), (2, 1, 1, 1));
 
-    // A bead a held label follows is erased: the label is no longer held,
-    // and its second read no longer owed. One name link pointed into the
+    // A bead a held arrow would end is erased: the arrow is no longer
+    // held, and its second read no longer owed. One name link pointed into the
     // erased chunk. The group keeps its other member.
     erase(&w, answered);
     assert_eq!(counts(&w), (1, 0, 0, 1));
@@ -1232,7 +1241,7 @@ fn erasing_reaches_name_links_held_labels_and_groups() {
     );
     // The edges of the group stay, as IDs.
     assert_eq!(
-        w.count("SELECT count(*) FROM core_memory.edges WHERE edge_type = 'contains'"),
+        w.count("SELECT count(*) FROM core_memory.edges WHERE arrow = 'consists'"),
         2
     );
     let _ = corrected;
@@ -1263,8 +1272,8 @@ fn nothing_is_stored_about_a_bead_erased_or_stopped_while_the_judge_was_reading(
             .unwrap();
         answer(json!({"new": [
             {"id": "N1", "related": [], "unsure": []},
-            {"id": "N2", "related": [{"to": "N1", "rel": "NEAR"}], "unsure": []},
-            {"id": "N3", "related": [{"to": "N1", "rel": "NEAR"}, {"to": "N2", "rel": "NEAR"}],
+            {"id": "N2", "related": [{"to": "N1", "arrow": "see"}], "unsure": []},
+            {"id": "N3", "related": [{"to": "N1", "arrow": "see"}, {"to": "N2", "arrow": "see"}],
              "unsure": []},
         ], "names": [{"a": "N2", "a_name": "Kept", "b": "N1", "b_name": "Erased"}]}))
     });
@@ -1316,7 +1325,7 @@ fn a_reply_that_breaks_the_rules_is_repaired_once_and_then_each_bead_is_read_alo
     }
     let both = json!({"new": [
         {"id": "N1", "related": [], "unsure": []},
-        {"id": "N2", "related": [{"to": "N1", "rel": "NEAR"}], "unsure": []},
+        {"id": "N2", "related": [{"to": "N1", "arrow": "see"}], "unsure": []},
     ], "names": []});
     let transport = ScriptedTransport::new(vec![
         // The second bead is not answered for.
@@ -1645,14 +1654,13 @@ fn a_bead_that_arrives_late_meets_the_beads_after_it_and_no_pair_is_read_twice()
 }
 
 #[test]
-fn the_window_is_the_nearest_beads_up_to_its_limits_and_open_conflicts_come_first() {
+fn the_window_is_the_nearest_beads_up_to_its_limits_and_open_disputes_come_first() {
     let mut w = judging("max_new_beads = 1\nmax_window_beads = 3\nmax_conflict_beads = 2");
     let requests: Mutex<Vec<ModelRequest>> = Mutex::new(Vec::new());
     let says = judge_saying(&[(
         "Saturday, says ops",
         "The launch is on Friday",
-        "SUPERSEDES<",
-        "conflict",
+        "!contradicts",
     )]);
     let transport = FnTransport(|request: &ModelRequest| {
         requests.lock().unwrap().push(request.clone());
@@ -1665,11 +1673,11 @@ fn the_window_is_the_nearest_beads_up_to_its_limits_and_open_conflicts_come_firs
             .map(|m| m["text"].as_str().unwrap().to_string())
             .collect()
     };
-    // A conflict, early in the day.
+    // A contradiction, early in the day.
     bead(&mut w, &said("1", 0, "The launch is on Friday."));
     handled(round(&mut w, &transport));
     bead(&mut w, &said("2", 1, "Saturday, says ops."));
-    assert_eq!(handled(round(&mut w, &transport)).labels, 1);
+    assert_eq!(handled(round(&mut w, &transport)).edges, 1);
     // Then five messages about other things, hours later.
     for n in 0..5u32 {
         bead(
@@ -1682,8 +1690,8 @@ fn the_window_is_the_nearest_beads_up_to_its_limits_and_open_conflicts_come_firs
         );
         handled(round(&mut w, &transport));
     }
-    // The last of them was shown three beads: the conflict, both sides of
-    // it, and of the rest only the nearest.
+    // The last of them was shown three beads: both sides of the open
+    // contradiction, and of the rest only the nearest.
     assert_eq!(
         listed(&requests),
         [
@@ -1692,16 +1700,11 @@ fn the_window_is_the_nearest_beads_up_to_its_limits_and_open_conflicts_come_firs
             "Other business 3."
         ]
     );
+    // Both sides are current: neither replaced the other.
     let (memories, _) = shown(requests.lock().unwrap().last().unwrap());
-    assert_eq!(
-        (
-            memories[0]["current"].as_bool(),
-            memories[1]["label"].as_str()
-        ),
-        (Some(false), Some("conflict"))
-    );
+    assert!(memories[..2].iter().all(|m| m.get("current").is_none()));
 
-    // With no room kept for conflicts, the three nearest in time.
+    // With no room kept for disputes, the three nearest in time.
     w.engine = common::engine_with(
         &judge_config(
             "second_read = false\nmax_new_beads = 1\nmax_window_beads = 3\nmax_conflict_beads = 0",
@@ -1736,6 +1739,58 @@ fn the_window_is_the_nearest_beads_up_to_its_limits_and_open_conflicts_come_firs
         w.count("SELECT bytes_sent FROM core_memory.outbound_calls ORDER BY seq DESC LIMIT 1"),
         ("Other business 4.".len() + "One more.".len() + "And another.".len()) as i64
     );
+}
+
+#[test]
+fn a_dispute_is_shown_first_only_while_both_sides_are_current() {
+    let mut w = judging("max_new_beads = 1\nmax_window_beads = 2\nmax_conflict_beads = 2");
+    let requests: Mutex<Vec<ModelRequest>> = Mutex::new(Vec::new());
+    let says = judge_saying(&[
+        (
+            "Saturday, says ops",
+            "The launch is on Friday",
+            "!contradicts",
+        ),
+        ("Sunday, final", "Saturday, says ops", "repl"),
+    ]);
+    let transport = FnTransport(|request: &ModelRequest| {
+        requests.lock().unwrap().push(request.clone());
+        says(request)
+    });
+    let listed = |requests: &Mutex<Vec<ModelRequest>>| -> Vec<String> {
+        shown(requests.lock().unwrap().last().unwrap())
+            .0
+            .iter()
+            .map(|m| m["text"].as_str().unwrap().to_string())
+            .collect()
+    };
+    bead(&mut w, &said("1", 0, "The launch is on Friday."));
+    handled(round(&mut w, &transport));
+    bead(&mut w, &said("2", 1, "Saturday, says ops."));
+    handled(round(&mut w, &transport));
+    for n in 0..3u32 {
+        bead(
+            &mut w,
+            &said(
+                &format!("later-{n}"),
+                300 + n,
+                &format!("Other business {n}."),
+            ),
+        );
+        handled(round(&mut w, &transport));
+    }
+    // Hours later, the open dispute still comes first.
+    assert_eq!(
+        listed(&requests),
+        ["The launch is on Friday.", "Saturday, says ops."]
+    );
+    // A later statement settles it by replacing one side.
+    bead(&mut w, &said("3", 303, "Sunday, final."));
+    assert_eq!(handled(round(&mut w, &transport)).chains, 1);
+    // From then on it is not open, and the window is what is near in time.
+    bead(&mut w, &said("4", 304, "Other business 9."));
+    handled(round(&mut w, &transport));
+    assert_eq!(listed(&requests), ["Other business 2.", "Sunday, final."]);
 }
 
 #[test]
@@ -2110,7 +2165,7 @@ fn the_end_of_a_judges_call_is_recorded_once() {
     };
     let judged = core_memory_core::judge::validate(
         r#"{"new": [{"id": "N1", "related": [], "unsure": []},
-                    {"id": "N2", "related": [{"to": "N1", "rel": "NEAR"}], "unsure": []}],
+                    {"id": "N2", "related": [{"to": "N1", "arrow": "see"}], "unsure": []}],
             "names": []}"#,
         &shown,
         core_memory_core::judge::Names::MustBeFound,
@@ -2121,7 +2176,7 @@ fn the_end_of_a_judges_call_is_recorded_once() {
         &judged,
         core_memory_core::judge::Recording {
             id_key: &batch.id_key,
-            hold_labels: false,
+            hold_chains: false,
         },
     );
     let finish = core_memory_core::store::JudgmentFinish {
@@ -2182,8 +2237,8 @@ fn what_a_judge_wrote_is_exported_and_one_scope_gets_only_what_lies_inside_it() 
         answer(json!({"new": [
             {"id": "N1", "related": [], "unsure": []},
             {"id": "N2", "unsure": [], "related": [
-                {"to": "N1", "rel": "SUPERSEDES<", "label": "supersede"}]},
-            {"id": "N3", "unsure": ["N2"], "related": [{"to": "N1", "rel": "LEADSTO>"}]},
+                {"to": "N1", "arrow": "repl"}]},
+            {"id": "N3", "unsure": ["N2"], "related": [{"to": "N1", "arrow": "cause-by"}]},
         ], "names": [{"a": "N2", "a_name": "moves", "b": "N1", "b_name": "is on"}]}))
         .inspect(|_| assert!(request.user.contains(r#""from":"S2""#)))
     });
@@ -2200,7 +2255,6 @@ fn what_a_judge_wrote_is_exported_and_one_scope_gets_only_what_lies_inside_it() 
             "verdict",
             "verdict",
             "verdict",
-            "bead",
             "edge",
             "edge",
             "name link"
@@ -2212,7 +2266,7 @@ fn what_a_judge_wrote_is_exported_and_one_scope_gets_only_what_lies_inside_it() 
     let acme = w.store.export("w1", 0, 100, Some("acme")).unwrap();
     assert_eq!(
         kinds(&acme),
-        ["event", "event", "verdict", "bead", "edge", "name link"]
+        ["event", "event", "verdict", "edge", "name link"]
     );
     let beta = w.store.export("w1", 0, 100, Some("beta")).unwrap();
     assert_eq!(kinds(&beta), ["event"]);
@@ -2254,16 +2308,16 @@ fn what_a_judge_wrote_is_exported_and_one_scope_gets_only_what_lies_inside_it() 
             &verdict["record_kind"],
             &verdict["verdict"],
             &verdict["direction"],
-            &verdict["label"],
+            &verdict["arrow"],
             &verdict["read_no"],
             &verdict["judge"]["binding_id"],
             &verdict["judge"]["rubric_rev"],
         ),
         (
             &json!("verdict"),
-            &json!("supersedes"),
+            &json!("leadsto"),
             &json!("later_to_earlier"),
-            &json!("supersede"),
+            &json!("repl"),
             &json!(1),
             &json!("careful"),
             &json!(core_memory_core::judge::RUBRIC_REV),
@@ -2280,26 +2334,29 @@ fn what_a_judge_wrote_is_exported_and_one_scope_gets_only_what_lies_inside_it() 
             "earlier_is_new": true, "later_is_new": true,
         })
     );
+    // The replacement runs from the later statement to the earlier one, and
+    // the cause from the first message to the one it brought about.
     assert_eq!(
         (
             &records[3]["record_kind"],
-            &records[3]["bead_kind"],
-            &records[3]["label"]
+            &records[3]["edge_type"],
+            &records[3]["arrow"],
+            &records[3]["to_bead"]
         ),
-        (&json!("bead"), &json!("label"), &json!("supersede"))
+        (
+            &json!("edge"),
+            &json!("leadsto"),
+            &json!("repl"),
+            &records[0]["earlier_bead"]
+        )
     );
     assert_eq!(
-        (
-            &records[4]["record_kind"],
-            &records[4]["edge_type"],
-            &records[4]["from_bead"]
-        ),
-        (&json!("edge"), &json!("supersedes"), &records[3]["bead_id"])
+        (&records[4]["edge_type"], &records[4]["arrow"]),
+        (&json!("leadsto"), &json!("cause"))
     );
-    assert_eq!(records[5]["edge_type"], "leadsto");
     // "is on" in the first message and "moves" in the second, in the
     // order of their beads' IDs.
-    let link = &records[6];
+    let link = &records[5];
     assert_eq!(link["record_kind"], "name_link");
     let mut ends = [
         (&link["a_start"], &link["a_end"]),
@@ -2386,8 +2443,8 @@ fn the_engine_role_judges_and_cannot_rewrite_what_was_judged() {
     let (_, host) = rest.split_once('@').unwrap();
     let url = format!("{scheme}://cm_t_judge_engine:synthetic@{host}");
     // Whole rounds with the engine's privileges and nothing more: beads
-    // are admitted and judged, a label is held, read again and written,
-    // and a group and a name link are made.
+    // are admitted and judged, a replacement is held, read again and
+    // written, and a group and a name link are made.
     let mut store = PostgresStore::new(&ConnectConfig::new(url.clone())).unwrap();
     for (id, minutes, text) in [
         ("1", 0, "The launch is on Thursday."),
@@ -2413,22 +2470,22 @@ fn the_engine_role_judges_and_cannot_rewrite_what_was_judged() {
     let transport = FnTransport(|request: &ModelRequest| {
         let (listed, new) = shown(request);
         if new.len() == 1 {
-            // The second read of the held label.
+            // The second read of the held arrow.
             return answer(json!({"new": [{"id": "N1", "unsure": [], "related": [
-                {"to": listed[0]["id"], "rel": "SUPERSEDES<", "label": "supersede"}]}],
+                {"to": listed[0]["id"], "arrow": "repl"}]}],
                 "names": []}));
         }
         answer(json!({"new": [
             {"id": "N1", "related": [], "unsure": []},
             {"id": "N2", "unsure": [], "related": [
-                {"to": "N1", "rel": "SUPERSEDES<", "label": "supersede"}]},
-            {"id": "N3", "unsure": ["N1"], "related": [{"to": "N2", "rel": "CONTAINS"}]},
+                {"to": "N1", "arrow": "repl"}]},
+            {"id": "N3", "unsure": ["N1"], "related": [{"to": "N2", "arrow": "same-memory"}]},
         ], "names": [{"a": "N3", "a_name": "More", "b": "N2", "b_name": "launch"}]}))
     });
     let first = handled(w.engine.judge_once(&mut store, &transport).unwrap());
     assert_eq!((first.held, first.groups, first.names), (1, 1, 1));
     let second = handled(w.engine.judge_once(&mut store, &transport).unwrap());
-    assert_eq!((second.second_read, second.labels), (true, 1));
+    assert_eq!((second.second_read, second.chains), (true, 1));
 
     let mut raw = postgres::Client::connect(&url, postgres::NoTls).unwrap();
     let refused = |client: &mut postgres::Client, sql: &str| -> String {
@@ -2444,12 +2501,14 @@ fn the_engine_role_judges_and_cannot_rewrite_what_was_judged() {
         "DELETE FROM core_memory.verdicts",
         "UPDATE core_memory.edges SET edge_type = 'near'",
         "DELETE FROM core_memory.edges",
-        "DELETE FROM core_memory.labels",
-        "UPDATE core_memory.labels SET label = 'retract'",
+        "UPDATE core_memory.edges SET arrow = 'withdraws'",
+        "INSERT INTO core_memory.arrows SELECT 'denies', 'near', 'denies', NULL, NULL, false, \
+         false, 'engine'",
+        "DELETE FROM core_memory.arrows",
         "DELETE FROM core_memory.name_links",
         "DELETE FROM core_memory.judge_reads",
-        "UPDATE core_memory.pending_labels SET label = 'retract'",
-        "UPDATE core_memory.beads SET state = 'erased' WHERE kind = 'label'",
+        "UPDATE core_memory.pending_chains SET arrow = 'withdraws'",
+        "UPDATE core_memory.beads SET state = 'erased' WHERE kind = 'group'",
         "SELECT core_memory.lock_workspace('w1')",
         "SELECT core_memory.take_seq('w1', 1)",
     ] {
@@ -2470,7 +2529,14 @@ fn the_engine_role_judges_and_cannot_rewrite_what_was_judged() {
             "UPDATE core_memory.edges SET to_bead = from_bead",
             "cannot be changed",
         ),
-        ("DELETE FROM core_memory.labels", "cannot be deleted"),
+        ("DELETE FROM core_memory.arrows", "cannot be deleted"),
+        (
+            "UPDATE core_memory.arrows SET ends_currency = true",
+            "cannot be changed",
+        ),
+        // Refused twice over: the directory is referenced, and refuses
+        // to be emptied besides.
+        ("TRUNCATE core_memory.arrows", "cannot truncate"),
         ("DELETE FROM core_memory.name_links", "cannot be deleted"),
         (
             "UPDATE core_memory.judge_reads SET read_no = 2",
@@ -2483,28 +2549,47 @@ fn the_engine_role_judges_and_cannot_rewrite_what_was_judged() {
     // The graph keeps its shape whoever writes to it.
     for (sql, why) in [
         (
-            "INSERT INTO core_memory.edges (workspace_id, seq, edge_type, from_bead, to_bead,
-                                            call_id, created_at)
-             SELECT e.workspace_id, 900001, 'supersedes', e.to_bead, e.from_bead, e.call_id,
-                    e.created_at
-               FROM core_memory.edges AS e WHERE e.edge_type = 'supersedes'",
-            "runs from a label bead",
+            "INSERT INTO core_memory.edges (workspace_id, seq, edge_type, arrow, from_bead,
+                                            to_bead, call_id, created_at)
+             SELECT e.workspace_id, 900001, 'leadsto', 'repl', e.to_bead, e.from_bead,
+                    e.call_id, e.created_at
+               FROM core_memory.edges AS e WHERE e.arrow = 'repl'",
+            "runs from a current statement to a current bead",
         ),
         (
-            "INSERT INTO core_memory.edges (workspace_id, seq, edge_type, from_bead, to_bead,
-                                            call_id, created_at)
-             SELECT e.workspace_id, 900002, 'supersedes', e.from_bead, e.to_bead, e.call_id,
-                    e.created_at
-               FROM core_memory.edges AS e WHERE e.edge_type = 'supersedes'",
+            "INSERT INTO core_memory.edges (workspace_id, seq, edge_type, arrow, from_bead,
+                                            to_bead, call_id, created_at)
+             SELECT e.workspace_id, 900002, 'contains', 'consists', e.from_bead, e.to_bead,
+                    e.call_id, e.created_at
+               FROM core_memory.edges AS e WHERE e.arrow = 'consists' LIMIT 1",
             "duplicate key",
         ),
         (
-            "INSERT INTO core_memory.edges (workspace_id, seq, edge_type, from_bead, to_bead,
-                                            call_id, created_at)
-             SELECT e.workspace_id, 900003, 'leadsto', e.from_bead, e.to_bead, e.call_id,
-                    e.created_at
-               FROM core_memory.edges AS e WHERE e.edge_type = 'contains' LIMIT 1",
+            "INSERT INTO core_memory.edges (workspace_id, seq, edge_type, arrow, from_bead,
+                                            to_bead, call_id, created_at)
+             SELECT e.workspace_id, 900003, 'leadsto', 'cause', e.from_bead, e.to_bead,
+                    e.call_id, e.created_at
+               FROM core_memory.edges AS e WHERE e.arrow = 'consists' LIMIT 1",
             "joins two beads of source content",
+        ),
+        // An arrow is of its own type, and of no other.
+        (
+            "INSERT INTO core_memory.edges (workspace_id, seq, edge_type, arrow, from_bead,
+                                            to_bead, call_id, created_at)
+             SELECT e.workspace_id, 900004, 'near', 'cause', e.to_bead, e.from_bead,
+                    e.call_id, e.created_at
+               FROM core_memory.edges AS e WHERE e.arrow = 'repl'",
+            "foreign key",
+        ),
+        // A pairwise answer that two beads are one memory is written as a
+        // group, never as an edge.
+        (
+            "INSERT INTO core_memory.edges (workspace_id, seq, edge_type, arrow, from_bead,
+                                            to_bead, call_id, created_at)
+             SELECT e.workspace_id, 900005, 'contains', 'same-memory', e.to_bead, e.from_bead,
+                    e.call_id, e.created_at
+               FROM core_memory.edges AS e WHERE e.arrow = 'repl'",
+            "check constraint",
         ),
     ] {
         let message = refused(&mut admin, sql);
@@ -2526,8 +2611,8 @@ fn nothing_is_stored_about_a_bead_that_was_erased_whoever_writes_it() {
     let transport = FnTransport(|_: &ModelRequest| {
         answer(json!({"new": [
             {"id": "N1", "related": [], "unsure": []},
-            {"id": "N2", "related": [{"to": "N1", "rel": "NEAR"}], "unsure": []},
-            {"id": "N3", "related": [{"to": "N2", "rel": "LEADSTO>"}], "unsure": []},
+            {"id": "N2", "related": [{"to": "N1", "arrow": "see"}], "unsure": []},
+            {"id": "N3", "related": [{"to": "N2", "arrow": "cause-by"}], "unsure": []},
         ], "names": [{"a": "N2", "a_name": "Kept", "b": "N1", "b_name": "Erased"},
                      {"a": "N3", "a_name": "as well", "b": "N2", "b_name": "Kept"}]}))
     });
@@ -2562,10 +2647,10 @@ fn nothing_is_stored_about_a_bead_that_was_erased_whoever_writes_it() {
         ),
         (
             "edges",
-            "INSERT INTO core_memory.edges (workspace_id, seq, edge_type, from_bead, to_bead,
-                 call_id, created_at)
-             SELECT e.workspace_id, 900003, 'express', e.from_bead, b.bead_id, e.call_id,
-                    e.created_at
+            "INSERT INTO core_memory.edges (workspace_id, seq, edge_type, arrow, from_bead,
+                 to_bead, call_id, created_at)
+             SELECT e.workspace_id, 900003, 'express', 'attr', e.from_bead, b.bead_id,
+                    e.call_id, e.created_at
                FROM core_memory.edges AS e, core_memory.beads AS b
               WHERE e.edge_type = 'leadsto' AND b.state = 'erased'",
         ),
@@ -2593,18 +2678,18 @@ fn what_another_judge_says_again_is_stored_once() {
     );
     let transport = FnTransport(|request: &ModelRequest| {
         // A judge is told which memories are no longer current, and may
-        // not say again that one of them is superseded.
+        // not say again that one of them is replaced.
         let (_, new) = shown(request);
         let superseded = if new[1]["current"] == false {
             json!([])
         } else {
-            json!([{"to": "N2", "rel": "SUPERSEDES<", "label": "supersede"}])
+            json!([{"to": "N2", "arrow": "repl"}])
         };
         answer(json!({"new": [
             {"id": "N1", "related": [], "unsure": []},
-            {"id": "N2", "related": [{"to": "N1", "rel": "LEADSTO>"}], "unsure": []},
+            {"id": "N2", "related": [{"to": "N1", "arrow": "cause-by"}], "unsure": []},
             {"id": "N3", "unsure": [], "related": [
-                {"to": "N2", "rel": "CONTAINS"}, {"to": "N1", "rel": "NEAR"}]},
+                {"to": "N2", "arrow": "same-memory"}, {"to": "N1", "arrow": "see"}]},
             {"id": "N4", "unsure": [], "related": superseded},
         ], "names": [{"a": "N2", "a_name": "PR", "b": "N1", "b_name": "Priya Raman"}]}))
     });
@@ -2613,7 +2698,7 @@ fn what_another_judge_says_again_is_stored_once() {
         (
             first.verdicts,
             first.edges,
-            first.labels,
+            first.chains,
             first.groups,
             first.names
         ),
@@ -2641,7 +2726,7 @@ fn what_another_judge_says_again_is_stored_once() {
         (
             second.verdicts,
             second.edges,
-            second.labels,
+            second.chains,
             second.groups,
             second.names
         ),
@@ -2656,7 +2741,7 @@ fn what_another_judge_says_again_is_stored_once() {
         ),
         [row(&["6"]), row(&["6"])]
     );
-    // Of the pair one judge had superseded, the other was shown that the
+    // Of the pair one judge had replaced, the other was shown that the
     // earlier statement is no longer current, and its verdict says so.
     assert_eq!(
         rows(
@@ -2667,16 +2752,14 @@ fn what_another_judge_says_again_is_stored_once() {
               WHERE a.text LIKE 'PR says%' AND b.text LIKE 'The export takes%'
               ORDER BY v.seq"
         ),
-        [row(&["supersedes", "true"]), row(&["none", "false"])]
+        [row(&["leadsto", "true"]), row(&["none", "false"])]
     );
     for (what, count) in [
         ("verdicts", 12),
-        ("edges WHERE edge_type IN ('leadsto', 'near')", 2),
-        ("edges WHERE edge_type = 'supersedes'", 1),
-        ("edges WHERE edge_type = 'contains'", 2),
-        ("beads WHERE kind = 'label'", 1),
+        ("edges WHERE arrow IN ('cause', 'see')", 2),
+        ("edges WHERE arrow = 'repl'", 1),
+        ("edges WHERE arrow = 'consists'", 2),
         ("beads WHERE kind = 'group'", 1),
-        ("labels", 1),
         ("name_links", 1),
         ("judge_reads", 2),
     ] {
@@ -2712,7 +2795,7 @@ fn a_verdict_and_a_name_link_carry_the_scopes_of_their_beads() {
     let transport = FnTransport(|_: &ModelRequest| {
         answer(json!({"new": [
             {"id": "N1", "related": [], "unsure": []},
-            {"id": "N2", "related": [{"to": "N1", "rel": "LEADSTO>"}], "unsure": []},
+            {"id": "N2", "related": [{"to": "N1", "arrow": "cause-by"}], "unsure": []},
             {"id": "N3", "related": [], "unsure": []},
         ], "names": [{"a": "N2", "a_name": "PR", "b": "N1", "b_name": "Priya Raman"}]}))
     });
@@ -2954,7 +3037,7 @@ fn a_reply_that_comes_after_its_lease_ran_out_stores_nothing_for_work_another_wo
             &judged,
             Recording {
                 id_key,
-                hold_labels: false,
+                hold_chains: false,
             },
         );
         store
@@ -2993,7 +3076,7 @@ fn a_reply_that_comes_after_its_lease_ran_out_stores_nothing_for_work_another_wo
         &b_shown,
         &b_batch.id_key,
         r#"{"new": [{"id": "N1", "related": [], "unsure": []},
-                    {"id": "N2", "related": [{"to": "N1", "rel": "NEAR"}], "unsure": []}],
+                    {"id": "N2", "related": [{"to": "N1", "arrow": "see"}], "unsure": []}],
             "names": []}"#,
     );
     assert_eq!(
@@ -3005,7 +3088,7 @@ fn a_reply_that_comes_after_its_lease_ran_out_stores_nothing_for_work_another_wo
 }
 
 #[test]
-fn a_late_second_read_settles_no_label_it_did_not_read() {
+fn a_late_second_read_settles_no_arrow_it_did_not_read() {
     use core_memory_core::judge::{Names, second_judgment, validate};
     use core_memory_core::store::{CallResult, JudgmentFinish};
 
@@ -3013,18 +3096,13 @@ fn a_late_second_read_settles_no_label_it_did_not_read() {
     let reader = w.engine.judge().unwrap().reader_ref.clone();
     let (h_event, h) = message(&mut w, &said("h", 0, "The launch is on Thursday."));
     let s = bead(&mut w, &said("s", 10, "The launch moves to Friday."));
-    let says = judge_saying(&[(
-        "moves to Friday",
-        "is on Thursday",
-        "SUPERSEDES<",
-        "supersede",
-    )]);
+    let says = judge_saying(&[("moves to Friday", "is on Thursday", "repl")]);
     assert_eq!(handled(round(&mut w, &FnTransport(says))).held, 1);
 
     // Worker A claims the second read and is permitted.
     let a_claim = claim(&w, 4);
     let a_batch = w.store.claim_judgment(&a_claim).unwrap().unwrap();
-    let JudgeWork::SecondRead { label, heads, .. } = &a_batch.work else {
+    let JudgeWork::SecondRead { arrow, heads, .. } = &a_batch.work else {
         panic!("not a second read: {:?}", a_batch.work);
     };
     assert_eq!(heads.as_slice(), [h]);
@@ -3040,16 +3118,16 @@ fn a_late_second_read_settles_no_label_it_did_not_read() {
     else {
         panic!("the second read was not permitted");
     };
-    // H is erased while A's call is out, which drops the held label.
+    // H is erased while A's call is out, which drops the held arrow.
     erase(&w, h_event);
     // A statement written before S arrives. A judge reads it and says S
-    // supersedes it: a label of the same source, held in turn.
+    // replaces it: an arrow of the same source, held in turn.
     let h2 = bead(&mut w, &said("h2", 5, "The launch is on Wednesday."));
     let mut b_store = w.db.store();
     let other = FnTransport(|_: &ModelRequest| {
         answer(json!({"new": [
             {"id": "N1", "unsure": [], "related": [
-                {"to": "B1", "rel": "SUPERSEDES>", "label": "supersede"}]},
+                {"to": "B1", "arrow": "repl-by"}]},
         ], "names": []}))
     });
     let report = handled(w.engine.judge_once(&mut b_store, &other).unwrap());
@@ -3057,21 +3135,21 @@ fn a_late_second_read_settles_no_label_it_did_not_read() {
     let held = |w: &World| {
         rows(
             w,
-            "SELECT source_bead::text, head_beads::text FROM core_memory.pending_labels",
+            "SELECT source_bead::text, head_beads::text FROM core_memory.pending_chains",
         )
     };
     assert_eq!(held(&w), [vec![s.0.to_string(), format!("{{{}}}", h2.0)]]);
 
     // A's reply arrives: its read of (S, H) agreed. It settles nothing it
-    // did not read: the label of (S, H2) still waits for its own.
+    // did not read: the arrow of (S, H2) still waits for its own.
     let a_judged = validate(
         r#"{"new": [{"id": "N1", "unsure": [], "related": [
-               {"to": "B1", "rel": "SUPERSEDES<", "label": "supersede"}]}], "names": []}"#,
+               {"to": "B1", "arrow": "repl"}]}], "names": []}"#,
         &a_shown,
         Names::MustBeFound,
     )
     .unwrap();
-    let a_write = second_judgment(&a_shown, &a_judged, &a_batch.id_key, (*label, heads));
+    let a_write = second_judgment(&a_shown, &a_judged, (*arrow, heads));
     let a_finished = w
         .store
         .finish_judgment(&JudgmentFinish {
@@ -3087,72 +3165,59 @@ fn a_late_second_read_settles_no_label_it_did_not_read() {
             at: w.clock.now(),
         })
         .unwrap();
-    assert_eq!((a_finished.verdicts, a_finished.labels), (0, 0));
+    assert_eq!((a_finished.verdicts, a_finished.chains), (0, 0));
     assert_eq!(held(&w).len(), 1);
     assert_eq!(
         w.count("SELECT count(*) FROM core_memory.work WHERE kind = 'second_read'"),
         1
     );
-    assert_eq!(w.count("SELECT count(*) FROM core_memory.labels"), 0);
+    assert!(chain(&w).is_empty());
 }
 
 #[test]
 fn a_chain_given_in_one_read_is_written_from_its_oldest_statement_on() {
-    const CHAIN: &[(&str, &str, &str, &str)] = &[
-        (
-            "moves to Friday",
-            "is on Thursday",
-            "SUPERSEDES<",
-            "supersede",
-        ),
-        (
-            "Friday is confirmed",
-            "moves to Friday",
-            "SUPERSEDES<",
-            "reaffirm",
-        ),
+    const CHAIN: &[(&str, &str, &str)] = &[
+        ("moves to Friday", "is on Thursday", "repl"),
+        ("Friday is off", "moves to Friday", "withdraws"),
     ];
     let mut w = judging("second_read = true");
     bead(&mut w, &said("1", 0, "The launch is on Thursday."));
     bead(&mut w, &said("2", 5, "The launch moves to Friday."));
-    bead(&mut w, &said("3", 9, "Friday is confirmed."));
+    bead(&mut w, &said("3", 9, "Friday is off for now."));
     let transport = FnTransport(judge_saying(CHAIN));
-    // The replacement waits for its second read. The reaffirmation, which
-    // would need no second read of its own, waits as well: written now, it
-    // would supersede the statement whose replacement waits, and that
-    // could then never be written.
+    // Both wait for their second reads. Written first, the withdrawal
+    // would end the statement whose replacement waits, and that could
+    // then never be written.
     let first = handled(round(&mut w, &transport));
-    assert_eq!((first.labels, first.held), (0, 2));
+    assert_eq!((first.chains, first.held), (0, 2));
     // They are read again in the order they were held: the oldest first.
     for _ in 0..2 {
         let report = handled(round(&mut w, &transport));
-        assert_eq!((report.second_read, report.labels), (true, 1), "{report:?}");
+        assert_eq!((report.second_read, report.chains), (true, 1), "{report:?}");
     }
     assert_eq!(round(&mut w, &transport), JudgeRound::Idle);
     assert_eq!(
         chain(&w),
         [
-            row(&["The launch moves to Friday.", "The launch is on Thursday."]),
-            row(&["Friday is confirmed.", "The launch moves to Friday."]),
+            row(&[
+                "repl",
+                "The launch moves to Friday.",
+                "The launch is on Thursday."
+            ]),
+            row(&[
+                "withdraws",
+                "Friday is off for now.",
+                "The launch moves to Friday."
+            ]),
         ]
     );
-    assert_eq!(current(&w), [row(&["Friday is confirmed."])]);
+    assert_eq!(current(&w), [row(&["Friday is off for now."])]);
 
     // Two replacements in one chain, both held: whichever source has the
     // smaller ID, the older is read first, and both are written.
-    const TWO: &[(&str, &str, &str, &str)] = &[
-        (
-            "moves to Friday",
-            "is on Thursday",
-            "SUPERSEDES<",
-            "supersede",
-        ),
-        (
-            "moves to Monday",
-            "moves to Friday",
-            "SUPERSEDES<",
-            "supersede",
-        ),
+    const TWO: &[(&str, &str, &str)] = &[
+        ("moves to Friday", "is on Thursday", "repl"),
+        ("moves to Monday", "moves to Friday", "repl"),
     ];
     let mut orders = std::collections::BTreeSet::new();
     for n in 0..8 {
@@ -3185,55 +3250,35 @@ fn a_chain_given_in_one_read_is_written_from_its_oldest_statement_on() {
 }
 
 #[test]
-fn a_held_label_that_can_no_longer_be_written_is_dropped_without_a_call() {
+fn a_held_arrow_that_can_no_longer_be_written_is_dropped_without_a_call() {
     let mut w = judging("second_read = true");
     let thursday = bead(&mut w, &said("1", 0, "The launch is on Thursday."));
     bead(&mut w, &said("2", 5, "The launch moves to Friday."));
     let saturday = bead(&mut w, &said("3", 7, "Marketing moved it to Saturday."));
     let calls = Mutex::new(0u32);
-    let says = judge_saying(&[(
-        "moves to Friday",
-        "is on Thursday",
-        "SUPERSEDES<",
-        "supersede",
-    )]);
+    let says = judge_saying(&[("moves to Friday", "is on Thursday", "repl")]);
     let transport = FnTransport(|request: &ModelRequest| {
         *calls.lock().unwrap() += 1;
         says(request)
     });
     assert_eq!(handled(round(&mut w, &transport)).held, 1);
-    // Something else supersedes Thursday meanwhile: here a label written
-    // by the database's owner, as an older engine might have.
+    // Something else replaces Thursday meanwhile: here an edge written by
+    // the database's owner, as an older engine might have.
     w.db.connect()
         .execute(
-            "WITH bead AS (
-                 INSERT INTO core_memory.beads (bead_id, workspace_id, scope, kind, state,
-                     event_id, chunk_id, created_by, call_id, time_at, time_basis, created_at,
-                     seq)
-                 SELECT gen_random_uuid(), 'w1', NULL, 'label', 'live', NULL, NULL, 'judge',
-                        r.call_id, r.judged_at, 'captured', r.judged_at, 900001
-                   FROM core_memory.judge_reads AS r
-                 RETURNING bead_id, call_id, created_at)
-             INSERT INTO core_memory.labels (bead_id, workspace_id, label, source_bead, call_id)
-             SELECT bead_id, 'w1', 'supersede', $1, call_id FROM bead",
-            &[&saturday.0],
-        )
-        .unwrap();
-    w.db.connect()
-        .execute(
-            "INSERT INTO core_memory.edges (workspace_id, seq, edge_type, from_bead, to_bead,
-                 call_id, created_at)
-             SELECT 'w1', 900002, 'supersedes', l.bead_id, $2, l.call_id, now()
-               FROM core_memory.labels AS l WHERE l.source_bead = $1",
+            "INSERT INTO core_memory.edges (workspace_id, seq, edge_type, arrow, from_bead,
+                 to_bead, call_id, created_at)
+             SELECT 'w1', 900001, 'leadsto', 'repl', $1, $2, r.call_id, now()
+               FROM core_memory.judge_reads AS r",
             &[&saturday.0, &thursday.0],
         )
         .unwrap();
-    // The held label can no longer be written. It is dropped when its
+    // The held arrow can no longer be written. It is dropped when its
     // second read comes up, and no call is made for it.
     assert_eq!(round(&mut w, &transport), JudgeRound::Idle);
     assert_eq!(*calls.lock().unwrap(), 1);
     assert_eq!(
-        w.count("SELECT count(*) FROM core_memory.pending_labels"),
+        w.count("SELECT count(*) FROM core_memory.pending_chains"),
         0
     );
     assert_eq!(w.count("SELECT count(*) FROM core_memory.work"), 0);
@@ -3241,9 +3286,9 @@ fn a_held_label_that_can_no_longer_be_written_is_dropped_without_a_call() {
     assert_eq!(
         rows(
             &w,
-            "SELECT verdict, note FROM core_memory.verdicts WHERE verdict = 'supersedes'"
+            "SELECT verdict, note FROM core_memory.verdicts WHERE arrow = 'repl'"
         ),
-        [row(&["supersedes", "awaits_second_read"])]
+        [row(&["leadsto", "awaits_second_read"])]
     );
 }
 
@@ -3258,12 +3303,7 @@ fn a_second_read_waits_without_a_receipt_while_a_bead_it_needs_may_not_be_shown(
     );
     bead(&mut w, &said("2", 9, "The launch moves to Friday."));
     let calls = Mutex::new(0u32);
-    let says = judge_saying(&[(
-        "moves to Friday",
-        "is on Thursday",
-        "SUPERSEDES<",
-        "supersede",
-    )]);
+    let says = judge_saying(&[("moves to Friday", "is on Thursday", "repl")]);
     let transport = FnTransport(|request: &ModelRequest| {
         *calls.lock().unwrap() += 1;
         says(request)
@@ -3302,7 +3342,7 @@ fn a_second_read_waits_without_a_receipt_while_a_bead_it_needs_may_not_be_shown(
     // Consent comes back, and the second read is made.
     allow(&w, "beta");
     let report = handled(round(&mut w, &transport));
-    assert_eq!((report.second_read, report.labels), (true, 1));
+    assert_eq!((report.second_read, report.chains), (true, 1));
     assert_eq!(*calls.lock().unwrap(), 2);
 }
 
@@ -3407,8 +3447,8 @@ fn an_export_of_one_scope_gives_only_what_lies_inside_it_and_keeps_what_it_gave(
     w.store.enroll_scope("beta", "w1").unwrap();
     allow(&w, "beta");
     let kinds = |changes: &[Change]| changes.iter().map(kind_of).collect::<Vec<_>>();
-    // A statement of `acme` takes the place of one of `beta`. The label
-    // says so, and its edge points into `beta`: none of it is `acme`'s.
+    // A statement of `acme` takes the place of one of `beta`. Its edge
+    // points into `beta`, so it is not `acme`'s.
     bead(
         &mut w,
         &said_in("beta", "1", 0, "Marketing booked Thursday."),
@@ -3418,10 +3458,10 @@ fn an_export_of_one_scope_gives_only_what_lies_inside_it_and_keeps_what_it_gave(
         answer(json!({"new": [
             {"id": "N1", "related": [], "unsure": []},
             {"id": "N2", "unsure": [], "related": [
-                {"to": "N1", "rel": "SUPERSEDES<", "label": "supersede"}]},
+                {"to": "N1", "arrow": "repl"}]},
         ], "names": []}))
     });
-    assert_eq!(handled(round(&mut w, &supersedes)).labels, 1);
+    assert_eq!(handled(round(&mut w, &supersedes)).chains, 1);
     let acme = w.store.export("w1", 0, 100, Some("acme")).unwrap();
     assert_eq!(kinds(&acme), ["event"]);
     let beta = w.store.export("w1", 0, 100, Some("beta")).unwrap();
@@ -3456,7 +3496,7 @@ fn an_export_of_one_scope_gives_only_what_lies_inside_it_and_keeps_what_it_gave(
                             };
                             at(id) < at(&m["id"])
                         })
-                        .map(|id| json!({"to": id, "rel": "CONTAINS"}))
+                        .map(|id| json!({"to": id, "arrow": "same-memory"}))
                         .collect()
                 } else {
                     Vec::new()
@@ -3506,69 +3546,65 @@ fn the_tables_keep_a_chain_growing_at_its_head_whoever_writes_to_them() {
     let friday = bead(&mut w, &said("2", 5, "The launch moves to Friday."));
     let saturday = bead(&mut w, &said("3", 9, "Ops says Saturday."));
     let (gone_event, gone) = message(&mut w, &said("4", 10, "Erased later."));
-    let says = judge_saying(&[(
-        "moves to Friday",
-        "is on Thursday",
-        "SUPERSEDES<",
-        "supersede",
-    )]);
-    assert_eq!(handled(round(&mut w, &FnTransport(says))).labels, 1);
+    let says = judge_saying(&[("moves to Friday", "is on Thursday", "repl")]);
+    assert_eq!(handled(round(&mut w, &FnTransport(says))).chains, 1);
     erase(&w, gone_event);
     let mut admin = w.db.connect();
-    // A label bead of `source`, written by the owner.
-    let label_of = |admin: &mut postgres::Client, source: BeadId, seq: i64| -> uuid::Uuid {
-        admin
-            .query_one(
-                "WITH bead AS (
-                     INSERT INTO core_memory.beads (bead_id, workspace_id, scope, kind, state,
-                         event_id, chunk_id, created_by, call_id, time_at, time_basis,
-                         created_at, seq)
-                     SELECT gen_random_uuid(), 'w1', NULL, 'label', 'live', NULL, NULL,
-                            'judge', r.call_id, r.judged_at, 'captured', r.judged_at, $2
-                       FROM core_memory.judge_reads AS r
-                     RETURNING bead_id, call_id)
-                 INSERT INTO core_memory.labels (bead_id, workspace_id, label, source_bead,
-                     call_id)
-                 SELECT bead_id, 'w1', 'supersede', $1, call_id FROM bead
-                 RETURNING bead_id",
-                &[&source.0, &seq],
-            )
-            .unwrap()
-            .get(0)
-    };
-    let follows = |admin: &mut postgres::Client, label: uuid::Uuid, bead: BeadId, seq: i64| {
+    // An edge by which `source` replaces `bead`, written by the owner.
+    let replaces = |admin: &mut postgres::Client, source: BeadId, bead: BeadId, seq: i64| {
         admin
             .execute(
-                "INSERT INTO core_memory.edges (workspace_id, seq, edge_type, from_bead,
+                "INSERT INTO core_memory.edges (workspace_id, seq, edge_type, arrow, from_bead,
                      to_bead, call_id, created_at)
-                 SELECT 'w1', $3, 'supersedes', l.bead_id, $2, l.call_id, now()
-                   FROM core_memory.labels AS l WHERE l.bead_id = $1",
-                &[&label, &bead.0, &seq],
+                 SELECT 'w1', $3, 'leadsto', 'repl', $1, $2, r.call_id, now()
+                   FROM core_memory.judge_reads AS r",
+                &[&source.0, &bead.0, &seq],
             )
             .map_err(|e| e.as_db_error().unwrap().message().to_string())
     };
     // A statement that was itself replaced takes the place of nothing more,
     // and so no two statements take each other's place.
-    let of_thursday = label_of(&mut admin, thursday, 900001);
-    let refused = follows(&mut admin, of_thursday, saturday, 900002).unwrap_err();
+    let refused = replaces(&mut admin, thursday, saturday, 900001).unwrap_err();
     assert!(
-        refused.contains("label of a current statement"),
+        refused.contains("runs from a current statement to a current bead"),
         "{refused}"
     );
-    let refused = follows(&mut admin, of_thursday, friday, 900003).unwrap_err();
+    let refused = replaces(&mut admin, saturday, thursday, 900002).unwrap_err();
     assert!(
-        refused.contains("label of a current statement"),
+        refused.contains("runs from a current statement to a current bead"),
         "{refused}"
     );
-    // Nor does a statement follow itself.
-    let of_saturday = label_of(&mut admin, saturday, 900004);
-    let refused = follows(&mut admin, of_saturday, saturday, 900005).unwrap_err();
+    // Nor does a statement replace itself.
+    let refused = replaces(&mut admin, saturday, saturday, 900003).unwrap_err();
+    assert!(refused.contains("check constraint"), "{refused}");
+    // The current statement may replace the current bead.
+    assert_eq!(replaces(&mut admin, saturday, friday, 900004), Ok(1));
+    // A statement ends at most two beads, and all with one arrow.
+    let fourth = bead(&mut w, &said("5", 11, "Ops again: Sunday."));
+    let fifth = bead(&mut w, &said("6", 12, "Ops once more: Monday."));
+    let refused = admin
+        .execute(
+            "INSERT INTO core_memory.edges (workspace_id, seq, edge_type, arrow, from_bead,
+                 to_bead, call_id, created_at)
+             SELECT 'w1', 900005, 'leadsto', 'withdraws', $1, $2, r.call_id, now()
+               FROM core_memory.judge_reads AS r",
+            &[&saturday.0, &fourth.0],
+        )
+        .unwrap_err();
     assert!(
-        refused.contains("label of a current statement"),
+        refused
+            .as_db_error()
+            .unwrap()
+            .message()
+            .contains("ends at most two beads, with one arrow"),
         "{refused}"
     );
-    // The current statement may.
-    assert_eq!(follows(&mut admin, of_saturday, friday, 900006), Ok(1));
+    assert_eq!(replaces(&mut admin, saturday, fourth, 900006), Ok(1));
+    let refused = replaces(&mut admin, saturday, fifth, 900007).unwrap_err();
+    assert!(
+        refused.contains("ends at most two beads, with one arrow"),
+        "{refused}"
+    );
 
     let refused = |admin: &mut postgres::Client,
                    sql: &str,
@@ -3581,12 +3617,12 @@ fn the_tables_keep_a_chain_growing_at_its_head_whoever_writes_to_them() {
             .message()
             .to_string()
     };
-    // A held label about an erased bead.
+    // A held arrow about an erased bead.
     let told = refused(
         &mut admin,
-        "INSERT INTO core_memory.pending_labels (source_bead, workspace_id, label, head_beads,
+        "INSERT INTO core_memory.pending_chains (source_bead, workspace_id, arrow, head_beads,
              ordinal, call_id, proposed_at)
-         SELECT $1, 'w1', 'supersede', ARRAY[$2::uuid], 900007, r.call_id, now()
+         SELECT $1, 'w1', 'repl', ARRAY[$2::uuid], 900008, r.call_id, now()
            FROM core_memory.judge_reads AS r",
         &[&saturday.0, &gone.0],
     );

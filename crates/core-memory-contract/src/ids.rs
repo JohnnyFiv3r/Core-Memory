@@ -21,7 +21,6 @@ use crate::hash::FieldHasher;
 
 const EVENT_ID_DOMAIN: &str = "core-memory/event-id/v2";
 const CHUNK_ID_DOMAIN: &str = "core-memory/chunk-id/v2";
-const LABEL_BEAD_DOMAIN: &str = "core-memory/label-bead-id/v1";
 const GROUP_BEAD_DOMAIN: &str = "core-memory/group-bead-id/v1";
 
 /// The secret that keys a workspace's derived IDs. It is created with the
@@ -162,15 +161,6 @@ impl From<EventId> for BeadId {
 }
 
 impl BeadId {
-    /// The bead of the label a judge gave `source`. A source has at most
-    /// one label, so the ID depends on the source alone: storing the same
-    /// judgment twice finds the same bead.
-    pub fn of_label(id_key: &IdKey, source: BeadId) -> Self {
-        let mut h = FieldHasher::new(LABEL_BEAD_DOMAIN);
-        h.bytes(source.0.as_bytes());
-        Self(keyed_uuid(id_key, h.finish()))
-    }
-
     /// The bead of a group, from the members it was made with, in any
     /// order. A member that joins later does not change it.
     pub fn of_group(id_key: &IdKey, members: &[BeadId]) -> Self {
@@ -279,12 +269,6 @@ mod tests {
     #[test]
     fn a_judges_beads_have_ids_of_their_own_under_the_workspaces_key() {
         let bead = |n: u8| BeadId(Uuid::new_v8([n; 16]));
-        let label = BeadId::of_label(&id_key(1), bead(1));
-        assert_eq!(label, BeadId::of_label(&id_key(1), bead(1)));
-        assert_ne!(label, BeadId::of_label(&id_key(2), bead(1)));
-        assert_ne!(label, BeadId::of_label(&id_key(1), bead(2)));
-        assert_ne!(label, bead(1));
-
         // A group's ID does not depend on the order its members are named in.
         let group = BeadId::of_group(&id_key(1), &[bead(1), bead(2), bead(3)]);
         assert_eq!(
@@ -296,7 +280,7 @@ mod tests {
             group,
             BeadId::of_group(&id_key(2), &[bead(1), bead(2), bead(3)])
         );
-        // A label of a bead and a group of that bead alone are different beads.
-        assert_ne!(label, BeadId::of_group(&id_key(1), &[bead(1)]));
+        // A group of one bead is not that bead.
+        assert_ne!(BeadId::of_group(&id_key(1), &[bead(1)]), bead(1));
     }
 }

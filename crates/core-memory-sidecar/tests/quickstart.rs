@@ -1001,29 +1001,23 @@ fn judgment(listing: &Value) -> Value {
             let theirs = text(other);
             let says = |new: &str, other: &str| mine.contains(new) && theirs.contains(other);
             let current = memory["current"] != false && other["current"] != false;
-            // `>` runs from the other memory to the new one, `<` from the
-            // new one to the other.
-            let rel = if says("Agreed", "phased cutover") {
-                Some(("LEADSTO>", None))
+            // An arrow's forward name is said of the new memory, its
+            // inverse of the other.
+            let arrow = if says("Agreed", "phased cutover") {
+                Some("cause-by")
             } else if says("phased cutover", "Agreed") {
-                Some(("LEADSTO<", None))
+                Some("cause")
             } else if says("Change of plan:", "phased cutover") && current {
-                Some(("SUPERSEDES<", Some("supersede")))
+                Some("repl")
             } else if says("phased cutover", "Change of plan:") && current {
-                Some(("SUPERSEDES>", Some("supersede")))
+                Some("repl-by")
             } else if says("big bang cutover", "big bang cutover") {
-                Some(("CONTAINS", None))
+                Some("same-memory")
             } else {
                 None
             };
-            match rel {
-                Some((rel, Some(label))) => {
-                    related.push(serde_json::json!({"to": other["id"], "rel": rel, "label": label}))
-                }
-                Some((rel, None)) => {
-                    related.push(serde_json::json!({"to": other["id"], "rel": rel}));
-                }
-                None => {}
+            if let Some(arrow) = arrow {
+                related.push(serde_json::json!({"to": other["id"], "arrow": arrow}));
             }
             for (mine, theirs) in [
                 ("Billing migration", "Billing cutover"),
@@ -1591,8 +1585,8 @@ fn new_beads_are_judged_and_what_the_judge_said_is_exported() {
     let q = Quickstart::ready();
     q.configure(&model.config_with_judge(""));
 
-    // The config names the judge, where it would send text, and whether a
-    // label that changes what is current is read twice.
+    // The config names the judge, where it would send text, and whether an
+    // arrow that changes what is current is read twice.
     let checked = q.ok(&["check"]);
     let judge = checked
         .iter()
@@ -1690,12 +1684,23 @@ fn new_beads_are_judged_and_what_the_judge_said_is_exported() {
         .collect();
     assert_eq!(related.len(), 1, "{verdicts:?}");
     assert_eq!(
-        (&related[0]["verdict"], &related[0]["direction"]),
-        (&Value::from("leadsto"), &Value::from("earlier_to_later"))
+        (
+            &related[0]["verdict"],
+            &related[0]["arrow"],
+            &related[0]["direction"]
+        ),
+        (
+            &Value::from("leadsto"),
+            &Value::from("cause"),
+            &Value::from("earlier_to_later")
+        )
     );
     let edges = of_kind(&records, "edge");
     assert_eq!(edges.len(), 1);
-    assert_eq!(edges[0]["edge_type"], "leadsto");
+    assert_eq!(
+        (&edges[0]["edge_type"], &edges[0]["arrow"]),
+        (&Value::from("leadsto"), &Value::from("cause"))
+    );
     assert!(text_of(&edges[0]["from_bead"]).contains("phased cutover"));
     assert!(text_of(&edges[0]["to_bead"]).starts_with("Agreed"));
     let links = of_kind(&records, "name_link");
@@ -1766,12 +1771,12 @@ fn new_beads_are_judged_and_what_the_judge_said_is_exported() {
         (2, 9, 1, 1),
         "{rounds:?}"
     );
-    assert_eq!(sum(&first, "labels"), 0);
+    assert_eq!(sum(&first, "chains"), 0);
     assert_eq!(
         (
             second.len(),
             sum(&second, "verdicts"),
-            sum(&second, "labels")
+            sum(&second, "chains")
         ),
         (1, 1, 1),
         "{rounds:?}"
@@ -1795,11 +1800,6 @@ fn new_beads_are_judged_and_what_the_judge_said_is_exported() {
     let records = q.ok(&["export"]);
     assert_eq!(of_kind(&records, "verdict").len(), 16);
     let made = of_kind(&records, "bead");
-    let label = made
-        .iter()
-        .find(|bead| bead["bead_kind"] == "label")
-        .unwrap_or_else(|| panic!("{made:?}"));
-    assert_eq!(label["label"], "supersede");
     let chunks = of_kind(&records, "chunk");
     let text_of = |bead: &Value| {
         chunks
@@ -1808,22 +1808,24 @@ fn new_beads_are_judged_and_what_the_judge_said_is_exported() {
             .map(|chunk| chunk["text"].as_str().unwrap().to_string())
             .unwrap_or_else(|| panic!("no chunk {bead}"))
     };
-    assert!(text_of(&label["source"]).starts_with("Change of plan"));
+    // The replacement runs from the later statement to the decision it
+    // replaces, with no bead of its own.
     let edges = of_kind(&records, "edge");
-    let follows: Vec<_> = edges
+    let replaces: Vec<_> = edges
         .iter()
-        .filter(|edge| edge["edge_type"] == "supersedes")
+        .filter(|edge| edge["arrow"] == "repl")
         .collect();
-    assert_eq!(follows.len(), 1);
-    assert_eq!(follows[0]["from_bead"], label["bead_id"]);
-    assert!(text_of(&follows[0]["to_bead"]).contains("phased cutover"));
+    assert_eq!(replaces.len(), 1);
+    assert_eq!(replaces[0]["edge_type"], "leadsto");
+    assert!(text_of(&replaces[0]["from_bead"]).starts_with("Change of plan"));
+    assert!(text_of(&replaces[0]["to_bead"]).contains("phased cutover"));
     let group = made
         .iter()
         .find(|bead| bead["bead_kind"] == "group")
         .unwrap_or_else(|| panic!("{made:?}"));
     let members: Vec<String> = edges
         .iter()
-        .filter(|edge| edge["edge_type"] == "contains" && edge["from_bead"] == group["bead_id"])
+        .filter(|edge| edge["arrow"] == "consists" && edge["from_bead"] == group["bead_id"])
         .map(|edge| text_of(&edge["to_bead"]))
         .collect();
     assert_eq!(members.len(), 2);
@@ -1850,7 +1852,7 @@ fn new_beads_are_judged_and_what_the_judge_said_is_exported() {
     assert_eq!(of_kind(&later, "verdict").len(), 10);
 
     // Erasing the decision removes every verdict and name link about it.
-    // The label that followed it stays, with the place it held.
+    // The edge by which it was replaced stays, so it is not current again.
     let decision = chunks
         .iter()
         .find(|chunk| chunk["text"].as_str().unwrap().contains("phased cutover"))
@@ -1866,9 +1868,9 @@ fn new_beads_are_judged_and_what_the_judge_said_is_exported() {
     }));
     assert!(of_kind(&after, "name_link").is_empty());
     assert!(
-        of_kind(&after, "bead")
+        of_kind(&after, "edge")
             .iter()
-            .any(|bead| bead["bead_kind"] == "label")
+            .any(|edge| edge["arrow"] == "repl")
     );
     assert_eq!(of_kind(&after, "erasure").len(), 1);
 }

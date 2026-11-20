@@ -178,7 +178,7 @@ CREATE TABLE core_memory.beads (
     -- The scope and the event of a bead that stands for source content.
     -- A bead a judge made belongs to the workspace and has neither.
     scope text REFERENCES core_memory.scopes,
-    kind text NOT NULL CHECK (kind IN ('chunk', 'tool', 'label', 'group')),
+    kind text NOT NULL CHECK (kind IN ('chunk', 'tool', 'group')),
     state text NOT NULL CHECK (state IN ('live', 'erased')),
     event_id uuid REFERENCES core_memory.events,
     chunk_id uuid REFERENCES core_memory.chunks,
@@ -428,7 +428,7 @@ CREATE TABLE core_memory.judge_reads (
     call_id uuid PRIMARY KEY REFERENCES core_memory.outbound_calls,
     workspace_id text NOT NULL REFERENCES core_memory.workspaces,
     seq bigint NOT NULL CHECK (seq > 0),
-    -- 2 for the second, blind read of one proposed label.
+    -- 2 for the second, blind read of one arrow that ends currency.
     read_no integer NOT NULL CHECK (read_no IN (1, 2)),
     new_beads uuid[] NOT NULL CHECK (cardinality(new_beads) > 0),
     window_beads uuid[] NOT NULL,
@@ -445,15 +445,66 @@ CREATE INDEX judge_reads_new_idx ON core_memory.judge_reads USING gin (new_beads
 ALTER TABLE core_memory.beads
     ADD CONSTRAINT beads_call_id_fkey FOREIGN KEY (call_id) REFERENCES core_memory.judge_reads;
 
+-- The arrows a judge may give, and the one a group bead's edges carry: the
+-- arrow directory of Mark Burgess's SSTorytime, with the few this engine
+-- adds. Each arrow belongs to one of his four types of association and is
+-- stored by its forward short name; `inverse` is the short name of its
+-- inverse, and a symmetric arrow has none. A row never changes.
+--   ends_currency: the bead the arrow points at is no longer current.
+--   disputes: the two cannot both hold, and both stay current.
+--   origin: 'sstorytime' for his names as he gives them in SSTconfig,
+--     'engine' for an arrow added here.
+CREATE TABLE core_memory.arrows (
+    arrow text PRIMARY KEY,
+    edge_type text NOT NULL CHECK (edge_type IN ('near', 'leadsto', 'contains', 'express')),
+    forward text NOT NULL,
+    inverse text UNIQUE,
+    inverse_name text,
+    ends_currency boolean NOT NULL,
+    disputes boolean NOT NULL,
+    origin text NOT NULL CHECK (origin IN ('sstorytime', 'engine')),
+    UNIQUE (arrow, edge_type),
+    CHECK ((inverse IS NULL) = (inverse_name IS NULL)),
+    CHECK (NOT ends_currency OR edge_type = 'leadsto'),
+    CHECK (NOT (ends_currency AND disputes))
+);
+
+INSERT INTO core_memory.arrows
+    (arrow, edge_type, forward, inverse, inverse_name, ends_currency, disputes, origin)
+VALUES
+    ('cause', 'leadsto', 'causes', 'cause-by', 'is caused by', false, false, 'sstorytime'),
+    ('result', 'leadsto', 'results in', 'result-of', 'was a result of', false, false, 'sstorytime'),
+    ('enables', 'leadsto', 'enables', 'enabled-by', 'is enabled by', false, false, 'sstorytime'),
+    ('implem', 'leadsto', 'implements', 'implorg', 'was implemented by', false, false, 'sstorytime'),
+    ('repl', 'leadsto', 'replaces', 'repl-by', 'is replaced by', true, false, 'sstorytime'),
+    ('withdraws', 'leadsto', 'withdraws', 'withdrawn-by', 'is withdrawn by', true, false, 'engine'),
+    ('has-pt', 'contains', 'has a part', 'pt-of', 'is a part of', false, false, 'sstorytime'),
+    ('consists', 'contains', 'consists of', 'mkpt', 'makes up part of', false, false, 'sstorytime'),
+    ('same-memory', 'contains', 'is part of one memory with', NULL, NULL, false, false, 'engine'),
+    ('note', 'express', 'note/remark', 'isnotefor', 'is a note or remark about', false, false, 'sstorytime'),
+    ('e.g.', 'express', 'has example', 'ex', 'is an example of', false, false, 'sstorytime'),
+    ('i.e.', 'express', 'in other words', 'clarify', 'is a clarification of', false, false, 'sstorytime'),
+    ('attr', 'express', 'has an attribute', 'attr-of', 'is an attribute of', false, false, 'sstorytime'),
+    ('def', 'express', 'defined as', 'def-of', 'is the definition of', false, false, 'sstorytime'),
+    ('source', 'express', 'has source', 'source-of', 'the source for', false, false, 'sstorytime'),
+    ('solution', 'express', 'potential solution', 'issolution', 'is a potential solution to', false, false, 'sstorytime'),
+    ('answers', 'express', 'answers', 'answered-by', 'is answered by', false, false, 'engine'),
+    ('confirms', 'express', 'confirms', 'confirmed-by', 'is confirmed by', false, false, 'engine'),
+    ('see', 'near', 'see also', NULL, NULL, false, false, 'sstorytime'),
+    ('sim', 'near', 'similar to', NULL, NULL, false, false, 'sstorytime'),
+    ('!confuse', 'near', 'don''t confuse with', NULL, NULL, false, false, 'sstorytime'),
+    ('!contradicts', 'near', 'contradicts', NULL, NULL, false, true, 'engine');
+
 -- One row for every pair a judge was shown, whatever it said. A host may
 -- learn from it which pairs are worth showing, so it records a no as
 -- carefully as a yes: 'unsure', and a pair never shown, are not a no.
 --
--- The two beads are in time order, and the direction is explicit because
--- the order in which messages arrived is not the order in which things
--- happened. columns holds what code computed about the pair at that
--- moment: numbers, flags and vocabulary keys. A row is deleted when either
--- of its beads is erased.
+-- The two beads are in time order. The verdict is the type of the arrow
+-- the judge gave, and the direction is explicit, from the bead the arrow's
+-- forward name is said of, because the order in which messages arrived is
+-- not the order in which things happened. columns holds what code computed
+-- about the pair at that moment: numbers, flags and vocabulary keys. A row
+-- is deleted when either of its beads is erased.
 CREATE TABLE core_memory.verdicts (
     workspace_id text NOT NULL REFERENCES core_memory.workspaces,
     seq bigint NOT NULL CHECK (seq > 0),
@@ -468,32 +519,36 @@ CREATE TABLE core_memory.verdicts (
     earlier_scope text NOT NULL REFERENCES core_memory.scopes,
     later_scope text NOT NULL REFERENCES core_memory.scopes,
     verdict text NOT NULL CHECK (verdict IN (
-        'near', 'leadsto', 'contains', 'express', 'supersedes', 'none', 'unsure'
+        'near', 'leadsto', 'contains', 'express', 'none', 'unsure'
     )),
-    -- From which bead to which the relationship runs.
+    -- The arrow the judge gave, of the verdict's type.
+    arrow text,
     direction text NOT NULL CHECK (direction IN (
         'earlier_to_later', 'later_to_earlier', 'undirected'
     )),
-    label text CHECK (label IN ('supersede', 'retract', 'reaffirm', 'conflict')),
-    -- Why a supersedes verdict wrote no label. Without a note, its label
-    -- was written by the same read.
+    -- Why an arrow that ends currency wrote no edge. Without a note, its
+    -- edge was written by the same read.
     --   not_current: one of its beads was no longer current when the read
     --     was stored.
-    --   label_taken: its source already carried a label it could not join.
-    --   awaits_second_read: the label is held until a second read agrees.
+    --   chain_taken: the later statement already ends one or two beads
+    --     with an arrow this one could not join.
+    --   awaits_second_read: the arrow is held until a second read agrees.
     --   second_read_differs: this second read did not agree with the first.
     note text CHECK (note IN (
-        'not_current', 'label_taken', 'awaits_second_read', 'second_read_differs'
+        'not_current', 'chain_taken', 'awaits_second_read', 'second_read_differs'
     )),
     call_id uuid NOT NULL REFERENCES core_memory.judge_reads,
     columns jsonb NOT NULL,
     columns_rev integer NOT NULL CHECK (columns_rev > 0),
     PRIMARY KEY (workspace_id, seq),
+    FOREIGN KEY (arrow, verdict) REFERENCES core_memory.arrows (arrow, edge_type),
     CHECK (earlier_bead <> later_bead),
-    CHECK ((verdict = 'supersedes') = (label IS NOT NULL)),
-    CHECK (verdict NOT IN ('near', 'contains', 'none', 'unsure') OR direction = 'undirected'),
-    CHECK (verdict NOT IN ('leadsto', 'express', 'supersedes') OR direction <> 'undirected'),
-    CHECK (note IS NULL OR verdict = 'supersedes')
+    CHECK ((verdict IN ('none', 'unsure')) = (arrow IS NULL)),
+    CHECK ((direction = 'undirected') = (verdict IN ('none', 'unsure')
+                                         OR arrow IN ('same-memory', 'see', 'sim', '!confuse',
+                                                      '!contradicts'))),
+    CHECK (arrow IS DISTINCT FROM 'consists'),
+    CHECK (note IS NULL OR arrow IN ('repl', 'withdraws'))
 );
 
 CREATE INDEX verdicts_earlier_idx ON core_memory.verdicts (earlier_bead);
@@ -502,68 +557,59 @@ CREATE INDEX verdicts_later_idx ON core_memory.verdicts (later_bead);
 -- Computed from what the two beads say.
 ALTER TABLE core_memory.verdicts ALTER COLUMN columns SET STATISTICS 0;
 
--- A relationship between two beads. It has no state and no weight, and is
--- never changed or deleted: erasing a bead leaves its edges, which hold
--- IDs and say only that there was a link.
+-- A relationship between two beads: an arrow, from the bead its forward
+-- name is said of to the other. It has no state and no weight, and is never
+-- changed or deleted: erasing a bead leaves its edges, which hold IDs and
+-- say only that there was a link.
 --
--- Every edge points at a bead of source content. A supersedes edge runs
--- from the label bead of a later statement to the bead of the earlier
--- statement it follows, and a contains edge from a group bead to a member.
--- The others run from one bead of source content to another. A near edge
--- has no direction, and is stored from the smaller ID to the larger.
+-- Every edge points at a bead of source content. A `consists` edge runs
+-- from a group bead to a member; every other edge joins one bead of source
+-- content to another. An edge of a symmetric arrow has no direction, and
+-- is stored from the smaller ID to the larger.
 CREATE TABLE core_memory.edges (
     workspace_id text NOT NULL REFERENCES core_memory.workspaces,
     seq bigint NOT NULL CHECK (seq > 0),
-    edge_type text NOT NULL CHECK (edge_type IN (
-        'near', 'leadsto', 'contains', 'express', 'supersedes'
-    )),
+    edge_type text NOT NULL CHECK (edge_type IN ('near', 'leadsto', 'contains', 'express')),
+    arrow text NOT NULL,
     from_bead uuid NOT NULL REFERENCES core_memory.beads,
     to_bead uuid NOT NULL REFERENCES core_memory.beads,
     call_id uuid NOT NULL REFERENCES core_memory.judge_reads,
     created_at timestamptz NOT NULL,
     PRIMARY KEY (workspace_id, seq),
-    UNIQUE (edge_type, from_bead, to_bead),
+    FOREIGN KEY (arrow, edge_type) REFERENCES core_memory.arrows (arrow, edge_type),
+    UNIQUE (arrow, from_bead, to_bead),
     CHECK (from_bead <> to_bead),
-    CHECK (edge_type <> 'near' OR from_bead < to_bead)
+    CHECK (arrow <> 'same-memory'),
+    CHECK (arrow NOT IN ('see', 'sim', '!confuse', '!contradicts') OR from_bead < to_bead)
 );
 
 CREATE INDEX edges_to_idx ON core_memory.edges (to_bead, edge_type);
--- A chain never branches: a bead is superseded at most once. A bead of
--- source content is current while no supersedes edge points at it.
-CREATE UNIQUE INDEX edges_superseded_once_idx ON core_memory.edges (to_bead)
-    WHERE edge_type = 'supersedes';
+CREATE INDEX edges_from_idx ON core_memory.edges (from_bead, edge_type);
+-- A chain never branches: a bead is replaced or withdrawn at most once. A
+-- bead of source content is current while no such edge points at it.
+CREATE UNIQUE INDEX edges_ended_once_idx ON core_memory.edges (to_bead)
+    WHERE arrow IN ('repl', 'withdraws');
+-- The disputes of a workspace, which a judge is shown first while both
+-- beads are current.
+CREATE INDEX edges_disputes_idx ON core_memory.edges (workspace_id)
+    WHERE arrow = '!contradicts';
 
--- What a label bead says. It stands for its source, the bead of the later
--- statement, and there is at most one label for a source.
-CREATE TABLE core_memory.labels (
-    bead_id uuid PRIMARY KEY REFERENCES core_memory.beads,
-    workspace_id text NOT NULL REFERENCES core_memory.workspaces,
-    label text NOT NULL CHECK (label IN ('supersede', 'retract', 'reaffirm', 'conflict')),
-    source_bead uuid NOT NULL UNIQUE REFERENCES core_memory.beads,
-    call_id uuid NOT NULL REFERENCES core_memory.judge_reads,
-    CHECK (bead_id <> source_bead)
-);
-
--- The conflicts of a workspace, which a judge is shown first while they
--- are open.
-CREATE INDEX labels_conflict_idx ON core_memory.labels (workspace_id)
-    WHERE label = 'conflict';
-
--- A label a judge proposed that is not written until a second read of the
--- same pair agrees with it. IDs only. It goes when the second read is
--- stored, when it can no longer be written, or when its source or one of
--- its heads is erased.
+-- An arrow that ends currency, which a judge gave and which is not written
+-- until a second read of the same beads agrees with it. IDs only. It goes
+-- when the second read is stored, when it can no longer be written, or
+-- when its source or one of its heads is erased.
 --
--- Labels that share a bead are read a second time in the order they were
+-- Arrows that share a bead are read a second time in the order they were
 -- held, which is the order of `ordinal`, a number from the workspace's
 -- counter. A chain given in one read is then written from its oldest
--- statement on, and no label makes another unwritable before its second
+-- statement on, and no arrow makes another unwritable before its second
 -- read.
-CREATE TABLE core_memory.pending_labels (
+CREATE TABLE core_memory.pending_chains (
+    -- The later statement, which the arrow runs from.
     source_bead uuid PRIMARY KEY REFERENCES core_memory.beads,
     workspace_id text NOT NULL REFERENCES core_memory.workspaces,
-    label text NOT NULL CHECK (label IN ('supersede', 'retract', 'reaffirm', 'conflict')),
-    -- The beads shown to the judge as the heads: one or two.
+    arrow text NOT NULL CHECK (arrow IN ('repl', 'withdraws')),
+    -- The beads it would end, shown to the judge as the heads: one or two.
     head_beads uuid[] NOT NULL CHECK (cardinality(head_beads) BETWEEN 1 AND 2),
     ordinal bigint NOT NULL CHECK (ordinal > 0),
     call_id uuid NOT NULL REFERENCES core_memory.judge_reads,
@@ -606,7 +652,7 @@ CREATE INDEX name_links_b_idx ON core_memory.name_links (b_bead);
 CREATE TABLE core_memory.work (
     kind text NOT NULL CHECK (kind IN ('chunk_read', 'tool_read', 'judge', 'second_read')),
     -- What is to be read: a chunk for chunk_read, an event for tool_read,
-    -- a new bead for judge, and the source of a proposed label for
+    -- a new bead for judge, and the source of a held arrow for
     -- second_read.
     item_id uuid NOT NULL,
     -- The event the item belongs to. Erasing it deletes the work.
@@ -898,9 +944,10 @@ END
 $$;
 
 -- The shape of the graph. An edge joins two beads of its own workspace and
--- points at source content. Only a label bead supersedes, and it follows
--- one bead or two. Only a group bead contains. The other relationships
--- join source content to source content.
+-- points at source content. Only a group bead consists of members, and
+-- every other arrow joins source content to source content. An arrow that
+-- ends currency runs from a current statement to a current bead, and a
+-- statement ends at most two, with one arrow.
 CREATE FUNCTION core_memory.edges_keep_their_shape() RETURNS trigger
 LANGUAGE plpgsql
 SET search_path = pg_catalog, pg_temp
@@ -917,38 +964,38 @@ BEGIN
         RAISE EXCEPTION 'an edge joins two beads of its own workspace'
             USING ERRCODE = 'check_violation';
     END IF;
-    IF NEW.edge_type = 'supersedes' THEN
-        IF from_kind <> 'label' OR to_kind NOT IN ('chunk', 'tool') THEN
-            RAISE EXCEPTION 'a supersedes edge runs from a label bead to the bead it follows'
-                USING ERRCODE = 'check_violation';
-        END IF;
-        -- A chain grows at its head. The later statement is current when
-        -- its label follows another bead, so it never follows its own
-        -- source, and no circle can close: every bead of a circle would be
-        -- superseded.
-        IF NOT EXISTS (
-            SELECT 1 FROM core_memory.labels AS l
-             WHERE l.bead_id = NEW.from_bead AND l.source_bead <> NEW.to_bead
-               AND NOT EXISTS (
-                   SELECT 1 FROM core_memory.edges AS x
-                    WHERE x.to_bead = l.source_bead AND x.edge_type = 'supersedes'))
-        THEN
-            RAISE EXCEPTION 'a supersedes edge runs from the label of a current statement to another bead'
-                USING ERRCODE = 'check_violation';
-        END IF;
-        IF (SELECT count(*) FROM core_memory.edges AS e
-             WHERE e.from_bead = NEW.from_bead AND e.edge_type = 'supersedes') >= 2 THEN
-            RAISE EXCEPTION 'a label bead follows at most two beads'
-                USING ERRCODE = 'check_violation';
-        END IF;
-    ELSIF NEW.edge_type = 'contains' THEN
+    IF NEW.arrow = 'consists' THEN
         IF from_kind <> 'group' OR to_kind NOT IN ('chunk', 'tool') THEN
-            RAISE EXCEPTION 'a contains edge runs from a group bead to a member'
+            RAISE EXCEPTION 'a consists edge runs from a group bead to a member'
                 USING ERRCODE = 'check_violation';
         END IF;
-    ELSIF from_kind NOT IN ('chunk', 'tool') OR to_kind NOT IN ('chunk', 'tool') THEN
-        RAISE EXCEPTION 'a % edge joins two beads of source content', NEW.edge_type
+        RETURN NEW;
+    END IF;
+    IF from_kind NOT IN ('chunk', 'tool') OR to_kind NOT IN ('chunk', 'tool') THEN
+        RAISE EXCEPTION 'a % edge joins two beads of source content', NEW.arrow
             USING ERRCODE = 'check_violation';
+    END IF;
+    IF NEW.arrow IN ('repl', 'withdraws') THEN
+        -- A chain grows at its head: both ends are current, so no circle
+        -- can close, as every bead of a circle would have been ended.
+        IF EXISTS (
+            SELECT 1 FROM core_memory.edges AS x
+             WHERE x.to_bead IN (NEW.from_bead, NEW.to_bead)
+               AND x.arrow IN ('repl', 'withdraws'))
+        THEN
+            RAISE EXCEPTION 'a % edge runs from a current statement to a current bead', NEW.arrow
+                USING ERRCODE = 'check_violation';
+        END IF;
+        IF EXISTS (
+            SELECT 1 FROM core_memory.edges AS e
+             WHERE e.from_bead = NEW.from_bead AND e.arrow IN ('repl', 'withdraws')
+               AND e.arrow <> NEW.arrow)
+           OR (SELECT count(*) FROM core_memory.edges AS e
+                WHERE e.from_bead = NEW.from_bead AND e.arrow = NEW.arrow) >= 2
+        THEN
+            RAISE EXCEPTION 'a statement ends at most two beads, with one arrow'
+                USING ERRCODE = 'check_violation';
+        END IF;
     END IF;
     RETURN NEW;
 END
@@ -1051,14 +1098,11 @@ CREATE TRIGGER edges_shape BEFORE INSERT ON core_memory.edges
 CREATE TRIGGER edges_live BEFORE INSERT ON core_memory.edges
     FOR EACH ROW EXECUTE FUNCTION
         core_memory.stored_only_for_live_beads('from_bead', 'to_bead');
-CREATE TRIGGER labels_fixed BEFORE UPDATE OR DELETE ON core_memory.labels
+CREATE TRIGGER arrows_fixed BEFORE UPDATE OR DELETE ON core_memory.arrows
     FOR EACH ROW EXECUTE FUNCTION core_memory.refuse_change();
-CREATE TRIGGER labels_live BEFORE INSERT ON core_memory.labels
-    FOR EACH ROW EXECUTE FUNCTION
-        core_memory.stored_only_for_live_beads('bead_id', 'source_bead');
-CREATE TRIGGER pending_labels_fixed BEFORE UPDATE ON core_memory.pending_labels
+CREATE TRIGGER pending_chains_fixed BEFORE UPDATE ON core_memory.pending_chains
     FOR EACH ROW EXECUTE FUNCTION core_memory.refuse_change();
-CREATE TRIGGER pending_labels_live BEFORE INSERT ON core_memory.pending_labels
+CREATE TRIGGER pending_chains_live BEFORE INSERT ON core_memory.pending_chains
     FOR EACH ROW EXECUTE FUNCTION
         core_memory.stored_only_for_live_beads('source_bead', 'head_beads');
 CREATE TRIGGER name_links_fixed BEFORE UPDATE ON core_memory.name_links
@@ -1111,9 +1155,9 @@ CREATE TRIGGER verdicts_no_truncate BEFORE TRUNCATE ON core_memory.verdicts
     FOR EACH STATEMENT EXECUTE FUNCTION core_memory.refuse_change();
 CREATE TRIGGER edges_no_truncate BEFORE TRUNCATE ON core_memory.edges
     FOR EACH STATEMENT EXECUTE FUNCTION core_memory.refuse_change();
-CREATE TRIGGER labels_no_truncate BEFORE TRUNCATE ON core_memory.labels
+CREATE TRIGGER arrows_no_truncate BEFORE TRUNCATE ON core_memory.arrows
     FOR EACH STATEMENT EXECUTE FUNCTION core_memory.refuse_change();
-CREATE TRIGGER pending_labels_no_truncate BEFORE TRUNCATE ON core_memory.pending_labels
+CREATE TRIGGER pending_chains_no_truncate BEFORE TRUNCATE ON core_memory.pending_chains
     FOR EACH STATEMENT EXECUTE FUNCTION core_memory.refuse_change();
 CREATE TRIGGER name_links_no_truncate BEFORE TRUNCATE ON core_memory.name_links
     FOR EACH STATEMENT EXECUTE FUNCTION core_memory.refuse_change();
@@ -1139,11 +1183,12 @@ GRANT SELECT, INSERT ON core_memory.outbound_calls, core_memory.outbound_results
     core_memory.chunk_reads, core_memory.chunk_read_spans, core_memory.tool_outcomes
     TO core_memory_engine;
 GRANT SELECT, INSERT, UPDATE, DELETE ON core_memory.work TO core_memory_engine;
--- The engine writes what a judge said once. A label that waits for its
--- second read is its own to drop.
+-- The engine writes what a judge said once, and reads the arrows it may
+-- say it with. An arrow that waits for its second read is its own to drop.
+GRANT SELECT ON core_memory.arrows TO core_memory_engine;
 GRANT SELECT, INSERT ON core_memory.judge_reads, core_memory.verdicts, core_memory.edges,
-    core_memory.labels, core_memory.name_links TO core_memory_engine;
-GRANT SELECT, INSERT, DELETE ON core_memory.pending_labels TO core_memory_engine;
+    core_memory.name_links TO core_memory_engine;
+GRANT SELECT, INSERT, DELETE ON core_memory.pending_chains TO core_memory_engine;
 
 -- The history of migrations holds versions and checksums, no data. Every
 -- role that is granted to read it reads all of it, to learn the store's
@@ -1171,8 +1216,8 @@ ALTER TABLE core_memory.tool_outcomes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE core_memory.judge_reads ENABLE ROW LEVEL SECURITY;
 ALTER TABLE core_memory.verdicts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE core_memory.edges ENABLE ROW LEVEL SECURITY;
-ALTER TABLE core_memory.labels ENABLE ROW LEVEL SECURITY;
-ALTER TABLE core_memory.pending_labels ENABLE ROW LEVEL SECURITY;
+ALTER TABLE core_memory.arrows ENABLE ROW LEVEL SECURITY;
+ALTER TABLE core_memory.pending_chains ENABLE ROW LEVEL SECURITY;
 ALTER TABLE core_memory.name_links ENABLE ROW LEVEL SECURITY;
 ALTER TABLE core_memory.work ENABLE ROW LEVEL SECURITY;
 
@@ -1194,8 +1239,8 @@ CREATE POLICY engine ON core_memory.tool_outcomes TO core_memory_engine USING (t
 CREATE POLICY engine ON core_memory.judge_reads TO core_memory_engine USING (true) WITH CHECK (true);
 CREATE POLICY engine ON core_memory.verdicts TO core_memory_engine USING (true) WITH CHECK (true);
 CREATE POLICY engine ON core_memory.edges TO core_memory_engine USING (true) WITH CHECK (true);
-CREATE POLICY engine ON core_memory.labels TO core_memory_engine USING (true) WITH CHECK (true);
-CREATE POLICY engine ON core_memory.pending_labels TO core_memory_engine USING (true) WITH CHECK (true);
+CREATE POLICY engine ON core_memory.arrows FOR SELECT TO core_memory_engine USING (true);
+CREATE POLICY engine ON core_memory.pending_chains TO core_memory_engine USING (true) WITH CHECK (true);
 CREATE POLICY engine ON core_memory.name_links TO core_memory_engine USING (true) WITH CHECK (true);
 CREATE POLICY engine ON core_memory.work TO core_memory_engine USING (true) WITH CHECK (true);
 
@@ -1630,7 +1675,7 @@ BEGIN
     DELETE FROM core_memory.tool_outcomes AS x WHERE x.event_id = ANY (event_ids);
     DELETE FROM core_memory.work AS x WHERE x.event_id = ANY (event_ids);
     -- What a judge said about the erased beads. A verdict's columns and a
-    -- name link's ranges were computed from their content, and a label
+    -- name link's ranges were computed from their content, and an arrow
     -- that waits for its second read would have them read again.
     DELETE FROM core_memory.verdicts AS x
      USING core_memory.beads AS b
@@ -1645,7 +1690,7 @@ BEGIN
      USING core_memory.beads AS b
      WHERE b.event_id = ANY (event_ids) AND x.b_bead = b.bead_id;
     WITH gone AS (
-        DELETE FROM core_memory.pending_labels AS x
+        DELETE FROM core_memory.pending_chains AS x
          USING core_memory.beads AS b
          WHERE b.event_id = ANY (event_ids)
            AND (x.source_bead = b.bead_id OR b.bead_id = ANY (x.head_beads))
@@ -1654,26 +1699,21 @@ BEGIN
     DELETE FROM core_memory.work AS w
      USING gone
      WHERE w.kind = 'second_read' AND w.item_id = gone.source_bead;
-    -- Edges stay: they hold IDs. A label bead goes with its source and
-    -- keeps its place in its chain, so what it superseded does not become
-    -- current again. A group bead goes with its last live member.
-    UPDATE core_memory.beads AS l
-       SET state = 'erased', time_at = l.created_at, time_basis = 'captured'
-      FROM core_memory.labels AS x
-      JOIN core_memory.beads AS source ON source.bead_id = x.source_bead
-     WHERE l.bead_id = x.bead_id AND l.state = 'live' AND source.event_id = ANY (event_ids);
+    -- Edges stay: they hold IDs, so what an erased statement replaced or
+    -- withdrew does not become current again. A group bead goes with its
+    -- last live member.
     UPDATE core_memory.beads AS g
        SET state = 'erased', time_at = g.created_at, time_basis = 'captured'
      WHERE g.kind = 'group' AND g.state = 'live' AND g.workspace_id = in_workspace
        AND EXISTS (
            SELECT 1 FROM core_memory.edges AS e
              JOIN core_memory.beads AS member ON member.bead_id = e.to_bead
-            WHERE e.from_bead = g.bead_id AND e.edge_type = 'contains'
+            WHERE e.from_bead = g.bead_id AND e.arrow = 'consists'
               AND member.event_id = ANY (event_ids))
        AND NOT EXISTS (
            SELECT 1 FROM core_memory.edges AS e
              JOIN core_memory.beads AS member ON member.bead_id = e.to_bead
-            WHERE e.from_bead = g.bead_id AND e.edge_type = 'contains'
+            WHERE e.from_bead = g.bead_id AND e.arrow = 'consists'
               AND member.state = 'live');
     PERFORM set_config('core_memory.erasing', 'off', true);
     RETURN how_many;

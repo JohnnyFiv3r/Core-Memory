@@ -10,9 +10,9 @@
 //! in-memory stand-in.
 
 use core_memory_contract::{
-    BeadId, BeadRecord, CallId, CatalogRef, Checkpoint, CheckpointReceipt, ChunkFacets, ChunkId,
-    ChunkReadRecord, ChunkRecord, ChunkerRef, CompressorRef, Direction, EdgeRecord, EdgeType,
-    ErasureRecord, EventDetails, EventId, EventKey, EventRecord, IdKey, Label, NameLinkRecord,
+    Arrow, BeadId, BeadRecord, CallId, CatalogRef, Checkpoint, CheckpointReceipt, ChunkFacets,
+    ChunkId, ChunkReadRecord, ChunkRecord, ChunkerRef, CompressorRef, Direction, EdgeRecord,
+    ErasureRecord, EventDetails, EventId, EventKey, EventRecord, IdKey, NameLinkRecord,
     PairColumns, ProfileRef, ReadDecision, ReadSpan, ReaderRef, Sha256Digest, TimeBasis, Timestamp,
     ToolCallDetails, ToolOutcomeRecord, ToolStatus, Verdict, VerdictNote, VerdictRecord,
 };
@@ -188,7 +188,7 @@ pub enum Change {
         scope: String,
         outcome: Box<ToolOutcomeRecord>,
     },
-    /// A judge made a bead: a label or a group.
+    /// A judge made a bead: a group.
     Bead(Box<BeadRecord>),
     /// A judge wrote a relationship.
     Edge(Box<EdgeRecord>),
@@ -261,7 +261,7 @@ pub enum Purpose {
     ToolRead,
     /// Judging how new beads relate to the recent ones of their workspace.
     Judge,
-    /// Reading one proposed label a second time, blind.
+    /// Reading one held arrow that ends currency a second time, blind.
     SecondRead,
 }
 
@@ -421,8 +421,8 @@ pub enum WorkItem {
     ToolCall(EventId),
     /// A new bead to be judged.
     NewBead(BeadId),
-    /// The source of a proposed label, to be read a second time.
-    ProposedLabel(BeadId),
+    /// The source of an arrow that ends currency, held for its second read.
+    HeldChain(BeadId),
 }
 
 impl WorkItem {
@@ -432,7 +432,7 @@ impl WorkItem {
             WorkItem::Chunk(_) => Purpose::ChunkRead,
             WorkItem::ToolCall(_) => Purpose::ToolRead,
             WorkItem::NewBead(_) => Purpose::Judge,
-            WorkItem::ProposedLabel(_) => Purpose::SecondRead,
+            WorkItem::HeldChain(_) => Purpose::SecondRead,
         }
     }
 }
@@ -508,11 +508,11 @@ pub struct ShownBead {
     pub content: ShownContent,
     /// The type a model gave the chunk, as a key of the vocabulary.
     pub type_key: Option<String>,
-    /// Whether it is current: nothing has superseded it.
+    /// Whether it is current: nothing has replaced or withdrawn it.
     pub is_head: bool,
-    /// The label it carries, if a judge gave it one: what it says of the
-    /// bead or beads it follows.
-    pub label: Option<Label>,
+    /// The arrow by which it already replaced or withdrew one or two
+    /// beads, if it did.
+    pub chain: Option<Arrow>,
     /// The group bead it is a member of, if any.
     pub group: Option<BeadId>,
     /// For a chunk of a message that was cut into several: which chunk it
@@ -590,11 +590,12 @@ pub struct JudgeBatch {
 pub enum JudgeWork {
     /// New beads to read against the window.
     Window(Vec<LeasedBead>),
-    /// A label a first read proposed, to be read again without it.
+    /// An arrow that ends currency, which a first read gave, to be read
+    /// again without it.
     SecondRead {
         source: LeasedBead,
-        label: Label,
-        /// The beads the first read named as heads: one or two.
+        arrow: Arrow,
+        /// The beads the first read would end with it: one or two.
         heads: Vec<BeadId>,
     },
 }
@@ -627,9 +628,9 @@ pub enum WindowOf<'a> {
     /// of content. A bead that is itself waiting to be judged is left out:
     /// it meets the new ones when its own turn comes, so no pair is read
     /// twice. So is a bead this judge has already read with every new
-    /// bead. Up to `conflict_beads` beads of open conflicts come first,
-    /// whatever their time: the current statement and what it conflicts
-    /// with.
+    /// bead. Up to `conflict_beads` beads of open disputes come first,
+    /// whatever their time: two beads that contradict each other, or of
+    /// which one says the other is wrong, while both are current.
     Near {
         within_ms: u64,
         max_beads: u32,
@@ -637,7 +638,7 @@ pub enum WindowOf<'a> {
         conflict_beads: u32,
     },
     /// Exactly these: the same beads again for a repair, or the beads a
-    /// held label follows for its second read. Every one of them is shown,
+    /// held arrow would end, for its second read. Every one of them is shown,
     /// or nothing is: if one may not be shown, the answer is
     /// [`JudgePermit::NothingToJudge`] and names it.
     These(&'a [BeadId]),
@@ -719,39 +720,43 @@ pub struct VerdictWrite {
     /// that bead was still owed a judgment.
     pub read_for: BeadId,
     pub verdict: Verdict,
+    /// The arrow given, with any verdict but `none` and `unsure`.
+    pub arrow: Option<Arrow>,
     pub direction: Direction,
-    pub label: Option<Label>,
     /// Set by the judge's side only for a second read that differs. What
-    /// became of every other label, the store decides and notes.
+    /// became of every other arrow that ends currency, the store decides
+    /// and notes.
     pub note: Option<VerdictNote>,
     pub columns: PairColumns,
 }
 
-/// A relationship between two beads of source content to store.
+/// A relationship between two beads of source content to store: an arrow
+/// that does not end currency. Its type is the arrow's.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EdgeWrite {
-    pub edge_type: EdgeType,
+    pub arrow: Arrow,
+    /// The bead the arrow's forward name is said of. For a symmetric
+    /// arrow, the smaller ID.
     pub from: BeadId,
     pub to: BeadId,
     /// The new bead whose pair said so.
     pub read_for: BeadId,
 }
 
-/// A label to store, or to hold for its second read.
+/// An arrow that ends currency, to store or to hold for its second read:
+/// a later statement that replaces or withdraws one or two beads.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LabelWrite {
-    /// The ID the source's label bead has, or will have.
-    pub bead_id: BeadId,
-    pub label: Label,
-    /// The bead of the later statement.
+pub struct ChainWrite {
+    pub arrow: Arrow,
+    /// The bead of the later statement, which the arrow runs from.
     pub source: BeadId,
-    /// The beads it follows: one or two, each current when the judge was
+    /// The beads it ends: one or two, each current when the judge was
     /// shown it.
     pub heads: Vec<BeadId>,
-    /// The new beads whose pairs said so. The label is stored only if
-    /// each of them was still owed a judgment.
+    /// The new beads whose pairs said so. The arrow is stored only if each
+    /// of them was still owed a judgment.
     pub read_for: Vec<BeadId>,
-    /// Whether the label waits for a second read that agrees with it.
+    /// Whether the arrow waits for a second read that agrees with it.
     pub hold: bool,
 }
 
@@ -784,14 +789,14 @@ pub struct NameLinkWrite {
 /// transaction.
 #[derive(Debug, Clone, PartialEq)]
 pub struct JudgmentWrite {
-    /// 1, or 2 for the second read of a proposed label.
+    /// 1, or 2 for the second read of a held arrow.
     pub read_no: u8,
     pub rubric_rev: u32,
     pub new_beads: Vec<BeadId>,
     pub window_beads: Vec<BeadId>,
     pub verdicts: Vec<VerdictWrite>,
     pub edges: Vec<EdgeWrite>,
-    pub labels: Vec<LabelWrite>,
+    pub chains: Vec<ChainWrite>,
     pub groups: Vec<GroupWrite>,
     pub names: Vec<NameLinkWrite>,
 }
@@ -818,8 +823,8 @@ pub struct JudgmentFinish<'a> {
     pub usage: Option<Usage>,
     /// What to store. `None` unless the reply was valid.
     pub judgment: Option<&'a JudgmentWrite>,
-    /// For a second read with a valid reply: the source whose held label
-    /// this read settles. The label is written if `judgment` holds it, and
+    /// For a second read with a valid reply: the source whose held arrow
+    /// this read settles. The arrow is written if `judgment` holds it, and
     /// dropped otherwise.
     pub settles: Option<BeadId>,
     pub reader: &'a ReaderRef,
@@ -834,15 +839,17 @@ pub struct JudgmentFinished {
     /// New beads whose judgment was stored.
     pub judged: u32,
     pub verdicts: u32,
-    /// Relationships written, apart from those of labels and groups.
+    /// Relationships written, apart from those that end currency and
+    /// those of groups.
     pub edges: u32,
-    /// Labels written.
-    pub labels: u32,
-    /// Labels held for a second read.
+    /// Arrows written that end currency.
+    pub chains: u32,
+    /// Arrows that end currency held for a second read.
     pub held: u32,
-    /// Labels not written: one of their beads was no longer current, or
-    /// the source already carried a label this one could not join.
-    pub labels_dropped: u32,
+    /// Arrows that end currency not written: one of their beads was no
+    /// longer current, or the source already ended beads with an arrow
+    /// this one could not join.
+    pub chains_dropped: u32,
     /// Group beads made or added to.
     pub groups: u32,
     pub names: u32,
@@ -995,7 +1002,7 @@ pub trait Store {
     // ---- judging ----
 
     /// Reserves work for a judge in one workspace, until the lease runs
-    /// out: a held label that waits for its second read, or new beads
+    /// out: a held arrow that waits for its second read, or new beads
     /// that are due. `None` if nothing is due, or a judge already reads in
     /// every workspace that has work. One judge reads in a workspace at a
     /// time.
