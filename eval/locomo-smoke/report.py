@@ -90,15 +90,18 @@ def report(out, why):
     # ---- what the models cost, from what the provider reported ----
     spent = {reader: collections.Counter(), judge: collections.Counter()}
     problems = collections.Counter()
+    faults = collections.Counter()
     for round_ in lines(out / "rounds.jsonl"):
         for kind, binding in (("read", reader), ("judged", judge)):
             if kind in round_:
                 said_ = round_[kind]
                 spent[binding]["rounds"] += 1
-                for field in ("calls", "input_tokens", "output_tokens"):
+                for field in ("calls", "input_tokens", "output_tokens", "quotes_dropped"):
                     spent[binding][field] += said_.get(field, 0)
                 if said_.get("problem"):
                     problems[f"{binding}: {said_['problem']}"] += 1
+                for fault in said_.get("reply_faults", []):
+                    faults[f"{binding}: {fault}"] += 1
 
     w = []
     w.append(f"# LoCoMo smoke test\n\nStopped because {why or 'it was stopped'}.\n")
@@ -178,6 +181,13 @@ def report(out, why):
         w.append("Rounds that reported a problem:")
         w.extend(f"- {p}: {n}" for p, n in problems.most_common())
         w.append("")
+    if faults:
+        w.append("Rounds with a rejected reply, by what was wrong with it:")
+        w.extend(f"- {f}: {n}" for f, n in faults.most_common())
+        w.append("")
+    dropped = spent[reader]["quotes_dropped"]
+    if dropped:
+        w.append(f"Quotes the reader's stored reads left out: {dropped}.\n")
 
     w.append("## Work left\n")
     for status in lines(out / "status.jsonl"):

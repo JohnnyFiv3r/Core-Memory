@@ -136,6 +136,8 @@ pub fn describe(round: &Round) -> serde_json::Value {
             "input_tokens": report.input_tokens,
             "output_tokens": report.output_tokens,
             "problem": report.problem,
+            "reply_faults": report.reply_faults.iter().map(|fault| fault.as_str()).collect::<Vec<_>>(),
+            "quotes_dropped": report.quotes_dropped,
         }}),
         Round::Judged(report) => json!({"judged": {
             "workspace": report.workspace,

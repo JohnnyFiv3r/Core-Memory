@@ -13,6 +13,7 @@ use core_memory_contract::{Abstention, EntityKind, ReadDecision, SpanKind};
 use core_memory_core::model::{
     FnTransport, ModelRequest, ModelResponse, ScriptedTransport, TransportError, Usage,
 };
+use core_memory_core::read::Fault;
 use core_memory_core::store::{
     CallFinish, CallResult, Change, Permit, PermitRequest, Purpose, ReadWrite, Sending, Store,
 };
@@ -128,6 +129,7 @@ fn a_chunk_is_read_and_what_was_found_is_stored_as_ranges() {
             input_tokens: 100,
             output_tokens: 20,
             problem: None,
+            ..ReadReport::default()
         }
     );
     // The model was shown the chunk's exact text and who wrote it, and
@@ -631,6 +633,9 @@ fn a_rejected_reply_is_repaired_once() {
     let report = handled(round(&mut w, &transport));
     assert_eq!((report.calls, report.stored, report.problem), (2, 1, None));
     assert_eq!((report.input_tokens, report.output_tokens), (200, 40));
+    // Why the first reply was rejected is told by its kind, never its text.
+    assert_eq!(report.reply_faults, [Fault::QuoteNotFound]);
+    assert_eq!(report.quotes_dropped, 0);
     let requests = transport.requests();
     assert!(requests[1].user.starts_with(&requests[0].user));
     assert!(requests[1].user.contains("is not in the chunk as written"));
@@ -670,6 +675,10 @@ fn on_the_last_attempt_a_quote_that_is_not_found_is_dropped_and_counted() {
     let report = handled(round(&mut w, &transport));
     assert_eq!((report.calls, report.stored), (2, 1));
     assert_eq!(
+        (report.reply_faults.as_slice(), report.quotes_dropped),
+        ([Fault::QuoteNotFound].as_slice(), 1)
+    );
+    assert_eq!(
         w.count("SELECT spans_rejected::bigint FROM core_memory.chunk_reads"),
         1
     );
@@ -699,6 +708,7 @@ fn a_reply_that_stays_invalid_sends_each_chunk_alone_from_then_on() {
     let report = handled(round(&mut w, &transport));
     assert_eq!((report.chunks, report.calls, report.stored), (3, 2, 0));
     assert_eq!(report.problem, Some("reply_invalid"));
+    assert_eq!(report.reply_faults, [Fault::MissingChunk]);
     assert_eq!(
         w.count(
             "SELECT count(*) FROM core_memory.work WHERE alone AND state = 'ready' AND attempts = 1"

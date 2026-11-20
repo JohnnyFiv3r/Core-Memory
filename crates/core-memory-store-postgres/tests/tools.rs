@@ -172,6 +172,7 @@ fn a_tool_call_is_one_bead_read_whole_and_recorded_in_a_few_words() {
             input_tokens: 100,
             output_tokens: 20,
             problem: None,
+            ..ReadReport::default()
         }
     );
 

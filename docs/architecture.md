@@ -500,6 +500,15 @@ quote that is still not found is dropped and counted (`spans_rejected`)
 rather than failing the batch. A source profile's `types` narrows which
 types its chunks may be given.
 
+The problems quote the reply, so they go back to the model and nowhere
+else. The round's log line lists what kinds of thing its rejected replies
+had wrong (`reply_faults`), a first reply that the repair put right
+included: `not_json`, `shape`, `unknown_chunk`, `unknown_type`,
+`unknown_abstention`, `unknown_entity_kind`, `answered_twice`,
+`missing_chunk`, `quote_not_found` and `quote_limit` (a quote too long, or
+too many of one kind). It also counts the quotes the stored reads left out
+(`quotes_dropped`). Together they say what a repair cost was spent on.
+
 Every read records its reader: the binding's ID and model, the prompt
 revision, and `binding_rev`, a hash of everything that affects what the
 model says (provider, endpoint, model, sampling settings, output limit, the
