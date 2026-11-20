@@ -61,7 +61,8 @@ pub(crate) fn finish_call(
 
 /// Asks a store that is busy again, up to [`FINISH_TRIES`] times in all.
 /// Only for a call the store answers the same way however often it is
-/// made.
+/// made, or that leaves nothing behind when it fails: a permit whose
+/// transaction failed wrote no receipt.
 pub(crate) fn asked_again<T>(
     mut ask: impl FnMut() -> Result<T, StoreError>,
 ) -> Result<T, StoreError> {
@@ -353,7 +354,7 @@ impl Engine {
         let instructions = instructions.system.len() + instructions.user.len();
 
         // ---- first call ----
-        let permit = store.permit(&PermitRequest {
+        let request = PermitRequest {
             scope: &batch.scope,
             chunk_ids: &ids,
             purpose: Purpose::ChunkRead,
@@ -371,7 +372,12 @@ impl Engine {
             },
             budget: reader.binding.budget,
             at: now,
-        })?;
+        };
+        // A permit the store could not give for a moment, as when another
+        // transaction held the workspace past the lock timeout, wrote
+        // nothing: its transaction rolled back. Asking again writes one
+        // receipt, as asking once would have.
+        let permit = asked_again(|| store.permit(&request))?;
         let (call_id, chunks) = match permit {
             Permit::Granted { call_id, chunks } => (call_id, chunks),
             refused => {
@@ -424,7 +430,7 @@ impl Engine {
         // wrong with it.
         let repair_len = repair_request.system.len() + repair_request.user.len();
         let sent_ids: Vec<ChunkId> = chunks.iter().map(|c| c.chunk_id).collect();
-        let permit = store.permit(&PermitRequest {
+        let request = PermitRequest {
             scope: &batch.scope,
             chunk_ids: &sent_ids,
             purpose: Purpose::ChunkRead,
@@ -441,7 +447,12 @@ impl Engine {
             },
             budget: reader.binding.budget,
             at: self.clock.now().truncated_to_micros(),
-        })?;
+        };
+        // A permit the store could not give for a moment, as when another
+        // transaction held the workspace past the lock timeout, wrote
+        // nothing: its transaction rolled back. Asking again writes one
+        // receipt, as asking once would have.
+        let permit = asked_again(|| store.permit(&request))?;
         let (repair_call, again) = match permit {
             Permit::Granted { call_id, chunks } => (call_id, chunks),
             refused => {

@@ -430,6 +430,45 @@ fn reads_set_aside_as_failed_are_tried_again_when_an_operator_says_so() {
 }
 
 #[test]
+fn a_permit_the_store_could_not_give_for_a_moment_is_asked_for_again() {
+    let mut w = reading("");
+    w.accept(&chat("1", "read once the workspace is free"));
+    // Another transaction holds the workspace for longer than the store's
+    // lock timeout, so the first permit fails. The read goes on once it is
+    // let go, instead of ending the round with the batch still leased.
+    let mut holder = w.db.connect();
+    let (take, taken) = std::sync::mpsc::channel();
+    let held = std::thread::spawn(move || {
+        let mut tx = holder.transaction().unwrap();
+        tx.batch_execute("SELECT core_memory.lock_workspace('w1')")
+            .unwrap();
+        take.send(()).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(6_500));
+        tx.commit().unwrap();
+    });
+    taken.recv().unwrap();
+    let started = std::time::Instant::now();
+    let report = handled(round(&mut w, &FnTransport(decide_all)));
+    held.join().unwrap();
+    assert!(
+        started.elapsed() >= std::time::Duration::from_secs(5),
+        "the permit waited for the workspace"
+    );
+    assert_eq!((report.stored, report.calls, report.problem), (1, 1, None));
+    // One receipt, and its call accounted for: the permit that failed left
+    // nothing behind.
+    assert_eq!(
+        w.count("SELECT count(*) FROM core_memory.outbound_calls"),
+        1
+    );
+    assert_eq!(
+        w.count("SELECT count(*) FROM core_memory.outbound_results"),
+        1
+    );
+    assert_eq!(w.count("SELECT count(*) FROM core_memory.work"), 0);
+}
+
+#[test]
 fn reading_waits_for_a_migration_holding_nothing_else() {
     let mut w = reading("");
     w.accept(&chat("1", "read behind a migration"));
