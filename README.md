@@ -14,18 +14,22 @@ durable, auditable memory in PostgreSQL. For each event it:
 4. if you configure a model, has it read each chunk: its type, and where
    its entities, actions and outcomes are;
 5. if you configure a model for tool calls, has it say of each call what it
-   did and what came of it.
+   did and what came of it;
+6. if you configure a judge, has it say how each new memory relates to the
+   ones near it in time: what follows from what, what replaces what, and
+   which pieces are parts of one memory.
 
 The full chunk text is the memory. The engine never writes summaries or other
 generated text in its place. What a model reads in a chunk is stored as a type
 from your vocabulary and as ranges of the chunk's own text. A tool call is the
 one exception: beside its full text, the engine keeps two short lines a model
 wrote about it, because a later reader is better served by those than by
-thousands of lines of output.
+thousands of lines of output. What a judge says is stored as relationships
+between IDs, and as a record of every pair it looked at.
 
-Relationship judging is designed and not built yet.
-[docs/architecture.md](docs/architecture.md) describes the design, including
-the planned parts.
+[docs/architecture.md](docs/architecture.md) describes the design. Finding
+related pairs across the whole store, beyond what a judge reads in time
+order, is a host's work and not the engine's: memoriesQL does it.
 
 This branch is pre-release. Nothing from it is published to PyPI or crates.io.
 
@@ -256,8 +260,71 @@ failed, partly succeeded or cannot be told. That is exported as a
 `tool_outcome` record, and it is erased with the call it is about.
 
 Consent, receipts, budgets and retries work as they do for chunks.
-`read status` and `read queue` print one line for chunks and one for tool
-calls.
+`read status` and `read queue` print one line for each kind of work.
+
+## Judging how memories relate
+
+A judge is a model that compares each new memory with the memories near it
+in time, from every scope of the workspace that allows it. Add a judge. It
+may use the same binding as the readers or one of its own: it reads more
+text in one call than they do, and a wrong relationship does more harm than
+a wrong type.
+
+```toml
+[judge]
+binding = "small"
+# window_ms = 604800000      # how far apart in time two memories may be: 7 days
+# max_new_beads = 8          # new memories in one read
+# max_window_beads = 40      # memories shown beside them
+# second_read = true         # read a replacement twice before it is written
+```
+
+The judge needs each scope's consent to its destination, as a reader does,
+and `core-memory read run`, `read status`, `read queue` and `serve` work for
+it as they do for readers. A memory of a scope that has not allowed the
+judge is not shown to it, and the others are still judged.
+
+For each pair it compares, the judge answers with one of five relationships,
+or none, or that it cannot tell:
+
+| Relationship | Meaning |
+|---|---|
+| `supersedes` | A later statement on the same matter: it replaces the earlier one, withdraws it, confirms it again, or conflicts with it. |
+| `leadsto` | What one memory describes brought about what the other describes. |
+| `contains` | Pieces of one memory, in one message or across several. |
+| `express` | One states an attribute, a description, an example or the source of what the other is about. |
+| `near` | They call each other up, and none of the above holds. |
+
+What it says is stored as IDs and fixed words, never as text:
+
+- a **verdict** for every pair it was shown, whatever it said. "None" is a
+  judgment and is kept. "Cannot tell", and a pair that was never shown, are
+  not a no;
+- an **edge** for each relationship;
+- a **label bead** for a `supersedes`, which says how the later statement
+  follows the earlier one. A memory is replaced at most once, so a chain of
+  statements has one current end and never branches;
+- a **group bead** for memories that are parts of one;
+- a **name link** when two memories use different names for one thing, kept
+  as the place of each name in its own text.
+
+Code decides nothing here but what the judge is shown, and it goes by time
+alone. It never proposes a pair or an edge.
+
+A replacement, a withdrawal or a conflict changes what a reader takes as
+current, so it is not written on one reading. The two statements are read a
+second time, alone, without the first answer, and the label is written only
+if the second reading gives it again. Either way both verdicts are kept.
+Labels that share a statement are settled in the order they were given, so
+a chain given in one reading is written from its oldest statement on. Turn
+this off with `second_read = false`.
+
+A memory with no other near it to be compared with is not sent: there is
+no pair to read. Its pairs are read when memories near it arrive.
+
+All of it is exported, as `verdict`, `bead`, `edge` and `name_link` records.
+`export --scope` leaves out what joins that scope's memories to another
+scope's.
 
 ## Erasing
 
@@ -272,10 +339,12 @@ core-memory erase --reason account_closed scope acme
 
 Erasing removes a whole message: its text, its facets, its key, its hashes,
 its metadata and what a model read in it or wrote about it, in one
-transaction. Its IDs stay as
-a tombstone, so links to it do not dangle and the same message is refused if
-it is offered again. Each erasure is written to a journal with the reason and
-who asked, and exported as an `erasure` record.
+transaction. Every verdict a judge gave about it goes too, and every name
+link to it. Its IDs stay as a tombstone, so links to it do not dangle and
+the same message is refused if it is offered again. Edges to it stay, as two
+IDs. A statement it had replaced does not become current again. Each erasure
+is written to a journal with the reason and who asked, and exported as an
+`erasure` record.
 
 `erase scope` works in batches. Pause or revoke the scope first if nothing
 more should be admitted to it while it is erased.
@@ -309,22 +378,25 @@ system that uses it. That system:
   called before the transaction reads the engine's tables itself.
 - **reads** the engine's tables directly. Row security is on for every table
   and nothing is granted to `PUBLIC`, so a role sees rows only after it is
-  given a grant and a policy.
+  given a grant and a policy. A verdict and a name link can be about
+  memories of two scopes, so each carries both scopes on the row for a
+  policy to decide by.
 - **never writes** the engine's tables.
 
 Two roles are created by the first migration:
 
 | Role | May |
 |---|---|
-| `core_memory_engine` | Read and insert events, chunks, beads, receipts and reads. It cannot change or delete them, change a scope's state, give model consent, or erase. Give it to the engine's login role. |
+| `core_memory_engine` | Read and insert events, chunks, beads, receipts, reads and what a judge said. It cannot change or delete them, change a scope's state, give model consent, or erase. Give it to the engine's login role. |
 | `core_memory_governor` | Call the governance functions. It reads no table. |
 
 Both roles belong to the database cluster. If one cluster holds several Core
 Memory databases with different operators, revoke `CONNECT` on each database
 from the logins of the others.
 
-Every row in `events`, `beads` and `erasures` has a `seq`. Within a workspace,
-rows commit in `seq` order, so a reader that pages by
+Every row in `events`, `beads`, `erasures`, `chunk_reads`, `tool_outcomes`,
+`verdicts`, `edges` and `name_links` has a `seq`. Within a workspace, rows
+commit in `seq` order, so a reader that pages by
 `workspace_id = $1 AND seq > $2` never misses a row.
 
 ## Connecting to the database
@@ -385,13 +457,17 @@ written by code that does not know the new schema.
   servers.
 - **Tool calls**: stored whole as one bead, shortened by fixed rules, and
   read by a model that records what each call did and what came of it.
+- **Judging**: a model says how each new memory relates to the ones near
+  it in time. Every pair it reads is recorded, a statement is replaced at
+  most once, and a replacement is read twice before it is written.
 - **An authenticated HTTP service** with per-token scope grants, readiness and
   an OpenAPI document.
-- **Export** of events, chunks, reads, tool outcomes and erasures as
-  `core_memory.record.v2` JSON Lines.
+- **Export** of events, chunks, reads, tool outcomes, verdicts, the beads a
+  judge made, edges, name links and erasures as `core_memory.record.v2` JSON
+  Lines.
 
-Not built yet: relationship judging. Reading has been tested against
-stand-in models only, not yet against a live one.
+Reading and judging have been tested against stand-in models only, not yet
+against a live one.
 
 ## Workspace
 

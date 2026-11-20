@@ -8,8 +8,10 @@
 //! [`Engine::read_once`] has a model read queued chunks: each chunk's type,
 //! and where its entities, actions and outcomes are.
 //! [`Engine::read_tool_once`] has a model read a queued tool call: what it
-//! did and what came of it. Every model call is permitted and receipted by
-//! the store before anything is sent.
+//! did and what came of it. [`Engine::judge_once`] has a judge model read
+//! new beads against the beads near them and say how they relate. Every
+//! model call is permitted and receipted by the store before anything is
+//! sent.
 //!
 //! This crate imports no database or model-provider crate. Those plug in
 //! through [`store::Store`] and [`model::ModelTransport`].
@@ -21,6 +23,8 @@ pub mod engine;
 pub mod error;
 pub mod facets;
 mod ident;
+pub mod judge;
+pub mod judging;
 pub mod model;
 pub mod profile;
 pub mod read;
@@ -34,6 +38,7 @@ pub use clock::{Clock, ManualClock, SystemClock};
 pub use engine::{Engine, EngineConfig, Limits, ScopeGrants, StartupError};
 pub use error::{ConfigError, EngineError, StoreError};
 pub use ident::is_identifier;
+pub use judging::{CompiledJudge, JudgeReport, JudgeRound};
 pub use model::{BindingConfig, ModelTransport};
 pub use profile::{ProfileRegistry, SourceProfile};
 pub use reader::{CompiledReader, ReadReport, ReadRound};

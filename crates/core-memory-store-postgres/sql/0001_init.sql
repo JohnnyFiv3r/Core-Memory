@@ -175,12 +175,17 @@ ALTER TABLE core_memory.chunk_text
 CREATE TABLE core_memory.beads (
     bead_id uuid PRIMARY KEY,
     workspace_id text NOT NULL REFERENCES core_memory.workspaces,
-    scope text NOT NULL REFERENCES core_memory.scopes,
-    kind text NOT NULL CHECK (kind IN ('chunk', 'tool')),
+    -- The scope and the event of a bead that stands for source content.
+    -- A bead a judge made belongs to the workspace and has neither.
+    scope text REFERENCES core_memory.scopes,
+    kind text NOT NULL CHECK (kind IN ('chunk', 'tool', 'label', 'group')),
     state text NOT NULL CHECK (state IN ('live', 'erased')),
-    event_id uuid NOT NULL REFERENCES core_memory.events,
+    event_id uuid REFERENCES core_memory.events,
     chunk_id uuid REFERENCES core_memory.chunks,
-    created_by text NOT NULL CHECK (created_by IN ('engine')),
+    created_by text NOT NULL CHECK (created_by IN ('engine', 'judge')),
+    -- The judge's call that made the bead. A bead of source content has
+    -- none.
+    call_id uuid,
     time_at timestamptz NOT NULL,
     time_basis text NOT NULL CHECK (time_basis IN ('source', 'source_bucket', 'captured')),
     created_at timestamptz NOT NULL,
@@ -189,6 +194,9 @@ CREATE TABLE core_memory.beads (
     -- bead, with its event's ID, however many chunks its text is cut into.
     CHECK ((kind = 'chunk') = (chunk_id IS NOT NULL AND bead_id = chunk_id)),
     CHECK (kind <> 'tool' OR (bead_id = event_id AND chunk_id IS NULL)),
+    CHECK ((kind IN ('chunk', 'tool')) = (scope IS NOT NULL AND event_id IS NOT NULL)),
+    CHECK ((kind IN ('chunk', 'tool')) = (created_by = 'engine')),
+    CHECK ((created_by = 'judge') = (call_id IS NOT NULL)),
     UNIQUE (workspace_id, seq)
 );
 
@@ -263,8 +271,10 @@ CREATE TABLE core_memory.outbound_calls (
     call_id uuid PRIMARY KEY,
     workspace_id text NOT NULL REFERENCES core_memory.workspaces,
     seq bigint NOT NULL CHECK (seq > 0),
-    purpose text NOT NULL CHECK (purpose IN ('chunk_read', 'tool_read')),
-    scope text NOT NULL REFERENCES core_memory.scopes,
+    purpose text NOT NULL CHECK (purpose IN ('chunk_read', 'tool_read', 'judge', 'second_read')),
+    -- The one scope whose text a read sends. A judge is shown beads of
+    -- every scope of the workspace that allows it, so its calls name none.
+    scope text REFERENCES core_memory.scopes,
     destination text NOT NULL,
     binding_id text NOT NULL,
     binding_rev bytea NOT NULL CHECK (octet_length(binding_rev) = 32),
@@ -272,14 +282,21 @@ CREATE TABLE core_memory.outbound_calls (
     -- 1 for a first call, 2 for the one repair of a rejected reply.
     attempt integer NOT NULL CHECK (attempt IN (1, 2)),
     repairs uuid REFERENCES core_memory.outbound_calls,
-    chunk_ids uuid[] NOT NULL CHECK (cardinality(chunk_ids) > 0),
+    -- The chunks whose text was sent.
+    chunk_ids uuid[] NOT NULL,
+    -- For a judge's call, every bead it was shown. A tool call's bead is
+    -- shown as what a model wrote about it, so it has no chunk above.
+    bead_ids uuid[],
     bytes_sent bigint NOT NULL CHECK (bytes_sent > 0),
     -- The most tokens the call may use, counted against the budget whether
     -- or not it uses them.
     reserved_tokens bigint NOT NULL CHECK (reserved_tokens >= 0),
     permitted_at timestamptz NOT NULL,
     UNIQUE (workspace_id, seq),
-    CHECK ((attempt = 2) = (repairs IS NOT NULL))
+    CHECK ((attempt = 2) = (repairs IS NOT NULL)),
+    CHECK ((purpose IN ('chunk_read', 'tool_read')) = (scope IS NOT NULL)),
+    CHECK ((purpose IN ('chunk_read', 'tool_read')) = (bead_ids IS NULL)),
+    CHECK (cardinality(chunk_ids) > 0 OR cardinality(bead_ids) > 0)
 );
 
 CREATE INDEX outbound_calls_budget_idx
@@ -398,12 +415,198 @@ ALTER TABLE core_memory.tool_outcomes
     ALTER COLUMN outcome SET STATISTICS 0;
 
 -- ---------------------------------------------------------------------------
+-- What a judge said about how beads relate
+--
+-- Code computes what a judge is shown and records what it says. Code never
+-- proposes an edge and never picks a pair. None of these tables holds text.
+-- ---------------------------------------------------------------------------
+
+-- One row for each read of a judge whose reply was stored: the beads it
+-- was shown, by ID. A bead is new in at most one read.
+CREATE TABLE core_memory.judge_reads (
+    call_id uuid PRIMARY KEY REFERENCES core_memory.outbound_calls,
+    workspace_id text NOT NULL REFERENCES core_memory.workspaces,
+    seq bigint NOT NULL CHECK (seq > 0),
+    -- 2 for the second, blind read of one proposed label.
+    read_no integer NOT NULL CHECK (read_no IN (1, 2)),
+    new_beads uuid[] NOT NULL CHECK (cardinality(new_beads) > 0),
+    window_beads uuid[] NOT NULL,
+    rubric_rev integer NOT NULL CHECK (rubric_rev > 0),
+    binding_id text NOT NULL,
+    binding_rev bytea NOT NULL CHECK (octet_length(binding_rev) = 32),
+    model text NOT NULL,
+    judged_at timestamptz NOT NULL,
+    UNIQUE (workspace_id, seq)
+);
+
+CREATE INDEX judge_reads_new_idx ON core_memory.judge_reads USING gin (new_beads);
+
+ALTER TABLE core_memory.beads
+    ADD CONSTRAINT beads_call_id_fkey FOREIGN KEY (call_id) REFERENCES core_memory.judge_reads;
+
+-- One row for every pair a judge was shown, whatever it said. A host may
+-- learn from it which pairs are worth showing, so it records a no as
+-- carefully as a yes: 'unsure', and a pair never shown, are not a no.
+--
+-- The two beads are in time order, and the direction is explicit because
+-- the order in which messages arrived is not the order in which things
+-- happened. columns holds what code computed about the pair at that
+-- moment: numbers, flags and vocabulary keys. A row is deleted when either
+-- of its beads is erased.
+CREATE TABLE core_memory.verdicts (
+    workspace_id text NOT NULL REFERENCES core_memory.workspaces,
+    seq bigint NOT NULL CHECK (seq > 0),
+    earlier_bead uuid NOT NULL REFERENCES core_memory.beads,
+    later_bead uuid NOT NULL REFERENCES core_memory.beads,
+    -- The scope of each bead. A judge reads across the scopes of a
+    -- workspace, and columns is computed from what both beads say, so who
+    -- may read a verdict depends on both scopes. They are on the row so
+    -- that a host's row security can decide from the row alone. They are
+    -- read from the beads when the row is stored, whatever the statement
+    -- gave.
+    earlier_scope text NOT NULL REFERENCES core_memory.scopes,
+    later_scope text NOT NULL REFERENCES core_memory.scopes,
+    verdict text NOT NULL CHECK (verdict IN (
+        'near', 'leadsto', 'contains', 'express', 'supersedes', 'none', 'unsure'
+    )),
+    -- From which bead to which the relationship runs.
+    direction text NOT NULL CHECK (direction IN (
+        'earlier_to_later', 'later_to_earlier', 'undirected'
+    )),
+    label text CHECK (label IN ('supersede', 'retract', 'reaffirm', 'conflict')),
+    -- Why a supersedes verdict wrote no label. Without a note, its label
+    -- was written by the same read.
+    --   not_current: one of its beads was no longer current when the read
+    --     was stored.
+    --   label_taken: its source already carried a label it could not join.
+    --   awaits_second_read: the label is held until a second read agrees.
+    --   second_read_differs: this second read did not agree with the first.
+    note text CHECK (note IN (
+        'not_current', 'label_taken', 'awaits_second_read', 'second_read_differs'
+    )),
+    call_id uuid NOT NULL REFERENCES core_memory.judge_reads,
+    columns jsonb NOT NULL,
+    columns_rev integer NOT NULL CHECK (columns_rev > 0),
+    PRIMARY KEY (workspace_id, seq),
+    CHECK (earlier_bead <> later_bead),
+    CHECK ((verdict = 'supersedes') = (label IS NOT NULL)),
+    CHECK (verdict NOT IN ('near', 'contains', 'none', 'unsure') OR direction = 'undirected'),
+    CHECK (verdict NOT IN ('leadsto', 'express', 'supersedes') OR direction <> 'undirected'),
+    CHECK (note IS NULL OR verdict = 'supersedes')
+);
+
+CREATE INDEX verdicts_earlier_idx ON core_memory.verdicts (earlier_bead);
+CREATE INDEX verdicts_later_idx ON core_memory.verdicts (later_bead);
+
+-- Computed from what the two beads say.
+ALTER TABLE core_memory.verdicts ALTER COLUMN columns SET STATISTICS 0;
+
+-- A relationship between two beads. It has no state and no weight, and is
+-- never changed or deleted: erasing a bead leaves its edges, which hold
+-- IDs and say only that there was a link.
+--
+-- Every edge points at a bead of source content. A supersedes edge runs
+-- from the label bead of a later statement to the bead of the earlier
+-- statement it follows, and a contains edge from a group bead to a member.
+-- The others run from one bead of source content to another. A near edge
+-- has no direction, and is stored from the smaller ID to the larger.
+CREATE TABLE core_memory.edges (
+    workspace_id text NOT NULL REFERENCES core_memory.workspaces,
+    seq bigint NOT NULL CHECK (seq > 0),
+    edge_type text NOT NULL CHECK (edge_type IN (
+        'near', 'leadsto', 'contains', 'express', 'supersedes'
+    )),
+    from_bead uuid NOT NULL REFERENCES core_memory.beads,
+    to_bead uuid NOT NULL REFERENCES core_memory.beads,
+    call_id uuid NOT NULL REFERENCES core_memory.judge_reads,
+    created_at timestamptz NOT NULL,
+    PRIMARY KEY (workspace_id, seq),
+    UNIQUE (edge_type, from_bead, to_bead),
+    CHECK (from_bead <> to_bead),
+    CHECK (edge_type <> 'near' OR from_bead < to_bead)
+);
+
+CREATE INDEX edges_to_idx ON core_memory.edges (to_bead, edge_type);
+-- A chain never branches: a bead is superseded at most once. A bead of
+-- source content is current while no supersedes edge points at it.
+CREATE UNIQUE INDEX edges_superseded_once_idx ON core_memory.edges (to_bead)
+    WHERE edge_type = 'supersedes';
+
+-- What a label bead says. It stands for its source, the bead of the later
+-- statement, and there is at most one label for a source.
+CREATE TABLE core_memory.labels (
+    bead_id uuid PRIMARY KEY REFERENCES core_memory.beads,
+    workspace_id text NOT NULL REFERENCES core_memory.workspaces,
+    label text NOT NULL CHECK (label IN ('supersede', 'retract', 'reaffirm', 'conflict')),
+    source_bead uuid NOT NULL UNIQUE REFERENCES core_memory.beads,
+    call_id uuid NOT NULL REFERENCES core_memory.judge_reads,
+    CHECK (bead_id <> source_bead)
+);
+
+-- The conflicts of a workspace, which a judge is shown first while they
+-- are open.
+CREATE INDEX labels_conflict_idx ON core_memory.labels (workspace_id)
+    WHERE label = 'conflict';
+
+-- A label a judge proposed that is not written until a second read of the
+-- same pair agrees with it. IDs only. It goes when the second read is
+-- stored, when it can no longer be written, or when its source or one of
+-- its heads is erased.
+--
+-- Labels that share a bead are read a second time in the order they were
+-- held, which is the order of `ordinal`, a number from the workspace's
+-- counter. A chain given in one read is then written from its oldest
+-- statement on, and no label makes another unwritable before its second
+-- read.
+CREATE TABLE core_memory.pending_labels (
+    source_bead uuid PRIMARY KEY REFERENCES core_memory.beads,
+    workspace_id text NOT NULL REFERENCES core_memory.workspaces,
+    label text NOT NULL CHECK (label IN ('supersede', 'retract', 'reaffirm', 'conflict')),
+    -- The beads shown to the judge as the heads: one or two.
+    head_beads uuid[] NOT NULL CHECK (cardinality(head_beads) BETWEEN 1 AND 2),
+    ordinal bigint NOT NULL CHECK (ordinal > 0),
+    call_id uuid NOT NULL REFERENCES core_memory.judge_reads,
+    proposed_at timestamptz NOT NULL,
+    UNIQUE (workspace_id, ordinal)
+);
+
+-- Two names for one entity, each as the byte range where it stands in its
+-- own chunk. No text is copied. Deleted when either chunk's event is
+-- erased. A link has no direction: its ends are in the order of their
+-- beads' IDs, so the same two names linked again, by any judge, are one
+-- row.
+CREATE TABLE core_memory.name_links (
+    workspace_id text NOT NULL REFERENCES core_memory.workspaces,
+    seq bigint NOT NULL CHECK (seq > 0),
+    a_bead uuid NOT NULL REFERENCES core_memory.beads,
+    -- The scope of each bead, as on a verdict: a link says where a name
+    -- stands in each of two chunks, and who may read it depends on both.
+    a_scope text NOT NULL REFERENCES core_memory.scopes,
+    a_start bigint NOT NULL CHECK (a_start >= 0),
+    a_end bigint NOT NULL,
+    b_bead uuid NOT NULL REFERENCES core_memory.beads,
+    b_scope text NOT NULL REFERENCES core_memory.scopes,
+    b_start bigint NOT NULL CHECK (b_start >= 0),
+    b_end bigint NOT NULL,
+    call_id uuid NOT NULL REFERENCES core_memory.judge_reads,
+    linked_at timestamptz NOT NULL,
+    PRIMARY KEY (workspace_id, seq),
+    UNIQUE (a_bead, a_start, a_end, b_bead, b_start, b_end),
+    CHECK (a_end > a_start AND b_end > b_start),
+    CHECK (a_bead < b_bead)
+);
+
+CREATE INDEX name_links_b_idx ON core_memory.name_links (b_bead);
+
+-- ---------------------------------------------------------------------------
 -- Work the engine still owes. No text.
 -- ---------------------------------------------------------------------------
 
 CREATE TABLE core_memory.work (
-    kind text NOT NULL CHECK (kind IN ('chunk_read', 'tool_read')),
-    -- What is to be read: a chunk for chunk_read, an event for tool_read.
+    kind text NOT NULL CHECK (kind IN ('chunk_read', 'tool_read', 'judge', 'second_read')),
+    -- What is to be read: a chunk for chunk_read, an event for tool_read,
+    -- a new bead for judge, and the source of a proposed label for
+    -- second_read.
     item_id uuid NOT NULL,
     -- The event the item belongs to. Erasing it deletes the work.
     event_id uuid NOT NULL REFERENCES core_memory.events,
@@ -426,6 +629,9 @@ CREATE TABLE core_memory.work (
 );
 
 CREATE INDEX work_next_idx ON core_memory.work (kind, not_before) WHERE state <> 'failed';
+-- One judge reads in a workspace at a time. This finds the one.
+CREATE INDEX work_judging_idx ON core_memory.work (workspace_id)
+    WHERE state = 'leased' AND kind IN ('judge', 'second_read');
 CREATE INDEX work_scope_idx ON core_memory.work (scope);
 CREATE INDEX work_event_idx ON core_memory.work (event_id);
 
@@ -488,11 +694,12 @@ BEGIN
         AND NEW.time_basis = 'captured' AND NEW.time_at = OLD.created_at
         AND NEW.bead_id = OLD.bead_id
         AND NEW.workspace_id = OLD.workspace_id
-        AND NEW.scope = OLD.scope
+        AND NEW.scope IS NOT DISTINCT FROM OLD.scope
         AND NEW.kind = OLD.kind
-        AND NEW.event_id = OLD.event_id
+        AND NEW.event_id IS NOT DISTINCT FROM OLD.event_id
         AND NEW.chunk_id IS NOT DISTINCT FROM OLD.chunk_id
         AND NEW.created_by = OLD.created_by
+        AND NEW.call_id IS NOT DISTINCT FROM OLD.call_id
         AND NEW.created_at = OLD.created_at
         AND NEW.seq = OLD.seq
     THEN
@@ -581,6 +788,171 @@ BEGIN
 END
 $$;
 
+-- What a judge said about two beads is deleted only when one of them has
+-- just been erased. The trigger names the table's two bead columns.
+CREATE FUNCTION core_memory.deleted_only_when_a_bead_is_erased() RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, pg_temp
+AS $$
+DECLARE
+    gone jsonb := to_jsonb(OLD);
+BEGIN
+    IF current_setting('core_memory.erasing', true) = 'on' AND EXISTS (
+        SELECT 1 FROM core_memory.beads AS b
+         WHERE b.bead_id IN ((gone ->> TG_ARGV[0])::uuid, (gone ->> TG_ARGV[1])::uuid)
+           AND b.state = 'erased'
+    ) THEN
+        RETURN OLD;
+    END IF;
+    RAISE EXCEPTION 'core_memory.% rows cannot be deleted', TG_TABLE_NAME
+        USING ERRCODE = 'restrict_violation';
+END
+$$;
+
+-- What a judge says is stored only about beads that are live. The engine
+-- checks that where it stores a judgment, under the workspace lock that an
+-- erasure also takes. This stops a statement that does not: a verdict or a
+-- name link about an erased bead would be out of reach of every erase. The
+-- trigger names the table's bead columns.
+CREATE FUNCTION core_memory.stored_only_for_live_beads() RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, pg_temp
+AS $$
+DECLARE
+    added jsonb := to_jsonb(NEW);
+    named text;
+    ids jsonb;
+BEGIN
+    FOREACH named IN ARRAY TG_ARGV LOOP
+        -- A column holds one bead, or an array of them.
+        ids := CASE jsonb_typeof(added -> named)
+                   WHEN 'array' THEN added -> named
+                   ELSE jsonb_build_array(added -> named)
+               END;
+        IF jsonb_array_length(ids) = 0 OR EXISTS (
+            SELECT 1 FROM jsonb_array_elements_text(ids) AS i (id)
+             WHERE NOT EXISTS (
+                 SELECT 1 FROM core_memory.beads AS b
+                  WHERE b.bead_id = i.id::uuid AND b.state = 'live'
+                    AND b.workspace_id = added ->> 'workspace_id')
+        ) THEN
+            RAISE EXCEPTION 'core_memory.% takes rows only about beads that are live',
+                TG_TABLE_NAME
+                USING ERRCODE = 'restrict_violation',
+                      DETAIL = 'Each bead must be live and of the row''s own workspace.';
+        END IF;
+    END LOOP;
+    RETURN NEW;
+END
+$$;
+
+-- A name link says where a name stands in each of two chunks. Each range
+-- lies inside its chunk's text, and a bead with no text of its own, as a
+-- tool call's has none, has no name to link.
+CREATE FUNCTION core_memory.name_links_within_their_chunks() RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, pg_temp
+AS $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM core_memory.chunk_text AS t
+         WHERE t.chunk_id = NEW.a_bead AND NEW.a_end <= octet_length(t.text))
+       OR NOT EXISTS (
+        SELECT 1 FROM core_memory.chunk_text AS t
+         WHERE t.chunk_id = NEW.b_bead AND NEW.b_end <= octet_length(t.text))
+    THEN
+        RAISE EXCEPTION 'a name link names a range inside the text of each of its chunks'
+            USING ERRCODE = 'check_violation';
+    END IF;
+    RETURN NEW;
+END
+$$;
+
+-- A verdict and a name link carry the scope of each of their beads. The
+-- scopes are read from the beads here, so the two cannot disagree, whoever
+-- writes the row. A bead a judge made has no scope, and a row about one is
+-- refused by the column.
+CREATE FUNCTION core_memory.verdicts_carry_scopes() RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, pg_temp
+AS $$
+BEGIN
+    NEW.earlier_scope := (SELECT b.scope FROM core_memory.beads AS b
+                           WHERE b.bead_id = NEW.earlier_bead);
+    NEW.later_scope := (SELECT b.scope FROM core_memory.beads AS b
+                         WHERE b.bead_id = NEW.later_bead);
+    RETURN NEW;
+END
+$$;
+
+CREATE FUNCTION core_memory.name_links_carry_scopes() RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, pg_temp
+AS $$
+BEGIN
+    NEW.a_scope := (SELECT b.scope FROM core_memory.beads AS b WHERE b.bead_id = NEW.a_bead);
+    NEW.b_scope := (SELECT b.scope FROM core_memory.beads AS b WHERE b.bead_id = NEW.b_bead);
+    RETURN NEW;
+END
+$$;
+
+-- The shape of the graph. An edge joins two beads of its own workspace and
+-- points at source content. Only a label bead supersedes, and it follows
+-- one bead or two. Only a group bead contains. The other relationships
+-- join source content to source content.
+CREATE FUNCTION core_memory.edges_keep_their_shape() RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, pg_temp
+AS $$
+DECLARE
+    from_kind text;
+    to_kind text;
+BEGIN
+    SELECT b.kind INTO from_kind FROM core_memory.beads AS b
+     WHERE b.bead_id = NEW.from_bead AND b.workspace_id = NEW.workspace_id;
+    SELECT b.kind INTO to_kind FROM core_memory.beads AS b
+     WHERE b.bead_id = NEW.to_bead AND b.workspace_id = NEW.workspace_id;
+    IF from_kind IS NULL OR to_kind IS NULL THEN
+        RAISE EXCEPTION 'an edge joins two beads of its own workspace'
+            USING ERRCODE = 'check_violation';
+    END IF;
+    IF NEW.edge_type = 'supersedes' THEN
+        IF from_kind <> 'label' OR to_kind NOT IN ('chunk', 'tool') THEN
+            RAISE EXCEPTION 'a supersedes edge runs from a label bead to the bead it follows'
+                USING ERRCODE = 'check_violation';
+        END IF;
+        -- A chain grows at its head. The later statement is current when
+        -- its label follows another bead, so it never follows its own
+        -- source, and no circle can close: every bead of a circle would be
+        -- superseded.
+        IF NOT EXISTS (
+            SELECT 1 FROM core_memory.labels AS l
+             WHERE l.bead_id = NEW.from_bead AND l.source_bead <> NEW.to_bead
+               AND NOT EXISTS (
+                   SELECT 1 FROM core_memory.edges AS x
+                    WHERE x.to_bead = l.source_bead AND x.edge_type = 'supersedes'))
+        THEN
+            RAISE EXCEPTION 'a supersedes edge runs from the label of a current statement to another bead'
+                USING ERRCODE = 'check_violation';
+        END IF;
+        IF (SELECT count(*) FROM core_memory.edges AS e
+             WHERE e.from_bead = NEW.from_bead AND e.edge_type = 'supersedes') >= 2 THEN
+            RAISE EXCEPTION 'a label bead follows at most two beads'
+                USING ERRCODE = 'check_violation';
+        END IF;
+    ELSIF NEW.edge_type = 'contains' THEN
+        IF from_kind <> 'group' OR to_kind NOT IN ('chunk', 'tool') THEN
+            RAISE EXCEPTION 'a contains edge runs from a group bead to a member'
+                USING ERRCODE = 'check_violation';
+        END IF;
+    ELSIF from_kind NOT IN ('chunk', 'tool') OR to_kind NOT IN ('chunk', 'tool') THEN
+        RAISE EXCEPTION 'a % edge joins two beads of source content', NEW.edge_type
+            USING ERRCODE = 'check_violation';
+    END IF;
+    RETURN NEW;
+END
+$$;
+
 -- A scope keeps its name and its workspace. Only its state changes.
 CREATE FUNCTION core_memory.scopes_keep_identity() RETURNS trigger
 LANGUAGE plpgsql
@@ -659,6 +1031,46 @@ CREATE TRIGGER tool_outcomes_only_erase BEFORE DELETE ON core_memory.tool_outcom
     FOR EACH ROW EXECUTE FUNCTION core_memory.deleted_only_when_its_event_is_erased();
 CREATE TRIGGER tool_outcomes_live BEFORE INSERT ON core_memory.tool_outcomes
     FOR EACH ROW EXECUTE FUNCTION core_memory.stored_only_when_its_event_is_live();
+CREATE TRIGGER judge_reads_fixed BEFORE UPDATE OR DELETE ON core_memory.judge_reads
+    FOR EACH ROW EXECUTE FUNCTION core_memory.refuse_change();
+CREATE TRIGGER verdicts_fixed BEFORE UPDATE ON core_memory.verdicts
+    FOR EACH ROW EXECUTE FUNCTION core_memory.refuse_change();
+CREATE TRIGGER verdicts_only_erase BEFORE DELETE ON core_memory.verdicts
+    FOR EACH ROW EXECUTE FUNCTION
+        core_memory.deleted_only_when_a_bead_is_erased('earlier_bead', 'later_bead');
+CREATE TRIGGER verdicts_live BEFORE INSERT ON core_memory.verdicts
+    FOR EACH ROW EXECUTE FUNCTION
+        core_memory.stored_only_for_live_beads('earlier_bead', 'later_bead');
+CREATE TRIGGER verdicts_scopes BEFORE INSERT ON core_memory.verdicts
+    FOR EACH ROW EXECUTE FUNCTION core_memory.verdicts_carry_scopes();
+CREATE TRIGGER edges_fixed BEFORE UPDATE OR DELETE ON core_memory.edges
+    FOR EACH ROW EXECUTE FUNCTION core_memory.refuse_change();
+CREATE TRIGGER edges_shape BEFORE INSERT ON core_memory.edges
+    FOR EACH ROW EXECUTE FUNCTION core_memory.edges_keep_their_shape();
+CREATE TRIGGER edges_live BEFORE INSERT ON core_memory.edges
+    FOR EACH ROW EXECUTE FUNCTION
+        core_memory.stored_only_for_live_beads('from_bead', 'to_bead');
+CREATE TRIGGER labels_fixed BEFORE UPDATE OR DELETE ON core_memory.labels
+    FOR EACH ROW EXECUTE FUNCTION core_memory.refuse_change();
+CREATE TRIGGER labels_live BEFORE INSERT ON core_memory.labels
+    FOR EACH ROW EXECUTE FUNCTION
+        core_memory.stored_only_for_live_beads('bead_id', 'source_bead');
+CREATE TRIGGER pending_labels_fixed BEFORE UPDATE ON core_memory.pending_labels
+    FOR EACH ROW EXECUTE FUNCTION core_memory.refuse_change();
+CREATE TRIGGER pending_labels_live BEFORE INSERT ON core_memory.pending_labels
+    FOR EACH ROW EXECUTE FUNCTION
+        core_memory.stored_only_for_live_beads('source_bead', 'head_beads');
+CREATE TRIGGER name_links_fixed BEFORE UPDATE ON core_memory.name_links
+    FOR EACH ROW EXECUTE FUNCTION core_memory.refuse_change();
+CREATE TRIGGER name_links_only_erase BEFORE DELETE ON core_memory.name_links
+    FOR EACH ROW EXECUTE FUNCTION
+        core_memory.deleted_only_when_a_bead_is_erased('a_bead', 'b_bead');
+CREATE TRIGGER name_links_live BEFORE INSERT ON core_memory.name_links
+    FOR EACH ROW EXECUTE FUNCTION core_memory.stored_only_for_live_beads('a_bead', 'b_bead');
+CREATE TRIGGER name_links_scopes BEFORE INSERT ON core_memory.name_links
+    FOR EACH ROW EXECUTE FUNCTION core_memory.name_links_carry_scopes();
+CREATE TRIGGER name_links_ranges BEFORE INSERT ON core_memory.name_links
+    FOR EACH ROW EXECUTE FUNCTION core_memory.name_links_within_their_chunks();
 
 CREATE TRIGGER workspaces_no_truncate BEFORE TRUNCATE ON core_memory.workspaces
     FOR EACH STATEMENT EXECUTE FUNCTION core_memory.refuse_change();
@@ -692,6 +1104,18 @@ CREATE TRIGGER chunk_read_spans_no_truncate BEFORE TRUNCATE ON core_memory.chunk
     FOR EACH STATEMENT EXECUTE FUNCTION core_memory.refuse_change();
 CREATE TRIGGER tool_outcomes_no_truncate BEFORE TRUNCATE ON core_memory.tool_outcomes
     FOR EACH STATEMENT EXECUTE FUNCTION core_memory.refuse_change();
+CREATE TRIGGER judge_reads_no_truncate BEFORE TRUNCATE ON core_memory.judge_reads
+    FOR EACH STATEMENT EXECUTE FUNCTION core_memory.refuse_change();
+CREATE TRIGGER verdicts_no_truncate BEFORE TRUNCATE ON core_memory.verdicts
+    FOR EACH STATEMENT EXECUTE FUNCTION core_memory.refuse_change();
+CREATE TRIGGER edges_no_truncate BEFORE TRUNCATE ON core_memory.edges
+    FOR EACH STATEMENT EXECUTE FUNCTION core_memory.refuse_change();
+CREATE TRIGGER labels_no_truncate BEFORE TRUNCATE ON core_memory.labels
+    FOR EACH STATEMENT EXECUTE FUNCTION core_memory.refuse_change();
+CREATE TRIGGER pending_labels_no_truncate BEFORE TRUNCATE ON core_memory.pending_labels
+    FOR EACH STATEMENT EXECUTE FUNCTION core_memory.refuse_change();
+CREATE TRIGGER name_links_no_truncate BEFORE TRUNCATE ON core_memory.name_links
+    FOR EACH STATEMENT EXECUTE FUNCTION core_memory.refuse_change();
 CREATE TRIGGER work_no_truncate BEFORE TRUNCATE ON core_memory.work
     FOR EACH STATEMENT EXECUTE FUNCTION core_memory.refuse_change();
 
@@ -714,7 +1138,19 @@ GRANT SELECT, INSERT ON core_memory.outbound_calls, core_memory.outbound_results
     core_memory.chunk_reads, core_memory.chunk_read_spans, core_memory.tool_outcomes
     TO core_memory_engine;
 GRANT SELECT, INSERT, UPDATE, DELETE ON core_memory.work TO core_memory_engine;
+-- The engine writes what a judge said once. A label that waits for its
+-- second read is its own to drop.
+GRANT SELECT, INSERT ON core_memory.judge_reads, core_memory.verdicts, core_memory.edges,
+    core_memory.labels, core_memory.name_links TO core_memory_engine;
+GRANT SELECT, INSERT, DELETE ON core_memory.pending_labels TO core_memory_engine;
 
+-- The history of migrations holds versions and checksums, no data. Every
+-- role that is granted to read it reads all of it, to learn the store's
+-- version: a host's own roles too, which would otherwise read no version
+-- and be told to migrate. Who may read it is decided by the grant. Only
+-- the owner, who migrates, writes it.
+ALTER TABLE core_memory.schema_migrations ENABLE ROW LEVEL SECURITY;
+CREATE POLICY reads ON core_memory.schema_migrations FOR SELECT TO PUBLIC USING (true);
 ALTER TABLE core_memory.workspaces ENABLE ROW LEVEL SECURITY;
 ALTER TABLE core_memory.workspace_seq ENABLE ROW LEVEL SECURITY;
 ALTER TABLE core_memory.scopes ENABLE ROW LEVEL SECURITY;
@@ -731,6 +1167,12 @@ ALTER TABLE core_memory.outbound_results ENABLE ROW LEVEL SECURITY;
 ALTER TABLE core_memory.chunk_reads ENABLE ROW LEVEL SECURITY;
 ALTER TABLE core_memory.chunk_read_spans ENABLE ROW LEVEL SECURITY;
 ALTER TABLE core_memory.tool_outcomes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE core_memory.judge_reads ENABLE ROW LEVEL SECURITY;
+ALTER TABLE core_memory.verdicts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE core_memory.edges ENABLE ROW LEVEL SECURITY;
+ALTER TABLE core_memory.labels ENABLE ROW LEVEL SECURITY;
+ALTER TABLE core_memory.pending_labels ENABLE ROW LEVEL SECURITY;
+ALTER TABLE core_memory.name_links ENABLE ROW LEVEL SECURITY;
 ALTER TABLE core_memory.work ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY engine ON core_memory.workspaces TO core_memory_engine USING (true) WITH CHECK (true);
@@ -748,6 +1190,12 @@ CREATE POLICY engine ON core_memory.outbound_results TO core_memory_engine USING
 CREATE POLICY engine ON core_memory.chunk_reads TO core_memory_engine USING (true) WITH CHECK (true);
 CREATE POLICY engine ON core_memory.chunk_read_spans TO core_memory_engine USING (true) WITH CHECK (true);
 CREATE POLICY engine ON core_memory.tool_outcomes TO core_memory_engine USING (true) WITH CHECK (true);
+CREATE POLICY engine ON core_memory.judge_reads TO core_memory_engine USING (true) WITH CHECK (true);
+CREATE POLICY engine ON core_memory.verdicts TO core_memory_engine USING (true) WITH CHECK (true);
+CREATE POLICY engine ON core_memory.edges TO core_memory_engine USING (true) WITH CHECK (true);
+CREATE POLICY engine ON core_memory.labels TO core_memory_engine USING (true) WITH CHECK (true);
+CREATE POLICY engine ON core_memory.pending_labels TO core_memory_engine USING (true) WITH CHECK (true);
+CREATE POLICY engine ON core_memory.name_links TO core_memory_engine USING (true) WITH CHECK (true);
 CREATE POLICY engine ON core_memory.work TO core_memory_engine USING (true) WITH CHECK (true);
 
 -- ---------------------------------------------------------------------------
@@ -877,6 +1325,40 @@ BEGIN
         first_seq := core_memory.take_seq(scope_workspace, take);
     END IF;
     RETURN NEXT;
+END
+$$;
+
+-- Starts a transaction that writes for a workspace as a whole, as a judge's
+-- read does: it is shown beads of every scope of the workspace. It holds
+-- the schema, refuses an engine built for another schema version, and
+-- makes the transaction the workspace's writer. With take, the workspace
+-- gives up that many numbers from its change counter, and the first is
+-- returned.
+--
+-- It says nothing about any scope. What the transaction may read and write
+-- for each scope, it decides from that scope's state under this lock.
+CREATE FUNCTION core_memory.begin_workspace_write(
+    target_workspace text, engine_schema integer, take integer
+)
+RETURNS bigint
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+AS $$
+DECLARE
+    store_schema integer;
+BEGIN
+    PERFORM core_memory.hold_schema();
+    SELECT max(m.version) INTO store_schema FROM core_memory.schema_migrations AS m;
+    IF store_schema IS DISTINCT FROM engine_schema THEN
+        RAISE EXCEPTION 'the store is at schema version %; this engine was built for version %',
+            store_schema, engine_schema
+            USING ERRCODE = 'CM001';
+    END IF;
+    PERFORM core_memory.lock_workspace(target_workspace);
+    IF take IS NULL THEN
+        RETURN NULL;
+    END IF;
+    RETURN core_memory.take_seq(target_workspace, take);
 END
 $$;
 
@@ -1146,6 +1628,52 @@ BEGIN
      WHERE c.event_id = ANY (event_ids) AND x.chunk_id = c.chunk_id;
     DELETE FROM core_memory.tool_outcomes AS x WHERE x.event_id = ANY (event_ids);
     DELETE FROM core_memory.work AS x WHERE x.event_id = ANY (event_ids);
+    -- What a judge said about the erased beads. A verdict's columns and a
+    -- name link's ranges were computed from their content, and a label
+    -- that waits for its second read would have them read again.
+    DELETE FROM core_memory.verdicts AS x
+     USING core_memory.beads AS b
+     WHERE b.event_id = ANY (event_ids) AND x.earlier_bead = b.bead_id;
+    DELETE FROM core_memory.verdicts AS x
+     USING core_memory.beads AS b
+     WHERE b.event_id = ANY (event_ids) AND x.later_bead = b.bead_id;
+    DELETE FROM core_memory.name_links AS x
+     USING core_memory.beads AS b
+     WHERE b.event_id = ANY (event_ids) AND x.a_bead = b.bead_id;
+    DELETE FROM core_memory.name_links AS x
+     USING core_memory.beads AS b
+     WHERE b.event_id = ANY (event_ids) AND x.b_bead = b.bead_id;
+    WITH gone AS (
+        DELETE FROM core_memory.pending_labels AS x
+         USING core_memory.beads AS b
+         WHERE b.event_id = ANY (event_ids)
+           AND (x.source_bead = b.bead_id OR b.bead_id = ANY (x.head_beads))
+        RETURNING x.source_bead
+    )
+    DELETE FROM core_memory.work AS w
+     USING gone
+     WHERE w.kind = 'second_read' AND w.item_id = gone.source_bead;
+    -- Edges stay: they hold IDs. A label bead goes with its source and
+    -- keeps its place in its chain, so what it superseded does not become
+    -- current again. A group bead goes with its last live member.
+    UPDATE core_memory.beads AS l
+       SET state = 'erased', time_at = l.created_at, time_basis = 'captured'
+      FROM core_memory.labels AS x
+      JOIN core_memory.beads AS source ON source.bead_id = x.source_bead
+     WHERE l.bead_id = x.bead_id AND l.state = 'live' AND source.event_id = ANY (event_ids);
+    UPDATE core_memory.beads AS g
+       SET state = 'erased', time_at = g.created_at, time_basis = 'captured'
+     WHERE g.kind = 'group' AND g.state = 'live' AND g.workspace_id = in_workspace
+       AND EXISTS (
+           SELECT 1 FROM core_memory.edges AS e
+             JOIN core_memory.beads AS member ON member.bead_id = e.to_bead
+            WHERE e.from_bead = g.bead_id AND e.edge_type = 'contains'
+              AND member.event_id = ANY (event_ids))
+       AND NOT EXISTS (
+           SELECT 1 FROM core_memory.edges AS e
+             JOIN core_memory.beads AS member ON member.bead_id = e.to_bead
+            WHERE e.from_bead = g.bead_id AND e.edge_type = 'contains'
+              AND member.state = 'live');
     PERFORM set_config('core_memory.erasing', 'off', true);
     RETURN how_many;
 END
@@ -1315,12 +1843,19 @@ REVOKE ALL ON FUNCTION core_memory.deleted_only_with_its_event() FROM PUBLIC;
 REVOKE ALL ON FUNCTION core_memory.deleted_only_when_its_event_is_erased() FROM PUBLIC;
 REVOKE ALL ON FUNCTION core_memory.stored_only_with_a_live_event() FROM PUBLIC;
 REVOKE ALL ON FUNCTION core_memory.stored_only_when_its_event_is_live() FROM PUBLIC;
+REVOKE ALL ON FUNCTION core_memory.deleted_only_when_a_bead_is_erased() FROM PUBLIC;
+REVOKE ALL ON FUNCTION core_memory.stored_only_for_live_beads() FROM PUBLIC;
+REVOKE ALL ON FUNCTION core_memory.name_links_within_their_chunks() FROM PUBLIC;
+REVOKE ALL ON FUNCTION core_memory.verdicts_carry_scopes() FROM PUBLIC;
+REVOKE ALL ON FUNCTION core_memory.name_links_carry_scopes() FROM PUBLIC;
+REVOKE ALL ON FUNCTION core_memory.edges_keep_their_shape() FROM PUBLIC;
 REVOKE ALL ON FUNCTION core_memory.scopes_keep_identity() FROM PUBLIC;
 REVOKE ALL ON FUNCTION core_memory.seq_only_grows() FROM PUBLIC;
 REVOKE ALL ON FUNCTION core_memory.hold_schema() FROM PUBLIC;
 REVOKE ALL ON FUNCTION core_memory.lock_workspace(text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION core_memory.take_seq(text, integer) FROM PUBLIC;
 REVOKE ALL ON FUNCTION core_memory.begin_write(text, integer, integer) FROM PUBLIC;
+REVOKE ALL ON FUNCTION core_memory.begin_workspace_write(text, integer, integer) FROM PUBLIC;
 REVOKE ALL ON FUNCTION core_memory.create_workspace(text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION core_memory.enroll_scope(text, text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION core_memory.set_scope_state(text, text) FROM PUBLIC;
@@ -1335,6 +1870,8 @@ REVOKE ALL ON FUNCTION core_memory.erase_scope(text, text, text, integer) FROM P
 -- hold_schema, lock_workspace, take_seq and erase_live_events are called
 -- only by the functions above, as the schema owner.
 GRANT EXECUTE ON FUNCTION core_memory.begin_write(text, integer, integer) TO core_memory_engine;
+GRANT EXECUTE ON FUNCTION core_memory.begin_workspace_write(text, integer, integer)
+    TO core_memory_engine;
 
 GRANT EXECUTE ON FUNCTION core_memory.create_workspace(text) TO core_memory_governor;
 GRANT EXECUTE ON FUNCTION core_memory.enroll_scope(text, text) TO core_memory_governor;

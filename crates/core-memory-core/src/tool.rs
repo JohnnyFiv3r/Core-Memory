@@ -162,9 +162,9 @@ pub struct ToolReading {
 /// Validates a reply. Returns the reading, or every problem found. The
 /// problems go back to the model and nowhere else.
 pub fn validate(reply: &str) -> Result<ToolReading, Vec<String>> {
-    let value: Value = match serde_json::from_str(strip_fence(reply)) {
+    let value: Value = match crate::model::reply_json(strip_fence(reply)) {
         Ok(value) => value,
-        Err(e) => return Err(vec![format!("reply is not JSON: {e}")]),
+        Err(problem) => return Err(vec![problem]),
     };
     let Some(object) = value.as_object() else {
         return Err(vec!["reply must be a JSON object".into()]);
@@ -367,6 +367,15 @@ mod tests {
             wrong(r#"{"action": "one\ntwo", "outcome": "ok", "status": "partial"}"#)
                 .contains("one line")
         );
+    }
+
+    #[test]
+    fn a_reply_that_could_be_read_two_ways_is_refused() {
+        let twice = r#"{"action": "Ran the tests", "outcome": "All passed",
+                        "status": "succeeded", "status": "failed"}"#;
+        let told = validate(twice).unwrap_err();
+        assert_eq!(told.len(), 1);
+        assert!(told[0].contains("duplicate key `status`"), "{told:?}");
     }
 
     #[test]

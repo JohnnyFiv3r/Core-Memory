@@ -11,6 +11,7 @@ pub mod ids;
 pub mod json;
 pub mod outcome;
 pub mod record;
+pub mod relation;
 pub mod schema;
 pub mod timestamp;
 
@@ -30,5 +31,9 @@ pub use record::{
     MAX_OUTCOME_CHARS, ProfileRef, RECORD_CONTRACT, ReadDecision, ReadSpan, ReaderRef, Record,
     RecordBody, RecordKind, SourceType, SpanKind, TextSpan, TimeBasis, ToolCallDetails,
     ToolOutcomeRecord, ToolStatus,
+};
+pub use relation::{
+    BeadKind, BeadRecord, COLUMNS_REV, Direction, EdgeRecord, EdgeType, JudgeRef, Label, MadeBead,
+    NameLinkRecord, PairColumns, Verdict, VerdictNote, VerdictRecord,
 };
 pub use timestamp::Timestamp;

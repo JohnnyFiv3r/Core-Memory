@@ -280,9 +280,9 @@ pub fn validate(
 ) -> Result<Vec<ChunkReading>, Vec<String>> {
     let count = chunks.len();
     let mut errors = Vec::new();
-    let value: Value = match serde_json::from_str(strip_fence(reply)) {
+    let value: Value = match crate::model::reply_json(strip_fence(reply)) {
         Ok(v) => v,
-        Err(e) => return Err(vec![format!("reply is not JSON: {e}")]),
+        Err(problem) => return Err(vec![problem]),
     };
     let Some(obj) = value.as_object() else {
         return Err(vec!["reply must be a JSON object".into()]);
@@ -541,7 +541,12 @@ pub fn locate(text: &str, quote: &str, occurrence: usize) -> Option<Range<usize>
 }
 
 fn parse_handle(h: &str, count: usize) -> Option<usize> {
-    let n: usize = h.strip_prefix('C')?.parse().ok()?;
+    let number = h.strip_prefix('C')?;
+    // Only a handle as it was given: `C5`, and not `C05` or `C+5`.
+    if number.starts_with('0') || !number.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let n: usize = number.parse().ok()?;
     (1..=count).contains(&n).then(|| n - 1)
 }
 
@@ -575,6 +580,25 @@ mod tests {
             kind,
             byte_start: start as u64,
             byte_end: (start + text.len()) as u64,
+        }
+    }
+
+    #[test]
+    fn a_reply_that_could_be_read_two_ways_is_refused() {
+        // Two types for one chunk: whichever is meant, the other is lost.
+        let twice = r#"{"items": [
+            {"chunk": "C1", "type": "decision", "type": "action"},
+            {"chunk": "C2", "abstain": "insufficient_evidence"}]}"#;
+        let told = read(twice, Quotes::MustBeFound).unwrap_err();
+        assert_eq!(told.len(), 1);
+        assert!(told[0].contains("duplicate key `type`"), "{told:?}");
+        // A handle is read only as it was given.
+        for handle in ["C01", "C+1"] {
+            let reply = format!(
+                r#"{{"items": [{{"chunk": "{handle}", "type": "decision"}},
+                               {{"chunk": "C2", "abstain": "no_fit"}}]}}"#
+            );
+            assert!(read(&reply, Quotes::MustBeFound).is_err(), "{handle}");
         }
     }
 

@@ -206,9 +206,23 @@ pub fn events(changes: Vec<Change>) -> Vec<ExportedEvent> {
         .into_iter()
         .filter_map(|change| match change {
             Change::Event(event) => Some(*event),
-            Change::Read { .. } | Change::ToolOutcome { .. } | Change::Erasure { .. } => None,
+            _ => None,
         })
         .collect()
+}
+
+/// What kind of change this is, in a word or two.
+pub fn kind_of(change: &Change) -> &'static str {
+    match change {
+        Change::Event(_) => "event",
+        Change::Read { .. } => "read",
+        Change::ToolOutcome { .. } => "tool outcome",
+        Change::Bead(_) => "bead",
+        Change::Edge(_) => "edge",
+        Change::Verdict(_) => "verdict",
+        Change::NameLink(_) => "name link",
+        Change::Erasure { .. } => "erasure",
+    }
 }
 
 /// Runs `call` while a migration holds the schema, and returns what it

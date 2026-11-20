@@ -17,7 +17,9 @@ For each SourceEvent the engine:
 5. shortens each tool call by fixed rules and asks a model what the call
    did and what came of it, if a tool reader is configured and the call's
    scope allows it;
-6. *planned:* asks a judge model how new beads relate to recent ones.
+6. asks a judge model how each new bead relates to the beads near it in
+   time, across the scopes of its workspace, if a judge is configured and
+   each bead's scope allows it.
 
 The engine has no retrieval API. Consumers read its tables or its export.
 
@@ -62,7 +64,7 @@ Three rules keep ownership clear:
 | Scope | One connection to one source, such as one agent harness. Capture, model consent, pausing and revocation are per scope. A scope belongs to one workspace for good. |
 | Event | One SourceEvent: one message, record change, document or tool call. Identified by `(scope, source_ns, external_id, revision)`. |
 | Chunk | A byte range of an event's content. Chunks partition the content exactly. |
-| Bead | An unchanging pointer that other things link to. Every chunk of a message is a bead, and a tool call is one bead whatever its length. *Planned:* labels and groups are beads too. |
+| Bead | An unchanging pointer that other things link to. Every chunk of a message is a bead, and a tool call is one bead whatever its length. These are beads of source content. A judge makes two more kinds, which hold no text: a label bead and a group bead (see [Relationships](#relationships)). |
 | Checkpoint | A reader's durable position in its source, advanced in the same transaction as an admission. |
 | Binding | A pinned model configuration: provider, endpoint, model snapshot and settings. |
 | Destination | The host, and port if any, of a binding's endpoint. Model consent is given per scope and per destination. |
@@ -79,19 +81,23 @@ All tables are in the `core_memory` schema.
 | `events` | Identity, hashes, source metadata (`info`), profile and chunker revisions, ordering time, `seq`. | Key fields, hashes and `info` are cleared. The row and its ID stay. |
 | `chunks` | Chunk ID, event, ordinal and ranges. No text. | Stays. |
 | `chunk_text` | The chunk's text, its hash and its facets. This is the only copy of source text. | Deleted. |
-| `beads` | Bead ID, kind, source pointer, ordering time, state, `seq`. | Marked `erased`. The row and its ID stay. |
+| `beads` | Bead ID, kind (`chunk`, `tool`, `label`, `group`), source pointer or the judge's call that made it, ordering time, state, `seq`. | Marked `erased`. The row and its ID stay. |
 | `checkpoints` | A reader's sequence and hash per `(scope, key)`. | Not erased. |
 | `pins` | The hash of each profile and chunker revision ever used. | Not erased. |
 | `erasures` | The journal of erasures: IDs, reason, actor, time, `seq`. | Kept. Replayed after a backup restore. |
 | `scope_destinations` | Where a scope's text may be sent: destination and whether it is granted or revoked. | Not erased. |
-| `outbound_calls` | One receipt for each model call: destination, binding, the chunk IDs sent, byte and token counts, `seq`. No text. | Kept. |
+| `outbound_calls` | One receipt for each model call: destination, binding, the chunk IDs sent and, for a judge's call, every bead shown, byte and token counts, `seq`. No text. | Kept. |
 | `outbound_results` | How each call ended, and the tokens it used. | Kept. |
 | `chunk_reads` | What a model read in a chunk: a type of the vocabulary or why none, the reader that read it, `seq`. | Deleted. |
 | `chunk_read_spans` | Where a read found an entity, an action or an outcome: byte ranges of the chunk's text. | Deleted. |
 | `tool_outcomes` | What a model wrote about one tool call: a short action, a short outcome and a status, with the reader and the compressor that produced them, `seq`. | Deleted. |
-| `work` | Chunks and tool calls still to be read: IDs, attempts, when to try next and a problem code. No text. | Deleted. |
-
-*Planned* tables: `edges`, `verdicts`, `name_links`.
+| `judge_reads` | One row for each read by a judge that was stored: the beads it was shown, by ID, the kind of judge, the rubric and binding revisions, `seq`. | Kept. |
+| `verdicts` | One row for every pair a judge was shown: the two beads and the scope of each, what it said, the direction, and what code computed about the pair at that moment (`columns`), `seq`. No text. | Deleted, for a pair with an erased bead. |
+| `edges` | A relationship from one bead to another: type, the two IDs, `seq`. | Kept. They hold IDs. |
+| `labels` | What a label bead says (`supersede`, `retract`, `reaffirm`, `conflict`) and the bead it stands for. | Kept. The label bead is marked erased with its source. |
+| `pending_labels` | A label a judge proposed that waits for a second read: IDs only. | Deleted. |
+| `name_links` | Two names for one entity, each as a byte range of its own chunk, with the scope of each chunk's bead, `seq`. | Deleted, for a link with an erased bead. |
+| `work` | What is still owed: chunks and tool calls to be read, beads to be judged, labels to be read a second time. IDs, attempts, when to try next and a problem code. No text. | Deleted. |
 
 Text is kept in one place on purpose. Erasing a message deletes its
 `chunk_text` rows and every row derived from that text, in one transaction.
@@ -102,19 +108,42 @@ short lines a model wrote about a tool call (see [Tool calls](#tool-calls)).
 They say what the call's text says, so they are erased with it, and like
 source text they are kept out of the planner's statistics.
 
+Two more columns are computed from what a source said and are treated as
+its text is. A verdict's `columns` say, among other things, how many
+identifiers two beads share, and a name link's ranges say where a name
+stands. Both are deleted with either bead, and `columns` is kept out of the
+planner's statistics.
+
 Rows are immutable. Triggers refuse updates and deletes on `events`,
 `chunks`, `chunk_text`, `beads`, `pins`, `erasures`, `outbound_calls`,
-`outbound_results`, `chunk_reads`, `chunk_read_spans` and `tool_outcomes`,
-and refuse `TRUNCATE` on every table above. The one exception is an erase,
-and the triggers allow exactly what an erase does: an event or a bead goes
-from live to erased and keeps its engine-side columns, and text, reads,
-spans and tool outcomes are deleted only for an event that was just
-erased. A scope keeps its name and
-workspace. The triggers stop mistakes, including the table owner's. They
-are not a defence against the owner, who can drop them.
+`outbound_results`, `chunk_reads`, `chunk_read_spans`, `tool_outcomes`,
+`judge_reads`, `verdicts`, `edges`, `labels` and `name_links`, and refuse
+`TRUNCATE` on every table above. The one exception is an erase, and the
+triggers allow exactly what an erase does: an event or a bead goes from
+live to erased and keeps its engine-side columns; text, reads, spans and
+tool outcomes are deleted only for an event that was just erased; and a
+verdict or a name link is deleted only when one of its beads is erased. A
+scope keeps its name and workspace. The triggers stop mistakes, including
+the table owner's. They are not a defence against the owner, who can drop
+them.
+
+The same tables refuse a new row about what was erased, whoever writes it:
+a read or a tool outcome only for an event that is live, and a verdict, an
+edge, a label, a held label or a name link only for beads that are live and
+of the row's own workspace. An erase would not reach such a row again. A
+name link's ranges lie inside the text of their chunks.
+
+The graph keeps its shape in the table too. An edge joins two beads of its
+own workspace and points at a bead of source content. Only a label bead
+supersedes, and it follows one bead or two. Only a group bead contains. A
+bead is superseded at most once, and only the label of a statement that is
+still current supersedes, so a chain grows at its head and no circle can
+close.
 
 `work` is the one table the engine changes in place. It is a queue, not a
 record: a row says what is still owed and is deleted when it is done.
+`pending_labels` is the same kind of thing: a row is a label that waits,
+and it is deleted when a second read settles it.
 
 ## Identity
 
@@ -210,9 +239,10 @@ Events and beads are ordered in time by `(time_at, seq)`.
 ## Change order
 
 Each workspace has a change counter. Every row the engine writes for the
-workspace in `events`, `beads`, `erasures`, `outbound_calls` and
-`chunk_reads` carries `seq`, the next number from that counter. Taking a number locks the counter until the transaction
-ends, so:
+workspace in `events`, `beads`, `erasures`, `outbound_calls`,
+`chunk_reads`, `tool_outcomes`, `judge_reads`, `verdicts`, `edges` and
+`name_links` carries `seq`, the next number from that counter. Taking a
+number locks the counter until the transaction ends, so:
 
 - within a workspace, rows commit in `seq` order;
 - a reader that pages a table by `workspace_id = W AND seq > last seen`
@@ -252,10 +282,12 @@ that restarts asks the engine for its checkpoint and resumes from there.
 `core_memory.erase_event(event_id, reason, actor)` erases one whole message.
 In one transaction it deletes the event's text and facets, what a model
 read in it and the work still queued for it, clears the event's key fields,
-hashes and metadata, marks its beads erased, and writes the journal. IDs,
-ranges and links stay as the tombstone. Offering the event again is
-refused, and so is any later row about it: the tables that hold what a
-model read take rows only for an event that is live.
+hashes and metadata, marks its beads erased, and writes the journal. It
+also deletes what a judge computed from the message's content: see
+[what an erase does to relationships](#what-an-erase-does-to-relationships). IDs, ranges and links
+stay as the tombstone. Offering the event again is refused, and so is any
+later row about it: the tables that hold what a model read or a judge said
+take rows only for an event, or for beads, that are live.
 
 `core_memory.erase_events(event_ids, reason, actor)` erases a list of
 messages in one call and returns one row for each distinct ID: `erased`,
@@ -303,12 +335,24 @@ and so does `ORDER BY time_at, seq` with a limit. A host that filters on
 
 | Role | May |
 |---|---|
-| `core_memory_engine` | Read and write the data tables. It reads model consent and cannot give it. The engine's login role is a member. |
+| `core_memory_engine` | Read and write the data tables. It reads model consent and cannot give it. What it stored it cannot change or delete, with two exceptions: its queue (`work`), and a label that waits for a second read (`pending_labels`), which it deletes once that read is stored. The engine's login role is a member. |
 | `core_memory_governor` | Execute the governance functions, which include giving and withdrawing model consent. Holds no table privileges. |
 
 Both are created by the first migration if they do not exist. Every table
 has row security enabled, with a policy for `core_memory_engine` only. A
-host that reads beads or text adds policies for its own roles.
+host that reads beads or text adds policies for its own roles. The one
+other policy is on the history of migrations, which holds versions and
+checksums and no data: any role granted to read it reads all of it, as it
+must to learn the store's version.
+
+A judge reads across the scopes of a workspace, so a verdict or a name link
+can be about beads of two scopes, and both were computed from what those
+beads say. Each such row therefore carries the scope of each of its beads
+(`earlier_scope` and `later_scope`; `a_scope` and `b_scope`), read from the
+beads when it is stored. A host's policy can decide from the row alone who
+may read it: a role that reads one scope reads what was judged inside it.
+Edges and the beads a judge made hold IDs and one of a fixed set of words,
+and carry no scope.
 
 The two roles belong to the database cluster, not to one database. A login
 that holds one of them holds it in every Core Memory database of the
@@ -420,8 +464,10 @@ migrated.
 
 A model reads each chunk once a reader is configured: a `[reader]` section
 that names a `[[binding]]`. A model reads each tool call once a tool reader
-is: a `[tool_reader]` section. Without either the engine calls no model,
-and everything else works the same.
+is: a `[tool_reader]` section. A model judges how beads relate once a judge
+is: a `[judge]` section, described under [Relationships](#relationships).
+Without any of them the engine calls no model, and everything else works
+the same.
 
 ### What a read is
 
@@ -564,7 +610,8 @@ configured one or, for chunks, with another vocabulary.
 A reader claims a batch of chunks, or one tool call, with `FOR UPDATE SKIP
 LOCKED`, so readers never wait for each other, and holds it under a lease.
 A reader that dies leaves its work to be claimed again when the lease runs
-out. Where both kinds of work are due, they take turns.
+out. Where more than one kind of work is due (chunks, tool calls, beads to
+judge), each kind goes first in its turn.
 
 | What happened | What becomes of the work | `problem` |
 |---|---|---|
@@ -592,32 +639,265 @@ its work, or cannot record how its call ended, leaves a lease that runs
 out. That work is handed out again, and the call made again, but only
 until its attempts are spent. Then it is set aside as `attempts_spent`. No
 call is made more than `max_attempts` times for one item, whatever fails.
-`core-memory read status` shows the counts, one line for chunks and one for
-tool calls.
+`core-memory read status` shows the counts, one line for each kind of
+work: chunks, tool calls, beads to judge and labels to read a second time.
 
-`core-memory serve` runs the configured readers beside the server, on a
-thread and a store connection of their own. `core-memory read run` reads
-what is due and stops.
+`core-memory serve` runs the configured readers and the judge beside the
+server, on a thread and a store connection of their own. `core-memory read
+run` does what is due and stops.
 
 ### What is never written down
 
 The queue, the receipts, the results and the logs hold IDs, counts and
 problem codes. They hold no source text and nothing a model or a provider
 said: a provider's error message can quote the request. What a model wrote
-about a tool call is in `tool_outcomes` and nowhere else.
+about a tool call is in `tool_outcomes` and nowhere else. Of what a judge
+wrote, nothing is kept as text at all: a verdict is one of a fixed set of
+words, and a name is a range of a chunk.
+
+## Relationships
+
+A judge model reads each new bead against the beads near it in time, from
+every scope of its workspace, and says how they relate. It runs once a
+`[judge]` section names a `[[binding]]`. Code computes what the judge is
+shown and records what it says. Code never proposes an edge and never picks
+a pair: a bead is shown because of when it happened and for no other
+reason, and a score is never evidence.
+
+### What the judge writes
+
+| Thing | What it is |
+|---|---|
+| Verdict | One row for every pair the judge was shown, whatever it said: `near`, `leadsto`, `contains`, `express`, `supersedes`, `none` or `unsure`. It holds no text. `unsure`, and a pair that was never shown, are not a no. |
+| Edge | `near`, `leadsto`, `contains`, `express` or `supersedes`, from one bead to another. An edge has no state and no weight, and is never changed or deleted. The same relationship between the same two beads is one edge, however often it is judged. |
+| Label bead | A bead that says a later statement `supersede`s, `retract`s or `reaffirm`s an earlier one, or is in `conflict` with it. It holds no text. `supersedes` edges run from it to the one or two beads it follows. |
+| Group bead | A bead that marks several beads as parts of one memory, in one message or across messages. `contains` edges run from it to each member. |
+| Name link | Two different names for one entity, each kept as the byte range where it stands in its own chunk. The same two names linked again are one link. |
+
+`leadsto` and `express` run from one bead of source content to another.
+`near` has no direction, and is stored from the smaller ID to the larger.
+
+A bead of source content is **current** while no `supersedes` edge points
+at it. A chain has one head and never branches: a bead is superseded at
+most once, and a label bead follows at most two beads. A label bead stands
+for its source, the bead of the later statement. Its ID is derived from the
+source's, so there is one label for a source: a statement that follows a
+second bead does so through the same label bead, with the same label. A
+statement labelled `conflict` and the one it conflicts with are both shown
+to the judge first, for as long as the conflict is open, which is until
+something supersedes the later of the two.
+
+### A judge read
+
+**What is queued.** Admission queues each chunk's bead for the judge, due
+after `debounce_ms`, so that what arrives together is judged together. A
+tool call's bead is queued when a model's record of the call is stored: a
+judge is shown that record and never the tool's own text. `core-memory
+read queue <scope>` queues the beads no judge has read, and with
+`--reread`, those that only another judge than the configured one has.
+
+**What one read takes.** One judge reads in a workspace at a time. A read
+takes the bead that has waited longest and the beads waiting with it whose
+time lies within half of `window_ms` of its own, up to `max_new_beads`, so
+that each lies in the window of the others. A chunk's bead waits for its
+chunk to be read, so the judge is shown its type; it waits at most
+`max_wait_for_reads_ms`, and not at all when no reader is configured. A
+bead that was part of a read that failed is read alone from then on.
+
+A bead that comes up with no other to be read with, because none lies near
+it or those that do are still owed a judgment themselves, is no pair. It is
+settled without a call: no receipt is written and nothing is counted
+against a budget. Its pairs are read when the beads near it are judged,
+with it in their window. It was never read as new, so `read queue` queues
+it again, and it is settled again without a call unless a pair is still
+unread.
+
+The work a read was handed out is held under a lease, and whatever settles
+or stores for it names that lease. A worker whose lease ran out, and whose
+beads were handed to another, stores and settles nothing for them when its
+reply comes at last.
+
+**What it is shown beside them.** The window is chosen inside the permit,
+under the workspace's lock, by time alone: the live beads of source content
+whose time lies between the new beads, or within `window_ms` before the
+earliest or after the latest, nearest first, up to `max_window_beads` beads
+and `max_window_bytes` of content. The beads of open conflicts come before
+them, up to `max_conflict_beads`. A bead that is itself waiting to be
+judged is left out. Its pairs are read when its own turn comes, with these
+beads in its window, so a pair is read once, whichever of the two arrived
+first. So is a bead this judge has already read with every new bead: that
+happens when beads stored before there was a judge are queued after later
+ones were read beside them. A pair the limits kept out of every window was
+never shown, and nothing is recorded for it.
+
+Each bead is decided on its own: it is shown only while its scope is active
+and has granted the judge's destination. The permit locks the workspace,
+reads the text and writes the receipt, as it does for any other model call
+(see [The four steps of a call](#the-four-steps-of-a-call)). A judge's
+receipt names every bead shown and has no scope of its own. The beads of a
+repair, or of a second read, are named, and are shown all together or not
+at all: if one may not be shown, nothing is sent, no receipt is written,
+and the work waits.
+
+**How a bead is shown.** Each bead has a handle: `B1`, `B2`, ... for the
+window and `N1`, `N2`, ... for the new beads, each list in time order.
+With it come its time and how precise that is, the kind of source, opaque
+handles for its scope, its author, its message, its thread and its
+session, where it stands in its message, what it replies to if that is in
+the lists, its type if a model read one, whether it is still current, its
+label and its group. A message's bead is shown with its chunk's text. A
+tool call's bead is shown with its tool, and the action, outcome and status
+a model wrote of the call.
+
+**What it answers.** One entry for each new bead: the pairs that have a
+relationship, each with a code, and the pairs it cannot decide. A new bead
+is compared with every bead of the window and every new bead before it. A
+pair it leaves out is a `none`: it compared the two and found nothing. The
+codes say the direction from the new bead's side (`LEADSTO>` runs from the
+other bead to the new one, `LEADSTO<` from the new one to the other), and
+the rubric has the judge settle direction first: which statement is the
+later one, which thing happened first, whatever order the messages arrived
+in.
+
+A reply is rejected whole, and repaired once, if it is not of that shape,
+if a new bead has no entry or a pair two answers, or if what it says would
+break a rule of the store:
+
+- a `SUPERSEDES` has no label, or another answer has one;
+- a bead that is no longer current supersedes or is superseded;
+- a bead is superseded twice, supersedes more than two beads or with two
+  labels, or beads supersede each other in a circle;
+- beads are tied into one memory by `CONTAINS` answers without each pair
+  of them being `CONTAINS`, or members of two groups would become one;
+- a name link joins beads that were not compared, or a tool call, which
+  has no text to copy a name from.
+
+A name that is not found word for word in its bead's text, or two names
+that are the same, fail the first reply. On the repair they are dropped and
+counted (`names_rejected`), as an unfound quote of a chunk read is. If the
+repair is rejected too, nothing is written, the pairs stay unjudged, and
+the beads are tried again alone.
+
+### What a read stores
+
+One transaction, under the workspace's write lock, stores a row for the
+read itself, a verdict row for every pair, the edges, the label and group
+beads with their edges, and the name links. Something is stored only for a
+bead the call's receipt names, that is still live, in a scope that is still
+active, and whose work this call still holds under its lease: a bead erased
+while the judge was reading, or handed to another worker, gets nothing. A
+new bead whose scope stopped being active is put back in the queue, its
+attempt given back, so that no lease is left behind to keep other judges
+out of the workspace.
+
+A verdict row holds the two beads in time order, the scope of each, an
+explicit direction, the label if the verdict is `supersedes`, the rubric
+and binding revisions, and the pair's `columns` as they were at that
+moment: the gap in time, whether the beads
+share a scope, an event, a thread, a session or an actor, whether one
+replies to the other, how many identifiers and URLs they share, their kinds
+and types, and whether each was current and new to the judge. The columns
+are numbers, flags and vocabulary keys. They are for a host that learns
+which pairs are worth showing a judge. Nothing in the engine reads them
+back.
+
+A chain grows at its head. When a read is stored, a label is written only
+if its source and each bead it follows are still current, and its source
+carries no other kind of label and has room for it. Otherwise the verdict
+is kept and noted: `not_current`, or `label_taken`.
+
+A label that changes what a reader would take as current is not written by
+the read that proposes it. That is every label but a `reaffirm` of one
+statement by a source that carries no label yet. The label is held, its
+verdict is noted `awaits_second_read`, and the pair is read a second time:
+the source and the beads it would follow, alone, without the first answer.
+If the second read gives the same label for the same beads, the label is
+written. If it does not, nothing changes, and its verdict is noted
+`second_read_differs`. A second read stores its verdicts and at most that
+label, and nothing else. This rule is the setting `second_read`, which is
+on unless it is turned off.
+
+Labels that share a bead are settled in order. A label that shares a bead
+with one that waits for its second read waits too, whatever kind it is:
+written at once, a reaffirmation of a statement whose own replacement waits
+would supersede that statement first, and the replacement could then never
+be written. Held labels are read a second time in the order they were
+held, and one that shares a bead with an earlier held label waits for it,
+unless that one was set aside as failed. A chain given in one read is so
+written from its oldest statement on. A held label that can no longer be
+written when its turn comes, because a bead it is about was superseded or
+its source took another label, is dropped without a call, and its first
+verdict keeps its note.
+
+A group is what the judge affirmed pair by pair. A new bead joins the one
+group its partners already share, or a new group is made of beads that
+belong to none. Nothing becomes part of a memory by way of a third bead.
+
+A pair is read once by a judge. When beads are queued again for another
+judge, with `read queue --reread`, its verdict on a pair is a new row
+beside the first, under its own binding revision. Neither replaces the
+other: a later `none` is evidence against an edge for whoever weighs edges,
+and the edge stays. A relationship both judges give is one edge, a name
+link both give is one link, and a second judge cannot supersede a bead
+that is already superseded.
+
+The judge's work follows the same rules as a reader's (see
+[The queue](#the-queue)): put off without counting an attempt when no bead
+may be shown, counted once a call was made, tried alone after a failed
+read, and set aside after `max_attempts`.
+
+### What an erase does to relationships
+
+Erasing an event erases its beads as before: they stay, as IDs. For what a
+judge said of them:
+
+- **Verdicts** about an erased bead are deleted. Their columns were
+  computed from its content.
+- **Name links** to an erased bead are deleted, and so is a label that
+  waits for its second read, with that read.
+- **Edges stay.** They hold IDs, and a link to a tombstone says only that
+  there was one.
+- **A label bead whose source is erased** is marked erased and keeps its
+  place in the chain: what it superseded does not become current again.
+  Erasing a bead in the middle of a chain, or the earlier statement of a
+  label, leaves the chain as it was.
+- **A group bead** is marked erased when its last live member is.
+
+After an erase the tables take no new verdict, edge, label or name link
+about the erased bead, whoever writes it.
+
+### Pairs beyond the window
+
+The engine's judge reads a bead only against the beads near it in time.
+Finding pairs across the whole store, ranking them and judging them is a
+host's work: memoriesQL does it over the tables it reads, with judges and
+tables of its own. The engine keeps nothing for it but what any host may
+read: every verdict, a no included, with the pair's columns.
 
 ## Records and export
 
 `core_memory.record.v2` is the public JSON form of the engine's primitives:
-`event`, `chunk`, `chunk_read`, `tool_outcome` and `erasure` records
-today; beads, edges and verdicts as they are built. `core-memory export`
-writes them as JSON Lines, one workspace after another, each in `seq`
-order: an event with its chunks, then what a model read in them or wrote
-about the tool call as it was read, and an erasure where an event was
-erased. An erased event's own records, and
-what was read in it, are not exported. Each record carries its `seq`, and
-`export --workspace W --after N` resumes after it. The tables are the
-truth; records are how they are published outside SQL.
+`event`, `chunk`, `chunk_read`, `tool_outcome`, `verdict`, `bead`, `edge`,
+`name_link` and `erasure` records. `core-memory export` writes them as JSON
+Lines, one workspace after another, each in `seq` order: an event with its
+chunks, then what a model read in them or wrote about the tool call as it
+was read, what a judge said as it was stored, and an erasure where an event
+was erased. A read by a judge is exported as its verdicts first, one for
+each pair, and then what they amounted to: the label and group beads, the
+edges and the name links. A `bead` record is a bead a judge made; a bead of
+source content is its chunk, or its tool call's event, under the same ID.
+
+An erased event's own records, and what was read in it or judged of it, are
+not exported. An edge is: it holds two IDs. Each record carries its `seq`,
+and `export --workspace W --after N` resumes after it.
+
+A judge reads across the scopes of a workspace, so what it says can join
+beads of two scopes. `export --scope S` leaves such records out: it gives
+only what lies wholly inside the scope, and does not say that another
+exists. A record of what a judge said has no one scope of its own. A
+`verdict` and a `name_link` record name the scope of each of their beads.
+
+The tables are the truth; records are how they are published outside SQL.
 
 ## Crates
 
@@ -643,3 +923,13 @@ CORE_MEMORY_TEST_DATABASE_URL=postgresql://postgres:secret@127.0.0.1:5432/postgr
 Each test gets its own database, cloned from a migrated template. There is
 no in-memory store: the engine's guarantees are transactional, so they are
 tested where they hold.
+
+Two checked-in files pin what others depend on. A difference in either
+fails a test, and is read before it is accepted:
+
+- `tests/golden/export.jsonl` in the store crate: the records exported for
+  a fixed set of events, with every ID, hash, range and judgment.
+- `tests/golden/schema.txt` beside it: what a host sees of the
+  `core_memory` schema. Every table and column, what each role may do with
+  it, its row security, triggers and indexes, and every function with who
+  may call it.

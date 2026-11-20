@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use core_memory_contract::Sha256Digest;
+use core_memory_core::judge::JudgeConfig;
 use core_memory_core::read::ReaderConfig;
 use core_memory_core::tool::ToolReaderConfig;
 use core_memory_core::{
@@ -34,6 +35,10 @@ pub struct SidecarConfig {
     /// and not read.
     #[serde(default)]
     pub tool_reader: Option<ToolReaderConfig>,
+    /// Has a model judge how new beads relate to the recent ones of their
+    /// workspace. Without it nothing is judged.
+    #[serde(default)]
+    pub judge: Option<JudgeConfig>,
     /// The models the engine may call.
     #[serde(default, rename = "binding")]
     pub bindings: Vec<BindingConfig>,
@@ -440,6 +445,7 @@ impl Loaded {
             limits: self.config.limits,
             reader: self.config.reader.clone(),
             tool_reader: self.config.tool_reader.clone(),
+            judge: self.config.judge.clone(),
             bindings: self.config.bindings.clone(),
         }
     }
