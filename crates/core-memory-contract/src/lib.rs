@@ -19,14 +19,13 @@ pub use event::{
     FieldError, ObjectRef, OccurredAt, RecordObject, SourceEvent, Structure, TimePrecision,
 };
 pub use hash::{FieldHasher, Sha256Digest};
-pub use ids::{BeadId, ChunkId, DecisionId, EventId, IdKey};
+pub use ids::{BeadId, CallId, ChunkId, EventId, IdKey};
 pub use outcome::{
-    AdmissionOutcome, BusyCause, CheckpointReceipt, PendingReason, RefusalReason, TypeOutcome,
-    TypeRef, UnassignedReason,
+    Abstention, AdmissionOutcome, BusyCause, CheckpointReceipt, RefusalReason, TypeRef,
 };
 pub use record::{
-    CatalogRef, ChunkFacets, ChunkRecord, ChunkerRef, EventDetails, EventRecord, IdentifierMatch,
-    Lengths, ProfileRef, RECORD_CONTRACT, Record, RecordBody, RecordKind, SourceType, TextSpan,
-    TimeBasis,
+    CatalogRef, ChunkFacets, ChunkReadRecord, ChunkRecord, ChunkerRef, EntityKind, ErasureRecord,
+    EventDetails, EventRecord, IdentifierMatch, Lengths, ProfileRef, RECORD_CONTRACT, ReadDecision,
+    ReadSpan, ReaderRef, Record, RecordBody, RecordKind, SourceType, SpanKind, TextSpan, TimeBasis,
 };
 pub use timestamp::Timestamp;

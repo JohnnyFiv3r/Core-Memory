@@ -41,6 +41,7 @@ use tower_service::Service;
 
 use crate::config::{HttpConfig, Loaded, grants_from};
 use crate::openapi;
+use crate::reading::Reader;
 use crate::report::{self, Stop};
 use crate::runtime::{CHECKOUT_WAIT, build_engine, open_pool};
 
@@ -58,7 +59,7 @@ struct Grants(ScopeGrants);
 /// Shared server state.
 #[derive(Debug)]
 pub struct AppState {
-    engine: Engine,
+    engine: Arc<Engine>,
     pool: PostgresPool,
     tokens: Vec<Token>,
     max_batch: usize,
@@ -217,6 +218,8 @@ pub struct Prepared {
     pub router: Router,
     pub listen: String,
     pub limits: ServeLimits,
+    /// The reader to run beside the server, if one is configured.
+    pub reader: Option<Reader>,
 }
 
 /// Limits on connections, as opposed to requests.
@@ -259,13 +262,14 @@ pub fn prepare(loaded: &Loaded) -> Result<Prepared, Stop> {
                 .into(),
         );
     }
-    let engine = build_engine(loaded)?;
+    let engine = Arc::new(build_engine(loaded)?);
     let pool = open_pool(loaded)?;
     {
         let mut store = pool.get(CHECKOUT_WAIT)?;
         store.check()?;
         engine.pin_profiles(&mut *store)?;
     }
+    let reader = Reader::open(loaded, Arc::clone(&engine))?;
     let tokens = http
         .tokens
         .iter()
@@ -288,6 +292,7 @@ pub fn prepare(loaded: &Loaded) -> Result<Prepared, Stop> {
         router: router(state),
         listen: http.listen.clone(),
         limits,
+        reader,
     })
 }
 

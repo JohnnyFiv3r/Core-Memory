@@ -238,6 +238,150 @@ CREATE TABLE core_memory.erasures (
 );
 
 -- ---------------------------------------------------------------------------
+-- Model calls: consent, receipts and results
+-- ---------------------------------------------------------------------------
+
+-- Where a scope's text may be sent. A destination is the host, and port if
+-- any, of a model endpoint. No row, or a revoked row, means no call.
+CREATE TABLE core_memory.scope_destinations (
+    scope text NOT NULL REFERENCES core_memory.scopes,
+    destination text NOT NULL
+        CHECK (destination <> '' AND octet_length(destination) <= 255),
+    state text NOT NULL CHECK (state IN ('granted', 'revoked')),
+    granted_at timestamptz NOT NULL,
+    revoked_at timestamptz,
+    PRIMARY KEY (scope, destination),
+    CHECK ((state = 'revoked') = (revoked_at IS NOT NULL))
+);
+
+-- The receipt for one model call. It is written and committed before
+-- anything is sent, in the transaction that checks consent and reads the
+-- text. It names the destination and the IDs of what was sent. No text.
+CREATE TABLE core_memory.outbound_calls (
+    call_id uuid PRIMARY KEY,
+    workspace_id text NOT NULL REFERENCES core_memory.workspaces,
+    seq bigint NOT NULL CHECK (seq > 0),
+    purpose text NOT NULL CHECK (purpose IN ('chunk_read')),
+    scope text NOT NULL REFERENCES core_memory.scopes,
+    destination text NOT NULL,
+    binding_id text NOT NULL,
+    binding_rev bytea NOT NULL CHECK (octet_length(binding_rev) = 32),
+    model text NOT NULL,
+    -- 1 for a first call, 2 for the one repair of a rejected reply.
+    attempt integer NOT NULL CHECK (attempt IN (1, 2)),
+    repairs uuid REFERENCES core_memory.outbound_calls,
+    chunk_ids uuid[] NOT NULL CHECK (cardinality(chunk_ids) > 0),
+    bytes_sent bigint NOT NULL CHECK (bytes_sent > 0),
+    -- The most tokens the call may use, counted against the budget whether
+    -- or not it uses them.
+    reserved_tokens bigint NOT NULL CHECK (reserved_tokens >= 0),
+    permitted_at timestamptz NOT NULL,
+    UNIQUE (workspace_id, seq),
+    CHECK ((attempt = 2) = (repairs IS NOT NULL))
+);
+
+CREATE INDEX outbound_calls_budget_idx
+    ON core_memory.outbound_calls (workspace_id, binding_id, permitted_at);
+
+-- How a call ended. A call with no row here was permitted and its outcome
+-- was never recorded: its text may have been sent.
+CREATE TABLE core_memory.outbound_results (
+    call_id uuid PRIMARY KEY REFERENCES core_memory.outbound_calls,
+    result text NOT NULL CHECK (result IN (
+        'accepted',   -- the reply was valid
+        'rejected',   -- the reply was not valid
+        'refused',    -- the model declined, or the request or reply did not fit
+        'not_sent',   -- the provider did not process the request
+        'in_doubt',   -- the request may have been processed
+        'failed'      -- the provider turned the request itself down
+    )),
+    input_tokens bigint CHECK (input_tokens >= 0),
+    output_tokens bigint CHECK (output_tokens >= 0),
+    finished_at timestamptz NOT NULL
+);
+
+-- ---------------------------------------------------------------------------
+-- What a model read in a chunk
+-- ---------------------------------------------------------------------------
+
+-- One model read of one chunk: its type, or why the model gave none. Rows
+-- are added, never changed. The row with the highest seq for a chunk is the
+-- current one. Erasing the chunk's event deletes its rows here.
+CREATE TABLE core_memory.chunk_reads (
+    workspace_id text NOT NULL REFERENCES core_memory.workspaces,
+    seq bigint NOT NULL CHECK (seq > 0),
+    chunk_id uuid NOT NULL REFERENCES core_memory.chunks,
+    scope text NOT NULL REFERENCES core_memory.scopes,
+    call_id uuid NOT NULL REFERENCES core_memory.outbound_calls,
+    status text NOT NULL CHECK (status IN ('typed', 'abstained')),
+    type_key text,
+    type_rev integer CHECK (type_rev > 0),
+    abstained text CHECK (abstained IN ('no_fit', 'insufficient_evidence', 'ambiguous')),
+    vocabulary_id text NOT NULL,
+    vocabulary_hash bytea NOT NULL CHECK (octet_length(vocabulary_hash) = 32),
+    binding_id text NOT NULL,
+    binding_rev bytea NOT NULL CHECK (octet_length(binding_rev) = 32),
+    model text NOT NULL,
+    prompt_rev integer NOT NULL CHECK (prompt_rev > 0),
+    -- Spans the model offered that were not found in the chunk, and so
+    -- were not stored.
+    spans_rejected integer NOT NULL CHECK (spans_rejected >= 0),
+    read_at timestamptz NOT NULL,
+    PRIMARY KEY (workspace_id, seq),
+    CHECK ((status = 'typed') = (type_key IS NOT NULL AND type_rev IS NOT NULL)),
+    CHECK ((status = 'abstained') = (abstained IS NOT NULL))
+);
+
+CREATE INDEX chunk_reads_chunk_idx ON core_memory.chunk_reads (chunk_id, seq);
+
+-- An entity, action or outcome a read found: a byte range of the chunk's
+-- text, counted from the start of the chunk. No text is copied.
+CREATE TABLE core_memory.chunk_read_spans (
+    workspace_id text NOT NULL,
+    read_seq bigint NOT NULL,
+    ordinal integer NOT NULL CHECK (ordinal >= 0),
+    chunk_id uuid NOT NULL REFERENCES core_memory.chunks,
+    kind text NOT NULL CHECK (kind IN ('entity', 'action', 'outcome')),
+    entity_kind text CHECK (entity_kind IN (
+        'person', 'organization', 'place', 'product', 'project', 'artifact', 'event', 'other'
+    )),
+    byte_start bigint NOT NULL CHECK (byte_start >= 0),
+    byte_end bigint NOT NULL CHECK (byte_end > byte_start),
+    PRIMARY KEY (workspace_id, read_seq, ordinal),
+    FOREIGN KEY (workspace_id, read_seq) REFERENCES core_memory.chunk_reads,
+    CHECK ((kind = 'entity') = (entity_kind IS NOT NULL))
+);
+
+CREATE INDEX chunk_read_spans_chunk_idx ON core_memory.chunk_read_spans (chunk_id);
+
+-- ---------------------------------------------------------------------------
+-- Work the engine still owes. No text.
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE core_memory.work (
+    kind text NOT NULL CHECK (kind IN ('chunk_read')),
+    chunk_id uuid NOT NULL REFERENCES core_memory.chunks,
+    workspace_id text NOT NULL REFERENCES core_memory.workspaces,
+    scope text NOT NULL REFERENCES core_memory.scopes,
+    state text NOT NULL CHECK (state IN ('ready', 'leased', 'failed')),
+    -- Times the item was handed to a worker.
+    attempts integer NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+    -- True once the item was part of a call that failed as a whole. From
+    -- then on it is sent on its own, so it cannot hold others back.
+    alone boolean NOT NULL DEFAULT false,
+    not_before timestamptz NOT NULL,
+    leased_until timestamptz,
+    -- A short code for the last problem. Never model or source text.
+    problem text CHECK (octet_length(problem) <= 64),
+    enqueued_at timestamptz NOT NULL,
+    PRIMARY KEY (kind, chunk_id),
+    CHECK ((state = 'leased') = (leased_until IS NOT NULL))
+);
+
+CREATE INDEX work_next_idx ON core_memory.work (kind, not_before) WHERE state <> 'failed';
+CREATE INDEX work_scope_idx ON core_memory.work (scope);
+
+-- ---------------------------------------------------------------------------
 -- Immutability
 --
 -- These triggers stop mistakes, including the table owner's. They are not
@@ -311,8 +455,9 @@ BEGIN
 END
 $$;
 
--- Text is deleted only for an event that has just been erased.
-CREATE FUNCTION core_memory.chunk_text_only_erase() RETURNS trigger
+-- A chunk's text, and what was read in it, are deleted only for an event
+-- that has just been erased. For any table with a chunk_id column.
+CREATE FUNCTION core_memory.deleted_only_with_its_event() RETURNS trigger
 LANGUAGE plpgsql
 SET search_path = pg_catalog, pg_temp
 AS $$
@@ -325,7 +470,29 @@ BEGIN
     ) THEN
         RETURN OLD;
     END IF;
-    RAISE EXCEPTION 'core_memory.chunk_text rows cannot be deleted'
+    RAISE EXCEPTION 'core_memory.% rows cannot be deleted', TG_TABLE_NAME
+        USING ERRCODE = 'restrict_violation';
+END
+$$;
+
+-- What a model read in a chunk is stored only while the chunk's event is
+-- live. The engine checks that where it stores a read, under the workspace
+-- lock that an erasure also takes. This stops a statement that does not:
+-- a row about an erased event would be out of reach of every erase.
+CREATE FUNCTION core_memory.stored_only_with_a_live_event() RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, pg_temp
+AS $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+          FROM core_memory.chunks AS c
+          JOIN core_memory.events AS e ON e.event_id = c.event_id
+         WHERE c.chunk_id = NEW.chunk_id AND e.state = 'live'
+    ) THEN
+        RETURN NEW;
+    END IF;
+    RAISE EXCEPTION 'core_memory.% takes rows only for an event that is live', TG_TABLE_NAME
         USING ERRCODE = 'restrict_violation';
 END
 $$;
@@ -378,7 +545,7 @@ CREATE TRIGGER chunks_fixed BEFORE UPDATE OR DELETE ON core_memory.chunks
 CREATE TRIGGER chunk_text_fixed BEFORE UPDATE ON core_memory.chunk_text
     FOR EACH ROW EXECUTE FUNCTION core_memory.refuse_change();
 CREATE TRIGGER chunk_text_only_erase BEFORE DELETE ON core_memory.chunk_text
-    FOR EACH ROW EXECUTE FUNCTION core_memory.chunk_text_only_erase();
+    FOR EACH ROW EXECUTE FUNCTION core_memory.deleted_only_with_its_event();
 CREATE TRIGGER beads_no_delete BEFORE DELETE ON core_memory.beads
     FOR EACH ROW EXECUTE FUNCTION core_memory.refuse_change();
 CREATE TRIGGER beads_only_erase BEFORE UPDATE ON core_memory.beads
@@ -387,6 +554,21 @@ CREATE TRIGGER pins_fixed BEFORE UPDATE OR DELETE ON core_memory.pins
     FOR EACH ROW EXECUTE FUNCTION core_memory.refuse_change();
 CREATE TRIGGER erasures_fixed BEFORE UPDATE OR DELETE ON core_memory.erasures
     FOR EACH ROW EXECUTE FUNCTION core_memory.refuse_change();
+CREATE TRIGGER outbound_calls_fixed BEFORE UPDATE OR DELETE ON core_memory.outbound_calls
+    FOR EACH ROW EXECUTE FUNCTION core_memory.refuse_change();
+CREATE TRIGGER outbound_results_fixed BEFORE UPDATE OR DELETE ON core_memory.outbound_results
+    FOR EACH ROW EXECUTE FUNCTION core_memory.refuse_change();
+CREATE TRIGGER chunk_reads_fixed BEFORE UPDATE ON core_memory.chunk_reads
+    FOR EACH ROW EXECUTE FUNCTION core_memory.refuse_change();
+CREATE TRIGGER chunk_reads_only_erase BEFORE DELETE ON core_memory.chunk_reads
+    FOR EACH ROW EXECUTE FUNCTION core_memory.deleted_only_with_its_event();
+-- A span belongs to a read, so it needs no such check of its own.
+CREATE TRIGGER chunk_reads_live BEFORE INSERT ON core_memory.chunk_reads
+    FOR EACH ROW EXECUTE FUNCTION core_memory.stored_only_with_a_live_event();
+CREATE TRIGGER chunk_read_spans_fixed BEFORE UPDATE ON core_memory.chunk_read_spans
+    FOR EACH ROW EXECUTE FUNCTION core_memory.refuse_change();
+CREATE TRIGGER chunk_read_spans_only_erase BEFORE DELETE ON core_memory.chunk_read_spans
+    FOR EACH ROW EXECUTE FUNCTION core_memory.deleted_only_with_its_event();
 
 CREATE TRIGGER workspaces_no_truncate BEFORE TRUNCATE ON core_memory.workspaces
     FOR EACH STATEMENT EXECUTE FUNCTION core_memory.refuse_change();
@@ -408,6 +590,18 @@ CREATE TRIGGER pins_no_truncate BEFORE TRUNCATE ON core_memory.pins
     FOR EACH STATEMENT EXECUTE FUNCTION core_memory.refuse_change();
 CREATE TRIGGER erasures_no_truncate BEFORE TRUNCATE ON core_memory.erasures
     FOR EACH STATEMENT EXECUTE FUNCTION core_memory.refuse_change();
+CREATE TRIGGER scope_destinations_no_truncate BEFORE TRUNCATE ON core_memory.scope_destinations
+    FOR EACH STATEMENT EXECUTE FUNCTION core_memory.refuse_change();
+CREATE TRIGGER outbound_calls_no_truncate BEFORE TRUNCATE ON core_memory.outbound_calls
+    FOR EACH STATEMENT EXECUTE FUNCTION core_memory.refuse_change();
+CREATE TRIGGER outbound_results_no_truncate BEFORE TRUNCATE ON core_memory.outbound_results
+    FOR EACH STATEMENT EXECUTE FUNCTION core_memory.refuse_change();
+CREATE TRIGGER chunk_reads_no_truncate BEFORE TRUNCATE ON core_memory.chunk_reads
+    FOR EACH STATEMENT EXECUTE FUNCTION core_memory.refuse_change();
+CREATE TRIGGER chunk_read_spans_no_truncate BEFORE TRUNCATE ON core_memory.chunk_read_spans
+    FOR EACH STATEMENT EXECUTE FUNCTION core_memory.refuse_change();
+CREATE TRIGGER work_no_truncate BEFORE TRUNCATE ON core_memory.work
+    FOR EACH STATEMENT EXECUTE FUNCTION core_memory.refuse_change();
 
 -- ---------------------------------------------------------------------------
 -- Row security and the engine's privileges
@@ -421,6 +615,12 @@ GRANT SELECT, INSERT ON core_memory.events, core_memory.chunks, core_memory.chun
     core_memory.beads, core_memory.pins TO core_memory_engine;
 GRANT SELECT, INSERT, UPDATE ON core_memory.checkpoints TO core_memory_engine;
 GRANT SELECT ON core_memory.erasures TO core_memory_engine;
+-- The engine reads consent and cannot give it. It writes receipts, results
+-- and reads once, and owns the queue of its own work.
+GRANT SELECT ON core_memory.scope_destinations TO core_memory_engine;
+GRANT SELECT, INSERT ON core_memory.outbound_calls, core_memory.outbound_results,
+    core_memory.chunk_reads, core_memory.chunk_read_spans TO core_memory_engine;
+GRANT SELECT, INSERT, UPDATE, DELETE ON core_memory.work TO core_memory_engine;
 
 ALTER TABLE core_memory.workspaces ENABLE ROW LEVEL SECURITY;
 ALTER TABLE core_memory.workspace_seq ENABLE ROW LEVEL SECURITY;
@@ -432,6 +632,12 @@ ALTER TABLE core_memory.beads ENABLE ROW LEVEL SECURITY;
 ALTER TABLE core_memory.checkpoints ENABLE ROW LEVEL SECURITY;
 ALTER TABLE core_memory.pins ENABLE ROW LEVEL SECURITY;
 ALTER TABLE core_memory.erasures ENABLE ROW LEVEL SECURITY;
+ALTER TABLE core_memory.scope_destinations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE core_memory.outbound_calls ENABLE ROW LEVEL SECURITY;
+ALTER TABLE core_memory.outbound_results ENABLE ROW LEVEL SECURITY;
+ALTER TABLE core_memory.chunk_reads ENABLE ROW LEVEL SECURITY;
+ALTER TABLE core_memory.chunk_read_spans ENABLE ROW LEVEL SECURITY;
+ALTER TABLE core_memory.work ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY engine ON core_memory.workspaces TO core_memory_engine USING (true) WITH CHECK (true);
 CREATE POLICY engine ON core_memory.scopes TO core_memory_engine USING (true) WITH CHECK (true);
@@ -442,6 +648,12 @@ CREATE POLICY engine ON core_memory.beads TO core_memory_engine USING (true) WIT
 CREATE POLICY engine ON core_memory.checkpoints TO core_memory_engine USING (true) WITH CHECK (true);
 CREATE POLICY engine ON core_memory.pins TO core_memory_engine USING (true) WITH CHECK (true);
 CREATE POLICY engine ON core_memory.erasures TO core_memory_engine USING (true) WITH CHECK (true);
+CREATE POLICY engine ON core_memory.scope_destinations TO core_memory_engine USING (true) WITH CHECK (true);
+CREATE POLICY engine ON core_memory.outbound_calls TO core_memory_engine USING (true) WITH CHECK (true);
+CREATE POLICY engine ON core_memory.outbound_results TO core_memory_engine USING (true) WITH CHECK (true);
+CREATE POLICY engine ON core_memory.chunk_reads TO core_memory_engine USING (true) WITH CHECK (true);
+CREATE POLICY engine ON core_memory.chunk_read_spans TO core_memory_engine USING (true) WITH CHECK (true);
+CREATE POLICY engine ON core_memory.work TO core_memory_engine USING (true) WITH CHECK (true);
 
 -- ---------------------------------------------------------------------------
 -- The two locks every writer takes, in this order
@@ -645,6 +857,10 @@ BEGIN
         UPDATE core_memory.scopes AS s
            SET state = 'active', state_changed_at = clock_timestamp()
          WHERE s.scope = new_scope;
+        -- Work the engine put off while the scope was revoked is due again.
+        UPDATE core_memory.work AS w
+           SET not_before = w.enqueued_at, problem = NULL
+         WHERE w.scope = new_scope AND w.state = 'ready' AND w.problem = 'scope_not_active';
         RETURN 'reactivated';
     END IF;
     RETURN 'unchanged';
@@ -684,14 +900,93 @@ BEGIN
     UPDATE core_memory.scopes AS s
        SET state = new_state, state_changed_at = clock_timestamp()
      WHERE s.scope = target;
+    IF new_state = 'active' THEN
+        -- Work the engine put off while the scope was paused is due again.
+        UPDATE core_memory.work AS w
+           SET not_before = w.enqueued_at, problem = NULL
+         WHERE w.scope = target AND w.state = 'ready' AND w.problem = 'scope_not_active';
+    END IF;
     RETURN old_state;
 END
 $$;
 
+-- Lets a scope's text be sent to a model destination: the host, and port if
+-- any, of the model's endpoint. Returns 'granted' or 'unchanged'.
+CREATE FUNCTION core_memory.grant_destination(target_scope text, target_destination text)
+RETURNS text
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+AS $$
+DECLARE
+    scope_workspace text;
+    was text;
+BEGIN
+    PERFORM core_memory.hold_schema();
+    IF target_destination IS NULL OR btrim(target_destination) = ''
+        OR target_destination <> lower(btrim(target_destination)) THEN
+        RAISE EXCEPTION 'a destination is a lower-case host name, with a port if the endpoint has one'
+            USING ERRCODE = 'invalid_parameter_value';
+    END IF;
+    SELECT s.workspace_id INTO scope_workspace
+      FROM core_memory.scopes AS s WHERE s.scope = target_scope;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'scope % is not enrolled', quote_literal(target_scope)
+            USING ERRCODE = 'no_data_found';
+    END IF;
+    PERFORM core_memory.lock_workspace(scope_workspace);
+    SELECT d.state INTO was FROM core_memory.scope_destinations AS d
+     WHERE d.scope = target_scope AND d.destination = target_destination;
+    IF was = 'granted' THEN
+        RETURN 'unchanged';
+    END IF;
+    INSERT INTO core_memory.scope_destinations AS d
+        (scope, destination, state, granted_at, revoked_at)
+    VALUES (target_scope, target_destination, 'granted', clock_timestamp(), NULL)
+    ON CONFLICT ON CONSTRAINT scope_destinations_pkey DO UPDATE
+        SET state = 'granted', granted_at = EXCLUDED.granted_at, revoked_at = NULL;
+    -- Work the engine put off for want of consent is due again, as from
+    -- when it was queued. 'no_consent' is the engine's code for it.
+    UPDATE core_memory.work AS w
+       SET not_before = w.enqueued_at, problem = NULL
+     WHERE w.scope = target_scope AND w.state = 'ready' AND w.problem = 'no_consent';
+    RETURN 'granted';
+END
+$$;
+
+-- Stops a scope's text from being sent to a destination. It takes effect
+-- before the next call: a call's receipt is written under the same lock.
+-- Returns 'revoked' or 'unchanged'.
+CREATE FUNCTION core_memory.revoke_destination(target_scope text, target_destination text)
+RETURNS text
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+AS $$
+DECLARE
+    scope_workspace text;
+    changed integer;
+BEGIN
+    PERFORM core_memory.hold_schema();
+    SELECT s.workspace_id INTO scope_workspace
+      FROM core_memory.scopes AS s WHERE s.scope = target_scope;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'scope % is not enrolled', quote_literal(target_scope)
+            USING ERRCODE = 'no_data_found';
+    END IF;
+    PERFORM core_memory.lock_workspace(scope_workspace);
+    UPDATE core_memory.scope_destinations AS d
+       SET state = 'revoked', revoked_at = clock_timestamp()
+     WHERE d.scope = target_scope AND d.destination = target_destination
+       AND d.state = 'granted';
+    GET DIAGNOSTICS changed = ROW_COUNT;
+    RETURN CASE WHEN changed = 1 THEN 'revoked' ELSE 'unchanged' END;
+END
+$$;
+
 -- Erases the given events of one workspace, which must all be live. Each
--- loses its text and facets, its key fields, hashes and metadata; its
--- beads are marked erased; one journal row is written for it. IDs, ranges
--- and links stay as the tombstone. The caller holds the workspace.
+-- loses its text and facets, its key fields, hashes and metadata, and what
+-- any model read in it; its beads are marked erased; its queued work is
+-- dropped; one journal row is written for it. IDs, ranges, links and the
+-- receipts of calls that sent it stay. The caller holds the workspace.
 CREATE FUNCTION core_memory.erase_live_events(
     event_ids uuid[], in_workspace text, reason text, actor text
 ) RETURNS bigint
@@ -744,6 +1039,17 @@ BEGIN
        SET state = 'erased', time_at = b.created_at, time_basis = 'captured'
      WHERE b.event_id = ANY (event_ids);
     DELETE FROM core_memory.chunk_text AS x
+     USING core_memory.chunks AS c
+     WHERE c.event_id = ANY (event_ids) AND x.chunk_id = c.chunk_id;
+    -- Everything built from the text goes with it, and so does the work
+    -- that would have sent it to a model.
+    DELETE FROM core_memory.chunk_read_spans AS x
+     USING core_memory.chunks AS c
+     WHERE c.event_id = ANY (event_ids) AND x.chunk_id = c.chunk_id;
+    DELETE FROM core_memory.chunk_reads AS x
+     USING core_memory.chunks AS c
+     WHERE c.event_id = ANY (event_ids) AND x.chunk_id = c.chunk_id;
+    DELETE FROM core_memory.work AS x
      USING core_memory.chunks AS c
      WHERE c.event_id = ANY (event_ids) AND x.chunk_id = c.chunk_id;
     PERFORM set_config('core_memory.erasing', 'off', true);
@@ -911,7 +1217,8 @@ $$;
 REVOKE ALL ON FUNCTION core_memory.refuse_change() FROM PUBLIC;
 REVOKE ALL ON FUNCTION core_memory.events_only_erase() FROM PUBLIC;
 REVOKE ALL ON FUNCTION core_memory.beads_only_erase() FROM PUBLIC;
-REVOKE ALL ON FUNCTION core_memory.chunk_text_only_erase() FROM PUBLIC;
+REVOKE ALL ON FUNCTION core_memory.deleted_only_with_its_event() FROM PUBLIC;
+REVOKE ALL ON FUNCTION core_memory.stored_only_with_a_live_event() FROM PUBLIC;
 REVOKE ALL ON FUNCTION core_memory.scopes_keep_identity() FROM PUBLIC;
 REVOKE ALL ON FUNCTION core_memory.seq_only_grows() FROM PUBLIC;
 REVOKE ALL ON FUNCTION core_memory.hold_schema() FROM PUBLIC;
@@ -921,6 +1228,8 @@ REVOKE ALL ON FUNCTION core_memory.begin_write(text, integer, integer) FROM PUBL
 REVOKE ALL ON FUNCTION core_memory.create_workspace(text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION core_memory.enroll_scope(text, text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION core_memory.set_scope_state(text, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION core_memory.grant_destination(text, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION core_memory.revoke_destination(text, text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION core_memory.erase_live_events(uuid[], text, text, text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION core_memory.erase_event(uuid, text, text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION core_memory.erase_events(uuid[], text, text) FROM PUBLIC;
@@ -934,6 +1243,8 @@ GRANT EXECUTE ON FUNCTION core_memory.begin_write(text, integer, integer) TO cor
 GRANT EXECUTE ON FUNCTION core_memory.create_workspace(text) TO core_memory_governor;
 GRANT EXECUTE ON FUNCTION core_memory.enroll_scope(text, text) TO core_memory_governor;
 GRANT EXECUTE ON FUNCTION core_memory.set_scope_state(text, text) TO core_memory_governor;
+GRANT EXECUTE ON FUNCTION core_memory.grant_destination(text, text) TO core_memory_governor;
+GRANT EXECUTE ON FUNCTION core_memory.revoke_destination(text, text) TO core_memory_governor;
 GRANT EXECUTE ON FUNCTION core_memory.erase_event(uuid, text, text) TO core_memory_governor;
 GRANT EXECUTE ON FUNCTION core_memory.erase_events(uuid[], text, text) TO core_memory_governor;
 GRANT EXECUTE ON FUNCTION core_memory.erase_key(text, text, text, text, text) TO core_memory_governor;

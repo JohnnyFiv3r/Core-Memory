@@ -3,7 +3,9 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use core_memory_core::{Engine, SystemClock};
+use core_memory_core::{BindingConfig, Engine, ModelTransport, SystemClock};
+use core_memory_model_anthropic::AnthropicTransport;
+use core_memory_model_openai::{Dialect, OpenAiTransport};
 use core_memory_store_postgres::{PostgresPool, PostgresStore};
 
 use crate::config::Loaded;
@@ -25,6 +27,59 @@ pub fn open_pool(loaded: &Loaded) -> Result<PostgresPool, Stop> {
         &loaded.connect_config()?,
         loaded.config.store.pool_size,
     )?)
+}
+
+/// Checks that a binding names a provider this build can call and has the
+/// settings that provider's API takes. Reads no key and sends nothing.
+pub fn check_binding(binding: &BindingConfig) -> Result<(), Stop> {
+    if binding.provider == core_memory_model_anthropic::PROVIDER {
+        AnthropicTransport::check_binding(binding)?;
+        if binding.api_key_env.is_none() {
+            return Err(Stop::Failed(format!(
+                "binding `{}`: set api_key_env to the environment variable that holds the \
+                 Anthropic API key",
+                binding.id
+            )));
+        }
+        return Ok(());
+    }
+    if Dialect::for_provider(&binding.provider).is_none() {
+        return Err(Stop::Failed(format!(
+            "binding `{}`: provider must be `anthropic`, `openai` or `openai-compatible`",
+            binding.id
+        )));
+    }
+    Ok(OpenAiTransport::check_binding(binding)?)
+}
+
+/// The transport for a binding, with its key read from the environment.
+/// Nothing is sent: a binding is first used when a chunk is read.
+pub fn open_transport(binding: &BindingConfig) -> Result<Box<dyn ModelTransport>, Stop> {
+    check_binding(binding)?;
+    let timeout = Duration::from_millis(binding.timeout_ms);
+    let key = match &binding.api_key_env {
+        None => None,
+        Some(name) => Some(
+            std::env::var(name)
+                .ok()
+                .filter(|key| !key.trim().is_empty())
+                .ok_or_else(|| {
+                    format!(
+                        "binding `{}`: ${name} must hold the provider's API key",
+                        binding.id
+                    )
+                })?,
+        ),
+    };
+    match (Dialect::for_provider(&binding.provider), key) {
+        // A server on this machine may need no key.
+        (Some(dialect), key) => Ok(Box::new(OpenAiTransport::new(dialect, key, timeout))),
+        (None, Some(key)) => Ok(Box::new(AnthropicTransport::new(key, timeout))),
+        (None, None) => Err(Stop::Failed(format!(
+            "binding `{}` has no API key",
+            binding.id
+        ))),
+    }
 }
 
 /// How long a request waits for a store connection before it is told to

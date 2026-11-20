@@ -22,7 +22,9 @@ pub struct BindingConfig {
     pub provider: String,
     /// Provider endpoint. Part of the binding's identity.
     pub endpoint: String,
-    /// Pinned model snapshot ID. Adapters refuse aliases.
+    /// The model to call. Name a pinned snapshot, not an alias: the name is
+    /// part of the binding's revision, and an alias changes what it means
+    /// without changing the revision.
     pub model: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f64>,
@@ -31,17 +33,10 @@ pub struct BindingConfig {
     pub max_output_tokens: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub seed: Option<u64>,
-    /// Scopes whose content may be sent through this binding (MOD-06).
-    /// `["*"]` permits every scope.
-    pub scopes: Vec<String>,
-    /// Where the provider processes data, as the operator declares it.
+    /// Spend limits per workspace per UTC day (MOD-05). Without one, calls
+    /// are limited only by the work there is.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub region: Option<String>,
-    /// The provider's data retention, as the operator declares it.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub data_retention: Option<String>,
-    /// Spend limits per scope per UTC day (MOD-05).
-    pub budget: BudgetConfig,
+    pub budget: Option<BudgetConfig>,
     /// Operational settings below are excluded from the binding revision,
     /// so tuning them never changes decisions' identity.
     #[serde(default = "default_timeout_ms")]
@@ -59,7 +54,8 @@ fn default_timeout_ms() -> u64 {
 #[serde(deny_unknown_fields)]
 pub struct BudgetConfig {
     pub max_requests_per_day: u64,
-    /// Counted as reserved (maximum) tokens, never refunded.
+    /// Counted as reserved tokens: what a call may use at most, whether or
+    /// not it does.
     pub max_tokens_per_day: u64,
 }
 
@@ -110,14 +106,55 @@ impl BindingConfig {
         {
             return err("temperature must be between 0 and 2");
         }
-        if self.scopes.is_empty() || (self.scopes.iter().any(|s| s == "*") && self.scopes.len() > 1)
+        if self
+            .budget
+            .is_some_and(|b| b.max_requests_per_day == 0 || b.max_tokens_per_day == 0)
         {
-            return err("scopes must list scopes, or be [\"*\"] alone");
-        }
-        if self.budget.max_requests_per_day == 0 || self.budget.max_tokens_per_day == 0 {
             return err("budget limits must be 1 or more");
         }
-        Ok(())
+        if self.timeout_ms == 0 {
+            return err("timeout_ms must be 1 or more");
+        }
+        self.destination().map(|_| ())
+    }
+
+    /// Where a call through this binding sends text: the endpoint's host
+    /// in lower case, with its port if it names one. This is what a scope
+    /// consents to, so it is taken from the endpoint and never written by
+    /// hand: a binding pointed somewhere else needs consent again.
+    pub fn destination(&self) -> Result<String, ConfigError> {
+        let err = |m: &str| {
+            Err(ConfigError::new(format!(
+                "binding `{}`: endpoint {m}",
+                self.id
+            )))
+        };
+        let Some((scheme, rest)) = self.endpoint.split_once("://") else {
+            return err("must be a URL such as https://api.example.com/v1");
+        };
+        if !matches!(scheme, "http" | "https") {
+            return err("must start with http:// or https://");
+        }
+        let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+        if authority.contains('@') {
+            return err("must not carry a user name or password");
+        }
+        let host = authority.to_ascii_lowercase();
+        let (name, port) = match host.rsplit_once(':') {
+            // A bracketed IPv6 address has colons of its own.
+            Some((name, port)) if !port.contains(']') => (name, Some(port)),
+            _ => (host.as_str(), None),
+        };
+        let port_ok = port.is_none_or(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()));
+        let name_ok = !name.is_empty()
+            && name.len() <= 253
+            && name.bytes().all(|b| {
+                b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b':' | b'[' | b']')
+            });
+        if !port_ok || !name_ok {
+            return err("must name a host, with a numeric port if any");
+        }
+        Ok(host)
     }
 }
 
@@ -244,5 +281,58 @@ where
         request: &ModelRequest,
     ) -> Result<ModelResponse, TransportError> {
         (self.0)(request)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn binding(endpoint: &str) -> BindingConfig {
+        BindingConfig {
+            id: "small".into(),
+            provider: "openai-compatible".into(),
+            endpoint: endpoint.into(),
+            model: "a-model".into(),
+            temperature: None,
+            reasoning_effort: None,
+            max_output_tokens: 1024,
+            seed: None,
+            budget: None,
+            timeout_ms: 60_000,
+            api_key_env: None,
+        }
+    }
+
+    #[test]
+    fn the_destination_is_the_endpoints_host_and_port() {
+        for (endpoint, destination) in [
+            ("https://api.anthropic.com", "api.anthropic.com"),
+            ("https://API.OpenAI.com/v1", "api.openai.com"),
+            ("http://127.0.0.1:11434/v1", "127.0.0.1:11434"),
+            ("http://localhost:8000", "localhost:8000"),
+            ("http://[::1]:8000/v1", "[::1]:8000"),
+            ("https://models.internal:443/v1?x=1", "models.internal:443"),
+        ] {
+            let b = binding(endpoint);
+            assert_eq!(b.destination().unwrap(), destination, "{endpoint}");
+            b.validate().unwrap();
+        }
+    }
+
+    #[test]
+    fn an_endpoint_that_names_no_host_is_refused() {
+        for endpoint in [
+            "api.anthropic.com",
+            "ftp://example.com",
+            "https://",
+            "https://user:secret@example.com/v1",
+            "https://example.com:port/v1",
+            "https://exa mple.com",
+        ] {
+            let err = binding(endpoint).validate().unwrap_err().to_string();
+            assert!(err.contains("endpoint"), "{endpoint}: {err}");
+            assert!(!err.contains("secret"), "{err}");
+        }
     }
 }

@@ -190,9 +190,7 @@ mod tests {
             "model": "qwen3:8b",
             "temperature": 0.0,
             "seed": 7,
-            "max_output_tokens": 1024,
-            "scopes": ["*"],
-            "budget": {"max_requests_per_day": 10, "max_tokens_per_day": 100000}
+            "max_output_tokens": 1024
         }))
         .unwrap()
     }

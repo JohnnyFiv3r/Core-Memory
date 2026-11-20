@@ -18,8 +18,9 @@ auditable memory in PostgreSQL. For each SourceEvent it:
 2. cuts it into deterministic chunks and attaches deterministic facets;
 3. commits the event, its chunks, their text and its beads in one
    transaction;
-4. *planned:* asks a model for each chunk's type and its entities, actions
-   and outcomes;
+4. asks a model for each chunk's type and where its entities, actions and
+   outcomes are, when a reader is configured and the chunk's scope allows
+   the model's destination;
 5. *planned:* compresses each tool call and asks a model for its action and
    outcome;
 6. *planned:* asks a judge model how new beads relate to recent ones.
@@ -114,7 +115,8 @@ are facets and candidate seeds, not relationships.
   the SQL functions and read through grants and policies of their own. Row
   security stays on for every table and nothing is granted to `PUBLIC`.
 - The engine's database role can read and insert. It cannot change or delete
-  what it stored, change a scope's state, or erase.
+  what it stored, change a scope's state, give model consent, or erase. The
+  queue of its own work (`work`) is the one table it changes in place.
 
 ### 6. Text lives in one place
 
@@ -142,8 +144,8 @@ are facets and candidate seeds, not relationships.
   `core_memory.lock_workspace`. No writer takes a row lock on a scope
   first. One lock, taken first, is what keeps writers from deadlocking and
   keeps a pause or a revocation from being overtaken.
-- Every row the engine writes for a workspace carries a `seq` taken from
-  that counter under the lock. A reader that pages by `seq` greater than
+- Every row the engine writes for a workspace, a model call's receipt
+  included, carries a `seq` taken from that counter under the lock. A reader that pages by `seq` greater than
   the last one it saw must never miss a row. Never number rows from a
   PostgreSQL sequence or identity column.
 
@@ -179,6 +181,29 @@ Tests fail if a function or a store call takes another lock first.
 - A column that holds what a source said, or a hash of it, is excluded
   from planner statistics (`SET STATISTICS 0`). The source's own time
   (`time_at`) is such a column.
+
+### 10. Nothing is sent without a permit
+
+- Every model call goes through `Store::permit` first. In one transaction
+  it checks that the scope is active and has granted the binding's
+  destination, checks the budget, reads the text and writes the call's
+  receipt. The receipt is committed before any text leaves the engine. A
+  refusal sends nothing.
+- The destination is derived from the binding's endpoint, never written by
+  hand. Consent is per scope and per destination, and only a governance
+  function gives it.
+- Every call goes through the `ModelTransport` trait: one request, with no
+  hidden retry or fallback. Core has no code for any one provider.
+- Nothing a model writes is stored. A type is a key of the vocabulary, an
+  abstention is one of a fixed set, and anything else the model reports is
+  a quote kept as the byte range where it was found in the chunk.
+- An abstention is a judgment and is stored. It is never retried as if the
+  model had not answered, and never counted as a wrong answer.
+- A read is stored only for a chunk its call's receipt names, whose text
+  still exists and whose scope is still active.
+- The queue, the receipts, the results and the logs hold IDs, counts and
+  problem codes. Never chunk text, and never what a model or a provider
+  said.
 
 ---
 

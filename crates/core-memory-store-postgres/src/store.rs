@@ -3,13 +3,17 @@
 use std::collections::BTreeMap;
 
 use core_memory_contract::{
-    Checkpoint, CheckpointReceipt, ChunkFacets, ChunkId, ChunkRecord, ChunkerRef, EventDetails,
-    EventId, EventKey, EventRecord, IdKey, ProfileRef, Sha256Digest, TimeBasis, Timestamp,
+    Abstention, CallId, CatalogRef, Checkpoint, CheckpointReceipt, ChunkFacets, ChunkId,
+    ChunkReadRecord, ChunkRecord, ChunkerRef, ErasureRecord, EventDetails, EventId, EventKey,
+    EventRecord, IdKey, ProfileRef, ReadDecision, ReadSpan, ReaderRef, Sha256Digest, SpanKind,
+    TimeBasis, Timestamp, TypeRef,
 };
 use core_memory_core::StoreError;
 use core_memory_core::store::{
-    AdmissionCommit, AdmissionWrite, CheckpointAdvance, CheckpointState, ExportedEvent, PinKind,
-    PinResult, ScopeInfo, ScopeState, Store, StoredEvent,
+    AdmissionCommit, AdmissionWrite, CallFinish, CallFinished, Change, CheckpointAdvance,
+    CheckpointState, ExportedEvent, LeasedChunk, Permit, PermitRequest, PermittedChunk, PinKind,
+    PinResult, Purpose, ReadBatch, ScopeInfo, ScopeState, Store, StoredEvent, WorkCounts, WorkNext,
+    WorkUpdate,
 };
 use postgres::types::{Json, ToSql};
 use postgres::{Client, GenericClient, IsolationLevel, Row, SimpleQueryMessage, Transaction};
@@ -46,6 +50,18 @@ pub struct ScopeSummary {
     pub state: ScopeState,
     pub live_events: u64,
     pub erased_events: u64,
+    /// The model destinations the scope's text may be sent to.
+    pub destinations: Vec<String>,
+}
+
+/// How [`PostgresStore::queue_reads`] ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum QueuedReads {
+    /// This many chunks were added to the queue.
+    Queued(u64),
+    /// Nothing is read for a scope that is not active. `None` means it is
+    /// not enrolled.
+    ScopeNotActive(Option<ScopeState>),
 }
 
 /// The engine's store on one PostgreSQL connection.
@@ -268,6 +284,129 @@ impl PostgresStore {
             .collect()
     }
 
+    /// Lets a scope's text be sent to a model destination: the host, and
+    /// port if any, of a binding's endpoint. Returns false if it already
+    /// could be.
+    pub fn grant_destination(
+        &mut self,
+        scope: &str,
+        destination: &str,
+    ) -> Result<bool, StoreError> {
+        let row = self.govern(
+            "SELECT core_memory.grant_destination($1, $2)",
+            &[&scope, &destination],
+        )?;
+        Ok(row.get::<_, &str>(0) == "granted")
+    }
+
+    /// Stops a scope's text from being sent to a model destination. A call
+    /// that was already permitted is not recalled; no later one is
+    /// permitted. Returns false if nothing was granted.
+    pub fn revoke_destination(
+        &mut self,
+        scope: &str,
+        destination: &str,
+    ) -> Result<bool, StoreError> {
+        let row = self.govern(
+            "SELECT core_memory.revoke_destination($1, $2)",
+            &[&scope, &destination],
+        )?;
+        Ok(row.get::<_, &str>(0) == "revoked")
+    }
+
+    /// Queues live chunks of a scope to be read by a model: those no model
+    /// has read, and with `reread`, those whose reads were all made with
+    /// another binding revision or vocabulary than the one given. Chunks
+    /// already queued stay as they are.
+    ///
+    /// Admission queues what it stores while a reader is configured. This
+    /// is for what was stored before one was, or before it changed.
+    pub fn queue_reads(
+        &mut self,
+        scope: &str,
+        reread: Option<(&ReaderRef, &CatalogRef)>,
+        at: Timestamp,
+    ) -> Result<QueuedReads, StoreError> {
+        let queued = self.write_queue(scope, reread, at);
+        self.settled(queued)
+    }
+
+    fn write_queue(
+        &mut self,
+        scope: &str,
+        reread: Option<(&ReaderRef, &CatalogRef)>,
+        at: Timestamp,
+    ) -> Result<QueuedReads, StoreError> {
+        let mut tx = write_transaction(self.client()?)?;
+        // The workspace is held, so no event of the scope is erased
+        // between being found live and being queued.
+        match begin_write(&mut tx, scope, None)? {
+            None => return Ok(QueuedReads::ScopeNotActive(None)),
+            Some(writing) if writing.state != ScopeState::Active => {
+                return Ok(QueuedReads::ScopeNotActive(Some(writing.state)));
+            }
+            Some(_) => {}
+        }
+        let current = reread.map(|(reader, vocabulary)| {
+            (
+                reader.binding_rev.as_bytes().as_slice(),
+                vocabulary.hash.as_bytes().as_slice(),
+            )
+        });
+        let queued = tx
+            .execute(
+                "INSERT INTO core_memory.work
+                     (kind, chunk_id, workspace_id, scope, state, not_before, enqueued_at)
+                 SELECT 'chunk_read', c.chunk_id, e.workspace_id, e.scope, 'ready', $2, $2
+                   FROM core_memory.events AS e
+                   JOIN core_memory.chunks AS c ON c.event_id = e.event_id
+                  WHERE e.scope = $1 AND e.state = 'live'
+                    AND NOT EXISTS (
+                        SELECT 1 FROM core_memory.chunk_reads AS r
+                         WHERE r.chunk_id = c.chunk_id
+                           AND ($3::bytea IS NULL
+                                OR (r.binding_rev = $3 AND r.vocabulary_hash = $4)))
+                 ON CONFLICT (kind, chunk_id) DO NOTHING",
+                &[
+                    &scope,
+                    &at.0,
+                    &current.map(|(binding, _)| binding),
+                    &current.map(|(_, vocabulary)| vocabulary),
+                ],
+            )
+            .map_err(backend)?;
+        tx.commit().map_err(backend)?;
+        Ok(QueuedReads::Queued(queued))
+    }
+
+    /// Puts reads that were set aside as failed back in the queue, with
+    /// their attempts counted from the start: all of them, or one scope's.
+    /// Returns how many.
+    pub fn retry_failed_reads(
+        &mut self,
+        scope: Option<&str>,
+        at: Timestamp,
+    ) -> Result<u64, StoreError> {
+        let retried = self.write_retry(scope, at);
+        self.settled(retried)
+    }
+
+    fn write_retry(&mut self, scope: Option<&str>, at: Timestamp) -> Result<u64, StoreError> {
+        let mut tx = write_transaction(self.client()?)?;
+        hold_schema(&mut tx)?;
+        let retried = tx
+            .execute(
+                "UPDATE core_memory.work
+                    SET state = 'ready', attempts = 0, not_before = $2, problem = NULL
+                  WHERE kind = 'chunk_read' AND state = 'failed'
+                    AND ($1::text IS NULL OR scope = $1)",
+                &[&scope, &at.0],
+            )
+            .map_err(backend)?;
+        tx.commit().map_err(backend)?;
+        Ok(retried)
+    }
+
     /// Erases every live revision of one source object: every event of the
     /// scope with this `source_ns` and `external_id`. Returns how many
     /// were erased.
@@ -337,7 +476,10 @@ impl PostgresStore {
             .query(
                 "SELECT s.scope, s.workspace_id, s.state,
                         count(e.event_id) FILTER (WHERE e.state = 'live'),
-                        count(e.event_id) FILTER (WHERE e.state = 'erased')
+                        count(e.event_id) FILTER (WHERE e.state = 'erased'),
+                        ARRAY(SELECT d.destination FROM core_memory.scope_destinations AS d
+                               WHERE d.scope = s.scope AND d.state = 'granted'
+                               ORDER BY d.destination)
                    FROM core_memory.scopes AS s
                    LEFT JOIN core_memory.events AS e ON e.scope = s.scope
                   GROUP BY s.scope, s.workspace_id, s.state
@@ -354,6 +496,7 @@ impl PostgresStore {
                     state: scope_state(row.get(2))?,
                     live_events: to_u64(row.get(3), "event count")?,
                     erased_events: to_u64(row.get(4), "event count")?,
+                    destinations: row.get(5),
                 })
             })
             .collect()
@@ -656,15 +799,46 @@ impl Store for PostgresStore {
         self.settled(pinned)
     }
 
-    fn export_events(
+    fn export(
         &mut self,
         workspace: &str,
         after: u64,
         limit: u32,
         scope: Option<&str>,
-    ) -> Result<Vec<ExportedEvent>, StoreError> {
+    ) -> Result<Vec<Change>, StoreError> {
         let exported = self.read_export(workspace, after, limit, scope);
         self.settled(exported)
+    }
+
+    fn claim_reads(
+        &mut self,
+        limit: u32,
+        max_attempts: u32,
+        now: Timestamp,
+        lease_until: Timestamp,
+    ) -> Result<Option<ReadBatch>, StoreError> {
+        let claimed = self.write_claim(limit, max_attempts, now, lease_until);
+        self.settled(claimed)
+    }
+
+    fn permit(&mut self, request: &PermitRequest<'_>) -> Result<Permit, StoreError> {
+        let permit = self.write_permit(request);
+        self.settled(permit)
+    }
+
+    fn finish_call(&mut self, finish: &CallFinish<'_>) -> Result<CallFinished, StoreError> {
+        let finished = self.write_finish(finish);
+        self.settled(finished)
+    }
+
+    fn update_work(&mut self, purpose: Purpose, work: &[WorkUpdate]) -> Result<(), StoreError> {
+        let updated = self.write_work(purpose, work);
+        self.settled(updated)
+    }
+
+    fn work_counts(&mut self, purpose: Purpose) -> Result<WorkCounts, StoreError> {
+        let counts = self.read_work_counts(purpose);
+        self.settled(counts)
     }
 }
 
@@ -829,6 +1003,17 @@ impl PostgresStore {
             &[&scope, &ids, &texts, &hashes, &facets],
         )
         .map_err(backend)?;
+        if w.queue_reads {
+            // The queue holds IDs only. The text is read when a call is
+            // permitted, so erasing it in between leaves nothing to send.
+            tx.execute(
+                "INSERT INTO core_memory.work
+                     (kind, chunk_id, workspace_id, scope, state, not_before, enqueued_at)
+                 SELECT 'chunk_read', c, $1, $2, 'ready', $3, $3 FROM UNNEST($4::uuid[]) AS u (c)",
+                &[&w.workspace, &scope, &w.captured_at.0, &ids],
+            )
+            .map_err(backend)?;
+        }
         // Every chunk of a message is a bead, in chunk order, numbered
         // straight after the event.
         tx.execute(
@@ -960,9 +1145,40 @@ impl PostgresStore {
         after: u64,
         limit: u32,
         scope: Option<&str>,
-    ) -> Result<Vec<ExportedEvent>, StoreError> {
-        // One snapshot, so every event comes with exactly its chunks.
+    ) -> Result<Vec<Change>, StoreError> {
+        // One snapshot, so every change comes with exactly what belongs
+        // to it.
         let mut tx = read_transaction(self.client()?)?;
+        let after = to_i64(after, "export position")?;
+        // The next `limit` changes across the three numbered tables. A read
+        // exists only while its event is live, so no state check is needed
+        // for it.
+        let page = tx
+            .query(
+                "SELECT seq FROM (
+                     SELECT e.seq FROM core_memory.events AS e
+                      WHERE e.workspace_id = $1 AND e.seq > $2 AND e.state = 'live'
+                        AND ($3::text IS NULL OR e.scope = $3)
+                     UNION ALL
+                     SELECT r.seq FROM core_memory.chunk_reads AS r
+                      WHERE r.workspace_id = $1 AND r.seq > $2
+                        AND ($3::text IS NULL OR r.scope = $3)
+                     UNION ALL
+                     SELECT j.seq FROM core_memory.erasures AS j
+                      WHERE j.workspace_id = $1 AND j.seq > $2
+                        AND ($3::text IS NULL OR j.scope = $3)
+                 ) AS changes
+                 ORDER BY seq
+                 LIMIT $4",
+                &[&workspace, &after, &scope, &i64::from(limit)],
+            )
+            .map_err(backend)?;
+        let Some(last) = page.last().map(|row| row.get::<_, i64>(0)) else {
+            return Ok(Vec::new());
+        };
+        let mut changes: BTreeMap<u64, Change> = BTreeMap::new();
+
+        // ---- events and their chunks ----
         let rows = tx
             .query(
                 "SELECT event_id, seq, workspace_id, scope, source_ns, external_id,
@@ -970,16 +1186,10 @@ impl PostgresStore {
                         profile_id, profile_rev, chunker_id, chunker_rev, chunker_config_hash,
                         chunk_count, time_at, time_basis, captured_at
                    FROM core_memory.events
-                  WHERE workspace_id = $1 AND state = 'live' AND seq > $2
-                    AND ($3::text IS NULL OR scope = $3)
-                  ORDER BY seq
-                  LIMIT $4",
-                &[
-                    &workspace,
-                    &to_i64(after, "export position")?,
-                    &scope,
-                    &i64::from(limit),
-                ],
+                  WHERE workspace_id = $1 AND state = 'live' AND seq > $2 AND seq <= $3
+                    AND ($4::text IS NULL OR scope = $4)
+                  ORDER BY seq",
+                &[&workspace, &after, &last, &scope],
             )
             .map_err(backend)?;
         let mut events = Vec::with_capacity(rows.len());
@@ -1055,8 +1265,7 @@ impl PostgresStore {
                 facets,
             });
         }
-        tx.commit().map_err(backend)?;
-        for exported in &mut events {
+        for mut exported in events {
             exported.chunks = by_event
                 .remove(&exported.event.event_id.0)
                 .unwrap_or_default();
@@ -1070,7 +1279,645 @@ impl PostgresStore {
                     exported.event.chunk_count
                 )));
             }
+            changes.insert(exported.event.seq, Change::Event(Box::new(exported)));
         }
-        Ok(events)
+
+        // ---- reads and their spans ----
+        let rows = tx
+            .query(
+                "SELECT seq, chunk_id, scope, call_id, status, type_key, type_rev, abstained,
+                        vocabulary_id, vocabulary_hash, binding_id, binding_rev, model,
+                        prompt_rev, spans_rejected, read_at
+                   FROM core_memory.chunk_reads
+                  WHERE workspace_id = $1 AND seq > $2 AND seq <= $3
+                    AND ($4::text IS NULL OR scope = $4)
+                  ORDER BY seq",
+                &[&workspace, &after, &last, &scope],
+            )
+            .map_err(backend)?;
+        let read_seqs: Vec<i64> = rows.iter().map(|row| row.get(0)).collect();
+        let span_rows = tx
+            .query(
+                "SELECT read_seq, kind, entity_kind, byte_start, byte_end
+                   FROM core_memory.chunk_read_spans
+                  WHERE workspace_id = $1 AND read_seq = ANY ($2)
+                  ORDER BY read_seq, ordinal",
+                &[&workspace, &read_seqs],
+            )
+            .map_err(backend)?;
+        let mut spans: BTreeMap<i64, Vec<ReadSpan>> = BTreeMap::new();
+        for row in &span_rows {
+            let (kind, entity_kind): (&str, Option<&str>) = (row.get(1), row.get(2));
+            spans.entry(row.get(0)).or_default().push(ReadSpan {
+                kind: SpanKind::from_names(kind, entity_kind)
+                    .ok_or_else(|| corrupt(format!("unknown span kind `{kind}`")))?,
+                byte_start: to_u64(row.get(3), "span offset")?,
+                byte_end: to_u64(row.get(4), "span offset")?,
+            });
+        }
+        for row in &rows {
+            let seq: i64 = row.get(0);
+            let (status, type_key, type_rev, abstained): (
+                &str,
+                Option<String>,
+                Option<i32>,
+                Option<&str>,
+            ) = (row.get(4), row.get(5), row.get(6), row.get(7));
+            let decision = match (status, type_key, type_rev, abstained) {
+                ("typed", Some(key), Some(rev), None) => ReadDecision::Typed {
+                    type_ref: TypeRef {
+                        key,
+                        rev: to_u32(rev, "type revision")?,
+                    },
+                },
+                ("abstained", None, None, Some(reason)) => ReadDecision::Abstained {
+                    reason: Abstention::from_name(reason)
+                        .ok_or_else(|| corrupt(format!("unknown abstention `{reason}`")))?,
+                },
+                _ => {
+                    return Err(corrupt(format!(
+                        "read {seq} is neither typed nor abstained"
+                    )));
+                }
+            };
+            let read = ChunkReadRecord {
+                chunk_id: ChunkId(row.get::<_, Uuid>(1)),
+                workspace: workspace.to_string(),
+                seq: to_u64(seq, "change number")?,
+                decision,
+                vocabulary: CatalogRef {
+                    id: row.get(8),
+                    hash: digest(row.get(9), "vocabulary hash")?,
+                },
+                reader: ReaderRef {
+                    binding_id: row.get(10),
+                    binding_rev: digest(row.get(11), "binding revision")?,
+                    model: row.get(12),
+                    prompt_rev: to_u32(row.get(13), "prompt revision")?,
+                },
+                call_id: CallId(row.get::<_, Uuid>(3)),
+                spans: spans.remove(&seq).unwrap_or_default(),
+                spans_rejected: to_u32(row.get(14), "rejected spans")?,
+                read_at: Timestamp(row.get::<_, OffsetDateTime>(15)),
+            };
+            changes.insert(
+                read.seq,
+                Change::Read {
+                    scope: row.get(2),
+                    read: Box::new(read),
+                },
+            );
+        }
+
+        // ---- erasures ----
+        let rows = tx
+            .query(
+                "SELECT seq, event_id, scope, erased_at
+                   FROM core_memory.erasures
+                  WHERE workspace_id = $1 AND seq > $2 AND seq <= $3
+                    AND ($4::text IS NULL OR scope = $4)
+                  ORDER BY seq",
+                &[&workspace, &after, &last, &scope],
+            )
+            .map_err(backend)?;
+        for row in &rows {
+            let erasure = ErasureRecord {
+                event_id: EventId(row.get::<_, Uuid>(1)),
+                workspace: workspace.to_string(),
+                seq: to_u64(row.get(0), "change number")?,
+                erased_at: Timestamp(row.get::<_, OffsetDateTime>(3)),
+            };
+            changes.insert(
+                erasure.seq,
+                Change::Erasure {
+                    scope: row.get(2),
+                    erasure,
+                },
+            );
+        }
+        tx.commit().map_err(backend)?;
+        Ok(changes.into_values().collect())
     }
+
+    // ---- model calls ----
+
+    fn write_claim(
+        &mut self,
+        limit: u32,
+        max_attempts: u32,
+        now: Timestamp,
+        lease_until: Timestamp,
+    ) -> Result<Option<ReadBatch>, StoreError> {
+        // Queue rows are claimed with SKIP LOCKED, so workers never wait
+        // for each other. A lease that ran out is claimed like ready work.
+        const DUE: &str = "w.kind = 'chunk_read'
+            AND (w.state = 'ready' OR (w.state = 'leased' AND w.leased_until < $1))
+            AND w.not_before <= $1";
+        // The queue belongs to no one workspace, so there is no
+        // begin_write to check the schema version for it.
+        let mut tx = write_transaction(self.client()?)?;
+        hold_schema(&mut tx)?;
+        set_aside_spent(&mut tx, Purpose::ChunkRead, max_attempts, now)?;
+        let Some(head) = tx
+            .query_opt(
+                &format!(
+                    "SELECT w.chunk_id, w.scope, w.workspace_id, w.alone,
+                            e.profile_id, e.profile_rev, e.seq, c.ordinal
+                       FROM core_memory.work AS w
+                       JOIN core_memory.chunks AS c ON c.chunk_id = w.chunk_id
+                       JOIN core_memory.events AS e ON e.event_id = c.event_id
+                      WHERE {DUE}
+                      ORDER BY w.not_before, w.enqueued_at, w.chunk_id
+                      LIMIT 1
+                        FOR UPDATE OF w SKIP LOCKED"
+                ),
+                &[&now.0],
+            )
+            .map_err(backend)?
+        else {
+            // Nothing is due. What was set aside above still is.
+            tx.commit().map_err(backend)?;
+            return Ok(None);
+        };
+        let (scope, workspace): (String, String) = (head.get(1), head.get(2));
+        let (profile_id, profile_rev): (String, i32) = (head.get(4), head.get(5));
+        let mut order: Vec<(i64, i32, Uuid)> = vec![(head.get(6), head.get(7), head.get(0))];
+        // A chunk that was part of a failed call goes alone from then on.
+        if !head.get::<_, bool>(3) && limit > 1 {
+            let rest = tx
+                .query(
+                    &format!(
+                        "SELECT w.chunk_id, e.seq, c.ordinal
+                           FROM core_memory.work AS w
+                           JOIN core_memory.chunks AS c ON c.chunk_id = w.chunk_id
+                           JOIN core_memory.events AS e ON e.event_id = c.event_id
+                          WHERE {DUE} AND w.scope = $2 AND NOT w.alone AND w.chunk_id <> $3
+                            AND e.profile_id = $4 AND e.profile_rev = $5
+                          ORDER BY e.seq, c.ordinal
+                          LIMIT $6
+                            FOR UPDATE OF w SKIP LOCKED"
+                    ),
+                    &[
+                        &now.0,
+                        &scope,
+                        &order[0].2,
+                        &profile_id,
+                        &profile_rev,
+                        &i64::from(limit - 1),
+                    ],
+                )
+                .map_err(backend)?;
+            order.extend(rest.iter().map(|row| (row.get(1), row.get(2), row.get(0))));
+        }
+        // In the order the chunks were written, so a batch reads like its
+        // source.
+        order.sort_unstable();
+        let ids: Vec<Uuid> = order.iter().map(|(_, _, id)| *id).collect();
+        let leased = tx
+            .query(
+                "UPDATE core_memory.work
+                    SET state = 'leased', leased_until = $1, attempts = attempts + 1
+                  WHERE kind = 'chunk_read' AND chunk_id = ANY ($2)
+              RETURNING chunk_id, attempts",
+                &[&lease_until.0, &ids],
+            )
+            .map_err(backend)?;
+        let attempts: BTreeMap<Uuid, i32> =
+            leased.iter().map(|row| (row.get(0), row.get(1))).collect();
+        tx.commit().map_err(backend)?;
+        let chunks = ids
+            .iter()
+            .map(|id| {
+                Ok(LeasedChunk {
+                    chunk_id: ChunkId(*id),
+                    attempts: to_u32(*attempts.get(id).unwrap_or(&1), "attempts")?,
+                })
+            })
+            .collect::<Result<_, StoreError>>()?;
+        Ok(Some(ReadBatch {
+            scope,
+            workspace,
+            profile: ProfileRef {
+                id: profile_id,
+                rev: to_u32(profile_rev, "profile revision")?,
+            },
+            chunks,
+        }))
+    }
+
+    fn write_permit(&mut self, request: &PermitRequest<'_>) -> Result<Permit, StoreError> {
+        let mut tx = write_transaction(self.client()?)?;
+        // One number, for the receipt. From here to the commit nothing in
+        // the workspace changes: not the scope's state, not its consent,
+        // not its text.
+        let (workspace, receipt_seq) = match begin_write(&mut tx, request.scope, Some(1))? {
+            None => return Ok(Permit::ScopeNotActive(None)),
+            Some(writing) if writing.state != ScopeState::Active => {
+                return Ok(Permit::ScopeNotActive(Some(writing.state)));
+            }
+            Some(writing) => {
+                let seq = writing
+                    .first_seq
+                    .ok_or_else(|| corrupt("an active scope's workspace gave no change number"))?;
+                (writing.workspace, seq)
+            }
+        };
+        let consents: bool = tx
+            .query_one(
+                "SELECT EXISTS (SELECT 1 FROM core_memory.scope_destinations
+                                 WHERE scope = $1 AND destination = $2 AND state = 'granted')",
+                &[&request.scope, &request.destination],
+            )
+            .map_err(backend)?
+            .get(0);
+        if !consents {
+            return Ok(Permit::NoConsent);
+        }
+        // Only chunks of this scope, so consent given by one scope never
+        // covers another's text. Erased chunks have no text to read.
+        let ids: Vec<Uuid> = request.chunk_ids.iter().map(|c| c.0).collect();
+        let rows = tx
+            .query(
+                "SELECT t.chunk_id, t.text, e.info -> 'actor' ->> 'role'
+                   FROM UNNEST($1::uuid[]) WITH ORDINALITY AS u (chunk_id, n)
+                   JOIN core_memory.chunk_text AS t ON t.chunk_id = u.chunk_id
+                   JOIN core_memory.chunks AS c ON c.chunk_id = t.chunk_id
+                   JOIN core_memory.events AS e ON e.event_id = c.event_id
+                  WHERE t.scope = $2 AND e.state = 'live'
+                  ORDER BY u.n",
+                &[&ids, &request.scope],
+            )
+            .map_err(backend)?;
+        if rows.is_empty() {
+            return Ok(Permit::NothingToSend);
+        }
+        let chunks: Vec<PermittedChunk> = rows
+            .iter()
+            .map(|row| PermittedChunk {
+                chunk_id: ChunkId(row.get::<_, Uuid>(0)),
+                text: row.get(1),
+                role: row.get(2),
+            })
+            .collect();
+        let bytes: u64 = chunks.iter().map(|c| c.text.len() as u64).sum();
+        let reserved = request.reserved_for(bytes);
+        if let Some(budget) = request.budget {
+            let spent = tx
+                .query_one(
+                    "SELECT count(*), coalesce(sum(reserved_tokens), 0)::bigint
+                       FROM core_memory.outbound_calls
+                      WHERE workspace_id = $1 AND binding_id = $2
+                        AND permitted_at >= date_trunc('day', $3::timestamptz, 'UTC')",
+                    &[&workspace, &request.reader.binding_id, &request.at.0],
+                )
+                .map_err(backend)?;
+            let calls = to_u64(spent.get(0), "calls today")?;
+            let tokens = to_u64(spent.get(1), "tokens today")?;
+            if calls >= budget.max_requests_per_day
+                || tokens.saturating_add(reserved) > budget.max_tokens_per_day
+            {
+                return Ok(Permit::OverBudget);
+            }
+        }
+        let sent: Vec<Uuid> = chunks.iter().map(|c| c.chunk_id.0).collect();
+        let receipt = tx
+            .query_one(
+                "INSERT INTO core_memory.outbound_calls (
+                     call_id, workspace_id, seq, purpose, scope, destination,
+                     binding_id, binding_rev, model, attempt, repairs,
+                     chunk_ids, bytes_sent, reserved_tokens, permitted_at
+                 ) VALUES (
+                     gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+                     $11, $12, $13, $14
+                 ) RETURNING call_id",
+                &[
+                    &workspace,
+                    &receipt_seq,
+                    &request.purpose.as_str(),
+                    &request.scope,
+                    &request.destination,
+                    &request.reader.binding_id,
+                    &request.reader.binding_rev.as_bytes().as_slice(),
+                    &request.reader.model,
+                    &i32::from(request.attempt),
+                    &request.repairs.map(|c| c.0),
+                    &sent,
+                    &to_i64(bytes, "bytes sent")?,
+                    &to_i64(reserved, "reserved tokens")?,
+                    &request.at.0,
+                ],
+            )
+            .map_err(backend)?;
+        let call_id = CallId(receipt.get::<_, Uuid>(0));
+        // The receipt is durable before any text leaves this function.
+        tx.commit().map_err(backend)?;
+        Ok(Permit::Granted { call_id, chunks })
+    }
+
+    fn write_finish(&mut self, f: &CallFinish<'_>) -> Result<CallFinished, StoreError> {
+        let take = match i32::try_from(f.reads.len()) {
+            Ok(0) => None,
+            Ok(n) => Some(n),
+            Err(_) => return Err(corrupt("a call read too many chunks")),
+        };
+        let offered = f.reads.len() as u32;
+        let mut tx = write_transaction(self.client()?)?;
+        let writing = begin_write(&mut tx, f.scope, take)?;
+        // A provider's own count of tokens is a number from outside. One
+        // too large for the column is recorded as the largest it holds,
+        // so that it cannot keep a call's end from being recorded.
+        let tokens = |count: u64| i64::try_from(count).unwrap_or(i64::MAX);
+        let recorded = tx
+            .execute(
+                "INSERT INTO core_memory.outbound_results
+                     (call_id, result, input_tokens, output_tokens, finished_at)
+                 VALUES ($1, $2, $3, $4, $5)
+                 ON CONFLICT (call_id) DO NOTHING",
+                &[
+                    &f.call_id.0,
+                    &f.result.as_str(),
+                    &f.usage.map(|u| tokens(u.input_tokens)),
+                    &f.usage.map(|u| tokens(u.output_tokens)),
+                    &f.at.0,
+                ],
+            )
+            .map_err(backend)?;
+        if recorded == 0 {
+            // The end of this call is recorded: an earlier try committed,
+            // and its answer was lost on the way back. What that try
+            // stored and settled stands, and nothing is stored twice.
+            let stored: i64 = tx
+                .query_one(
+                    "SELECT count(*) FROM core_memory.chunk_reads WHERE call_id = $1",
+                    &[&f.call_id.0],
+                )
+                .map_err(backend)?
+                .get(0);
+            tx.commit().map_err(backend)?;
+            let stored = u32::try_from(stored).unwrap_or(u32::MAX).min(offered);
+            return Ok(CallFinished {
+                stored,
+                dropped: offered - stored,
+            });
+        }
+
+        let mut finished = CallFinished {
+            stored: 0,
+            dropped: offered,
+        };
+        // A scope that stopped being active while the model read keeps its
+        // work and gets nothing stored.
+        let numbered = writing
+            .filter(|w| w.state == ScopeState::Active)
+            .and_then(|w| w.first_seq.map(|seq| (w.workspace, seq)));
+        if let Some((workspace, first_seq)) = numbered {
+            let mut ids = Vec::with_capacity(f.reads.len());
+            let mut statuses = Vec::with_capacity(f.reads.len());
+            let mut type_keys: Vec<Option<&str>> = Vec::with_capacity(f.reads.len());
+            let mut type_revs: Vec<Option<i32>> = Vec::with_capacity(f.reads.len());
+            let mut abstained: Vec<Option<&str>> = Vec::with_capacity(f.reads.len());
+            let mut rejected = Vec::with_capacity(f.reads.len());
+            for read in f.reads {
+                ids.push(read.chunk_id.0);
+                match &read.decision {
+                    ReadDecision::Typed { type_ref } => {
+                        statuses.push("typed");
+                        type_keys.push(Some(type_ref.key.as_str()));
+                        type_revs.push(Some(to_i32(type_ref.rev, "type revision")?));
+                        abstained.push(None);
+                    }
+                    ReadDecision::Abstained { reason } => {
+                        statuses.push("abstained");
+                        type_keys.push(None);
+                        type_revs.push(None);
+                        abstained.push(Some(reason.as_str()));
+                    }
+                }
+                rejected.push(to_i32(read.spans_rejected, "rejected spans")?);
+            }
+            // Only chunks the call's receipt names, and only those that
+            // still have their text: erasing a chunk while the model read
+            // it leaves nothing behind.
+            let stored = tx
+                .query(
+                    "INSERT INTO core_memory.chunk_reads (
+                         workspace_id, seq, chunk_id, scope, call_id, status, type_key,
+                         type_rev, abstained, vocabulary_id, vocabulary_hash, binding_id,
+                         binding_rev, model, prompt_rev, spans_rejected, read_at
+                     )
+                     SELECT $1, $2 + u.n - 1, u.chunk_id, $3, $4, u.status, u.type_key,
+                            u.type_rev, u.abstained, $5, $6, $7, $8, $9, $10, u.rejected, $11
+                       FROM UNNEST($12::uuid[], $13::text[], $14::text[], $15::int4[],
+                                   $16::text[], $17::int4[])
+                            WITH ORDINALITY
+                            AS u (chunk_id, status, type_key, type_rev, abstained, rejected, n)
+                       JOIN core_memory.chunk_text AS t
+                         ON t.chunk_id = u.chunk_id AND t.scope = $3
+                      WHERE u.chunk_id = ANY ((SELECT o.chunk_ids FROM core_memory.outbound_calls AS o
+                                                WHERE o.call_id = $4 AND o.scope = $3)::uuid[])
+                  RETURNING chunk_id, seq",
+                    &[
+                        &workspace,
+                        &first_seq,
+                        &f.scope,
+                        &f.call_id.0,
+                        &f.vocabulary.id,
+                        &f.vocabulary.hash.as_bytes().as_slice(),
+                        &f.reader.binding_id,
+                        &f.reader.binding_rev.as_bytes().as_slice(),
+                        &f.reader.model,
+                        &to_i32(f.reader.prompt_rev, "prompt revision")?,
+                        &f.at.0,
+                        &ids,
+                        &statuses,
+                        &type_keys,
+                        &type_revs,
+                        &abstained,
+                        &rejected,
+                    ],
+                )
+                .map_err(backend)?;
+            let seq_of: BTreeMap<Uuid, i64> =
+                stored.iter().map(|row| (row.get(0), row.get(1))).collect();
+            let (mut read_seqs, mut ordinals, mut chunk_ids) = (Vec::new(), Vec::new(), Vec::new());
+            let (mut kinds, mut entity_kinds) = (Vec::new(), Vec::<Option<&str>>::new());
+            let (mut starts, mut ends) = (Vec::new(), Vec::new());
+            for read in f.reads {
+                let Some(seq) = seq_of.get(&read.chunk_id.0) else {
+                    continue;
+                };
+                for (ordinal, span) in read.spans.iter().enumerate() {
+                    read_seqs.push(*seq);
+                    ordinals.push(i32::try_from(ordinal).map_err(|_| corrupt("too many spans"))?);
+                    chunk_ids.push(read.chunk_id.0);
+                    kinds.push(span.kind.as_str());
+                    entity_kinds.push(span.kind.entity_kind().map(|k| k.as_str()));
+                    starts.push(to_i64(span.byte_start, "span offset")?);
+                    ends.push(to_i64(span.byte_end, "span offset")?);
+                }
+            }
+            if !read_seqs.is_empty() {
+                tx.execute(
+                    "INSERT INTO core_memory.chunk_read_spans (
+                         workspace_id, read_seq, ordinal, chunk_id, kind, entity_kind,
+                         byte_start, byte_end
+                     )
+                     SELECT $1, s.read_seq, s.ordinal, s.chunk_id, s.kind, s.entity_kind,
+                            s.byte_start, s.byte_end
+                       FROM UNNEST($2::int8[], $3::int4[], $4::uuid[], $5::text[], $6::text[],
+                                   $7::int8[], $8::int8[])
+                            AS s (read_seq, ordinal, chunk_id, kind, entity_kind,
+                                  byte_start, byte_end)",
+                    &[
+                        &workspace,
+                        &read_seqs,
+                        &ordinals,
+                        &chunk_ids,
+                        &kinds,
+                        &entity_kinds,
+                        &starts,
+                        &ends,
+                    ],
+                )
+                .map_err(backend)?;
+            }
+            // What was read is no longer owed.
+            let done: Vec<Uuid> = seq_of.keys().copied().collect();
+            tx.execute(
+                "DELETE FROM core_memory.work WHERE kind = 'chunk_read' AND chunk_id = ANY ($1)",
+                &[&done],
+            )
+            .map_err(backend)?;
+            finished.stored = done.len() as u32;
+            finished.dropped = (f.reads.len() - done.len()) as u32;
+        }
+        update_work(&mut tx, Purpose::ChunkRead, f.work)?;
+        tx.commit().map_err(backend)?;
+        Ok(finished)
+    }
+
+    fn write_work(&mut self, purpose: Purpose, work: &[WorkUpdate]) -> Result<(), StoreError> {
+        let mut tx = write_transaction(self.client()?)?;
+        hold_schema(&mut tx)?;
+        update_work(&mut tx, purpose, work)?;
+        tx.commit().map_err(backend)
+    }
+
+    fn read_work_counts(&mut self, purpose: Purpose) -> Result<WorkCounts, StoreError> {
+        let mut tx = read_transaction(self.client()?)?;
+        let rows = tx
+            .query(
+                "SELECT state, problem, count(*) FROM core_memory.work
+                  WHERE kind = $1 GROUP BY state, problem ORDER BY state, problem",
+                &[&purpose.as_str()],
+            )
+            .map_err(backend)?;
+        tx.commit().map_err(backend)?;
+        let mut counts = WorkCounts::default();
+        let mut problems: BTreeMap<String, u64> = BTreeMap::new();
+        for row in &rows {
+            let n = to_u64(row.get(2), "work count")?;
+            match row.get::<_, &str>(0) {
+                "ready" => counts.ready += n,
+                "leased" => counts.leased += n,
+                "failed" => counts.failed += n,
+                other => return Err(corrupt(format!("unknown work state `{other}`"))),
+            }
+            if let Some(problem) = row.get::<_, Option<String>>(1) {
+                *problems.entry(problem).or_default() += n;
+            }
+        }
+        counts.problems = problems.into_iter().collect();
+        Ok(counts)
+    }
+}
+
+/// Sets aside work of one kind that was handed out as often as it may be
+/// and never settled: a worker died with it, or could not record how its
+/// call ended. Handing it out again would make the same call once every
+/// lease, for good.
+///
+/// Rows another transaction holds are passed over, not waited for, so two
+/// workers never wait on each other here.
+fn set_aside_spent<C: GenericClient>(
+    tx: &mut C,
+    kind: Purpose,
+    max_attempts: u32,
+    now: Timestamp,
+) -> Result<(), StoreError> {
+    tx.execute(
+        "WITH spent AS (
+             SELECT w.kind, w.chunk_id
+               FROM core_memory.work AS w
+              WHERE w.kind = $1 AND w.attempts >= $2
+                AND (w.state = 'ready' OR (w.state = 'leased' AND w.leased_until < $3))
+                AND w.not_before <= $3
+                FOR UPDATE SKIP LOCKED
+         )
+         UPDATE core_memory.work AS w
+            SET state = 'failed', leased_until = NULL, problem = 'attempts_spent'
+           FROM spent
+          WHERE w.kind = spent.kind AND w.chunk_id = spent.chunk_id",
+        &[
+            &kind.as_str(),
+            &i32::try_from(max_attempts).unwrap_or(i32::MAX),
+            &now.0,
+        ],
+    )
+    .map_err(backend)?;
+    Ok(())
+}
+
+/// Puts work back in the queue, or sets it aside as failed.
+fn update_work<C: GenericClient>(
+    client: &mut C,
+    purpose: Purpose,
+    work: &[WorkUpdate],
+) -> Result<(), StoreError> {
+    if work.is_empty() {
+        return Ok(());
+    }
+    let ids: Vec<Uuid> = work.iter().map(|w| w.chunk_id.0).collect();
+    let problems: Vec<&str> = work.iter().map(|w| w.problem).collect();
+    let mut states = Vec::with_capacity(work.len());
+    let mut give_back = Vec::with_capacity(work.len());
+    let mut alone = Vec::with_capacity(work.len());
+    let mut not_before: Vec<Option<OffsetDateTime>> = Vec::with_capacity(work.len());
+    for update in work {
+        let (state, back, by_itself, when) = match update.next {
+            WorkNext::Defer { not_before } => ("ready", true, false, Some(not_before.0)),
+            WorkNext::Retry { not_before, alone } => ("ready", false, alone, Some(not_before.0)),
+            WorkNext::Failed => ("failed", false, false, None),
+        };
+        states.push(state);
+        give_back.push(back);
+        alone.push(by_itself);
+        not_before.push(when);
+    }
+    client
+        .execute(
+            "UPDATE core_memory.work AS w
+                SET state = u.state,
+                    leased_until = NULL,
+                    attempts = CASE WHEN u.give_back THEN greatest(w.attempts - 1, 0)
+                                    ELSE w.attempts END,
+                    alone = w.alone OR u.alone,
+                    not_before = coalesce(u.not_before, w.not_before),
+                    problem = u.problem
+               FROM UNNEST($2::uuid[], $3::text[], $4::bool[], $5::bool[], $6::timestamptz[],
+                           $7::text[])
+                    AS u (chunk_id, state, give_back, alone, not_before, problem)
+              WHERE w.kind = $1 AND w.chunk_id = u.chunk_id",
+            &[
+                &purpose.as_str(),
+                &ids,
+                &states,
+                &give_back,
+                &alone,
+                &not_before,
+                &problems,
+            ],
+        )
+        .map_err(backend)?;
+    Ok(())
 }

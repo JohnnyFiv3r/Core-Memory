@@ -3,6 +3,7 @@
 
 pub mod config;
 pub mod openapi;
+pub mod reading;
 pub mod report;
 pub mod runtime;
 pub mod server;

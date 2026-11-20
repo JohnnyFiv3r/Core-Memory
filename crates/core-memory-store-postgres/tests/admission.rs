@@ -8,7 +8,7 @@ mod common;
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use common::{CONFIG, T0, World, chat, chat_in, crm, engine_with, note};
+use common::{CONFIG, T0, World, chat, chat_in, crm, engine_with, events, note};
 use core_memory_contract::{
     AdmissionOutcome, Content, EventId, IdKey, RefusalReason, TimeBasis, Timestamp,
 };
@@ -465,12 +465,13 @@ fn export_pages_in_admission_order_and_filters_by_scope() {
         w.accept(&chat(&format!("a{i}"), "acme text"));
         w.accept(&chat_in("beta", &format!("b{i}"), "beta text"));
     }
-    let first = w.store.export_events("w1", 0, 4, None).unwrap();
+    let first = events(w.store.export("w1", 0, 4, None).unwrap());
     assert_eq!(first.len(), 4);
-    let rest = w
-        .store
-        .export_events("w1", first.last().unwrap().event.seq, 100, None)
-        .unwrap();
+    let rest = events(
+        w.store
+            .export("w1", first.last().unwrap().event.seq, 100, None)
+            .unwrap(),
+    );
     assert_eq!(rest.len(), 6);
     let ids: Vec<_> = first
         .iter()
@@ -481,15 +482,10 @@ fn export_pages_in_admission_order_and_filters_by_scope() {
         ids,
         ["a0", "b0", "a1", "b1", "a2", "b2", "a3", "b3", "a4", "b4"]
     );
-    let beta = w.store.export_events("w1", 0, 100, Some("beta")).unwrap();
+    let beta = events(w.store.export("w1", 0, 100, Some("beta")).unwrap());
     assert_eq!(beta.len(), 5);
     assert!(beta.iter().all(|e| e.event.key.scope == "beta"));
-    assert!(
-        w.store
-            .export_events("w2", 0, 100, None)
-            .unwrap()
-            .is_empty()
-    );
+    assert!(w.store.export("w2", 0, 100, None).unwrap().is_empty());
 }
 
 // ---- races between admissions and erasures of one record ----

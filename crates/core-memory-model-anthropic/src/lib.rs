@@ -6,6 +6,11 @@
 //! `output_config.effort`. Sampling parameters are not sent: that API
 //! version rejects them. Server-side refusal fallbacks are not enabled,
 //! because a decision must come from the model its binding pins (MOD-02).
+//!
+//! The API takes a subset of JSON Schema for a reply, and answers 400 to a
+//! schema that bounds a number, the length of a string or the size of an
+//! array. Those bounds are left out of what is sent, as the official SDKs
+//! do. Nothing is lost by that: the engine checks every reply itself.
 
 use std::fmt;
 use std::time::Duration;
@@ -80,7 +85,7 @@ impl AnthropicTransport {
     /// The request body for one call.
     pub fn body(binding: &BindingConfig, request: &ModelRequest) -> Value {
         let mut output_config = json!({
-            "format": {"type": "json_schema", "schema": request.response_schema},
+            "format": {"type": "json_schema", "schema": sendable(&request.response_schema)},
         });
         if let Some(effort) = &binding.reasoning_effort {
             output_config["effort"] = json!(effort);
@@ -93,6 +98,53 @@ impl AnthropicTransport {
             "output_config": output_config,
         })
     }
+}
+
+/// Keywords the API's structured outputs do not take: bounds on a number,
+/// on the length of a string and on the size of an array.
+const UNSENDABLE: [&str; 10] = [
+    "minimum",
+    "maximum",
+    "exclusiveMinimum",
+    "exclusiveMaximum",
+    "multipleOf",
+    "minLength",
+    "maxLength",
+    "minItems",
+    "maxItems",
+    "uniqueItems",
+];
+
+/// `schema` without the keywords the API refuses. Only keywords are
+/// removed: a property that happens to be named `maximum` stays.
+fn sendable(schema: &Value) -> Value {
+    let Value::Object(fields) = schema else {
+        return schema.clone();
+    };
+    let mut kept = serde_json::Map::new();
+    for (keyword, value) in fields {
+        if UNSENDABLE.contains(&keyword.as_str()) {
+            continue;
+        }
+        let value = match (keyword.as_str(), value) {
+            // Maps from a name to a schema. The names are not keywords.
+            ("properties" | "$defs" | "definitions", Value::Object(named)) => Value::Object(
+                named
+                    .iter()
+                    .map(|(name, schema)| (name.clone(), sendable(schema)))
+                    .collect(),
+            ),
+            // One schema, or a list of schemas.
+            ("items" | "not", schema) => sendable(schema),
+            ("anyOf" | "allOf" | "oneOf" | "prefixItems", Value::Array(schemas)) => {
+                Value::Array(schemas.iter().map(sendable).collect())
+            }
+            // Values, not schemas: an enum may list any JSON value.
+            (_, value) => value.clone(),
+        };
+        kept.insert(keyword.clone(), value);
+    }
+    Value::Object(kept)
 }
 
 /// The error reply for a prompt longer than the model's context window: a
@@ -185,9 +237,7 @@ mod tests {
             "endpoint": endpoint,
             "model": "claude-opus-5-5",
             "reasoning_effort": "low",
-            "max_output_tokens": 4096,
-            "scopes": ["*"],
-            "budget": {"max_requests_per_day": 10, "max_tokens_per_day": 100000}
+            "max_output_tokens": 4096
         }))
         .unwrap()
     }
@@ -227,6 +277,64 @@ mod tests {
         assert_eq!(sent["messages"][0]["role"], "user");
         assert!(sent.get("temperature").is_none());
         assert!(sent.get("fallbacks").is_none());
+    }
+
+    #[test]
+    fn bounds_the_api_does_not_take_are_left_out_of_the_schema() {
+        let mut request = request();
+        request.response_schema = json!({
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["action", "items"],
+            "properties": {
+                "action": {"type": "string", "minLength": 1, "maxLength": 120},
+                // A property with a keyword's name is a property.
+                "maximum": {"type": "integer", "minimum": 1, "maximum": 9},
+                "status": {"type": "string", "enum": ["minimum", "maxLength"]},
+                "items": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 8,
+                    "items": {
+                        "anyOf": [
+                            {"type": "string", "minLength": 1},
+                            {"type": "object", "additionalProperties": false,
+                             "properties": {"n": {"type": "number", "multipleOf": 2}}},
+                        ],
+                    },
+                },
+            },
+        });
+        let sent = AnthropicTransport::body(&binding("https://api.anthropic.com"), &request);
+        assert_eq!(
+            sent["output_config"]["format"]["schema"],
+            json!({
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["action", "items"],
+                "properties": {
+                    "action": {"type": "string"},
+                    "maximum": {"type": "integer"},
+                    "status": {"type": "string", "enum": ["minimum", "maxLength"]},
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "anyOf": [
+                                {"type": "string"},
+                                {"type": "object", "additionalProperties": false,
+                                 "properties": {"n": {"type": "number"}}},
+                            ],
+                        },
+                    },
+                },
+            })
+        );
+        // The request itself is not changed: its schema is what the
+        // binding's revision was computed from.
+        assert_eq!(
+            request.response_schema["properties"]["action"]["maxLength"],
+            120
+        );
     }
 
     #[test]

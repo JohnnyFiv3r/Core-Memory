@@ -307,11 +307,20 @@ fn erased_messages_leave_the_export_and_never_come_back() {
 
     let after = q.ok(&["export"]);
     assert!(after.len() < before.len());
+    // The document's event and chunks are gone from the export, with
+    // their text. One record says that the event was erased.
     assert!(
-        after.iter().all(|r| r["event_id"] != event_id.as_str()
-            && !r.to_string().contains("Billing cutover plan")),
-        "no trace of the erased document is exported"
+        after
+            .iter()
+            .all(|r| !r.to_string().contains("Billing cutover plan")),
+        "no text of the erased document is exported"
     );
+    let (erasures, kept): (Vec<_>, Vec<_>) =
+        after.iter().partition(|r| r["record_kind"] == "erasure");
+    assert!(kept.iter().all(|r| r["event_id"] != event_id.as_str()));
+    assert_eq!(erasures.len(), 1);
+    assert_eq!(erasures[0]["event_id"], event_id.as_str());
+    assert_eq!(erasures[0]["record_key"], format!("erasure:{event_id}"));
     // Erasing again, by ID this time, changes nothing.
     let again = q.ok(&["erase", "--reason", "user_request", "event", &event_id]);
     assert_eq!(again[0]["result"], "already_erased");
@@ -389,7 +398,10 @@ fn erased_messages_leave_the_export_and_never_come_back() {
         "acme",
     ]);
     assert_eq!(rest[0]["erased_events"], 2);
-    assert_eq!(q.ok(&["export"]).len(), 0);
+    // Nothing is left to export but the four erasures.
+    let left = q.ok(&["export"]);
+    assert_eq!(left.len(), 4);
+    assert!(left.iter().all(|r| r["record_kind"] == "erasure"));
     let scopes = q.ok(&["scope", "list"]);
     assert_eq!(
         (&scopes[0]["live_events"], &scopes[0]["erased_events"]),
@@ -853,4 +865,371 @@ fn the_server_runs_and_stops_cleanly_with_no_one_reading_its_log() {
         .unwrap();
     assert!(signalled.success());
     assert_eq!(server.0.wait().unwrap().code(), Some(0));
+}
+
+// ---- reading with a model ----
+
+/// A stand-in for a model server that speaks the chat completions API, on
+/// a local port. For every chunk it is shown it answers with the first
+/// listed type and marks the chunk's first word as an entity.
+struct StandIn {
+    addr: std::net::SocketAddr,
+    requests: std::sync::Arc<std::sync::Mutex<Vec<Value>>>,
+    /// The status it answers with instead, when not 0.
+    failing: std::sync::Arc<std::sync::atomic::AtomicU16>,
+}
+
+impl StandIn {
+    fn start() -> Self {
+        use std::io::{BufRead, Read, Write};
+        use std::sync::atomic::Ordering;
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let requests = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let failing = std::sync::Arc::new(std::sync::atomic::AtomicU16::new(0));
+        let (seen, status) = (requests.clone(), failing.clone());
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { continue };
+                let mut reader = std::io::BufReader::new(stream.try_clone().unwrap());
+                let mut length = 0usize;
+                loop {
+                    let mut line = String::new();
+                    if reader.read_line(&mut line).unwrap_or(0) == 0 || line.trim().is_empty() {
+                        break;
+                    }
+                    if let Some((name, value)) = line.split_once(':')
+                        && name.eq_ignore_ascii_case("content-length")
+                    {
+                        length = value.trim().parse().unwrap_or(0);
+                    }
+                }
+                let mut body = vec![0u8; length];
+                if reader.read_exact(&mut body).is_err() {
+                    continue;
+                }
+                let request: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
+                let (line, answer) = match status.load(Ordering::SeqCst) {
+                    0 => ("200 OK".to_string(), completion(&request)),
+                    code => (
+                        format!("{code} Stand-in"),
+                        serde_json::json!({"error": {"message": "the stand-in was told to fail"}}),
+                    ),
+                };
+                seen.lock().unwrap().push(request);
+                let answer = answer.to_string();
+                let _ = write!(
+                    stream,
+                    "HTTP/1.1 {line}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{answer}",
+                    answer.len()
+                );
+            }
+        });
+        Self {
+            addr,
+            requests,
+            failing,
+        }
+    }
+
+    fn requests(&self) -> Vec<Value> {
+        self.requests.lock().unwrap().clone()
+    }
+
+    fn fail_with(&self, status: u16) {
+        self.failing
+            .store(status, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// The config lines for a reader that calls this server.
+    fn config(&self, reader: &str) -> String {
+        format!(
+            "\n[reader]\nbinding = \"local\"\n{reader}\n\n[[binding]]\nid = \"local\"\nprovider = \"openai-compatible\"\nendpoint = \"http://{}/v1\"\nmodel = \"stand-in-1\"\nmax_output_tokens = 512\ntimeout_ms = 5000\n",
+            self.addr
+        )
+    }
+}
+
+/// A chat completion that reads every chunk the request shows.
+fn completion(request: &Value) -> Value {
+    let shown: Value = request["messages"][1]["content"]
+        .as_str()
+        .and_then(|user| serde_json::from_str(user.lines().next().unwrap_or_default()).ok())
+        .unwrap_or(Value::Null);
+    let first_type = shown["types"][0]["key"].clone();
+    let items: Vec<Value> = shown["chunks"]
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or_default()
+        .iter()
+        .map(|chunk| {
+            let first_word = chunk["text"]
+                .as_str()
+                .and_then(|text| text.split_whitespace().next())
+                .unwrap_or_default();
+            serde_json::json!({
+                "chunk": chunk["chunk"],
+                "type": first_type,
+                "entities": [{"text": first_word, "kind": "other"}],
+                "actions": [],
+                "outcomes": [],
+            })
+        })
+        .collect();
+    serde_json::json!({
+        "choices": [{
+            "message": {
+                "role": "assistant",
+                "content": serde_json::json!({"items": items}).to_string(),
+                "refusal": null,
+            },
+            "finish_reason": "stop",
+        }],
+        "usage": {"prompt_tokens": 400, "completion_tokens": 60},
+    })
+}
+
+impl Quickstart {
+    /// Adds lines to the config file.
+    fn configure(&self, more: &str) {
+        let config = self.dir.path().join("core-memory.toml");
+        let text = std::fs::read_to_string(&config).unwrap();
+        std::fs::write(&config, format!("{text}{more}")).unwrap();
+    }
+}
+
+fn of_kind<'a>(records: &'a [Value], kind: &str) -> Vec<&'a Value> {
+    records
+        .iter()
+        .filter(|r| r["record_kind"] == kind)
+        .collect()
+}
+
+#[test]
+fn chunks_are_read_once_their_scope_allows_the_model() {
+    let model = StandIn::start();
+    let destination = model.addr.to_string();
+    let q = Quickstart::ready();
+    q.configure(&model.config("batch_size = 3"));
+
+    // The config names the binding, and where it would send text.
+    let checked = q.ok(&["check"]);
+    assert!(
+        checked
+            .iter()
+            .any(|l| l["binding"] == "local" && l["destination"] == destination.as_str()),
+        "{checked:?}"
+    );
+    assert!(checked.iter().any(|l| l["reader"]["binding"] == "local"));
+
+    // Admission queues every chunk, and nothing is sent yet.
+    q.ok(&["ingest", "--input", "events.jsonl"]);
+    let stored = q.ok(&["export"]);
+    let chunks = of_kind(&stored, "chunk");
+    assert_eq!(q.ok(&["read", "status"])[0]["ready"], chunks.len());
+    assert!(of_kind(&stored, "chunk_read").is_empty());
+
+    // Without the scope's consent no text leaves.
+    let put_off = q.ok(&["read", "run"]);
+    assert!(!put_off.is_empty());
+    assert!(
+        put_off
+            .iter()
+            .all(|b| b["read"]["problem"] == "no_consent" && b["read"]["calls"] == 0),
+        "{put_off:?}"
+    );
+    assert!(model.requests().is_empty());
+
+    // Consent is to the binding's destination, and takes effect at once.
+    let allowed = q.ok(&["scope", "allow", "acme", "--binding", "local"]);
+    assert_eq!(
+        (&allowed[0]["destination"], &allowed[0]["changed"]),
+        (&Value::from(destination.as_str()), &Value::from(true))
+    );
+    assert_eq!(
+        q.ok(&["scope", "list"])[0]["allowed"],
+        serde_json::json!([destination])
+    );
+    let batches = q.ok(&["read", "run"]);
+    let read: u64 = batches
+        .iter()
+        .map(|b| b["read"]["stored"].as_u64().unwrap())
+        .sum();
+    assert_eq!(read, chunks.len() as u64, "{batches:?}");
+    assert!(batches.iter().all(|b| b["read"]["problem"].is_null()));
+    // One call for each batch of at most three chunks of one profile.
+    let requests = model.requests();
+    assert_eq!(requests.len(), batches.len());
+    assert!(requests.iter().all(|r| r["model"] == "stand-in-1"));
+
+    // What was read is exported after the chunks: a type from the
+    // vocabulary and ranges of the chunk's own text. No text of the model's.
+    let records = q.ok(&["export"]);
+    let reads = of_kind(&records, "chunk_read");
+    assert_eq!(reads.len(), chunks.len());
+    for read in &reads {
+        let chunk = chunks
+            .iter()
+            .find(|c| c["chunk_id"] == read["chunk_id"])
+            .unwrap();
+        let text = chunk["text"].as_str().unwrap();
+        let span = &read["spans"][0];
+        let (start, end) = (
+            span["byte_start"].as_u64().unwrap() as usize,
+            span["byte_end"].as_u64().unwrap() as usize,
+        );
+        assert_eq!(
+            Some(&text[start..end]),
+            text.split_whitespace().next(),
+            "{read}"
+        );
+        assert_eq!(span["kind"], "entity");
+        assert!(read["type"]["key"].is_string(), "{read}");
+        assert_eq!(read["reader"]["binding_id"], "local");
+        assert!(read.get("text").is_none() && span.get("text").is_none());
+    }
+    assert_eq!(q.ok(&["read", "status"])[0]["ready"], 0);
+    // Nothing is due, so nothing is sent again.
+    assert!(q.ok(&["read", "run"]).is_empty());
+    assert_eq!(model.requests().len(), requests.len());
+
+    // Erasing a message removes what was read in it.
+    let erased = reads[0]["chunk_id"].clone();
+    let event_id = chunks.iter().find(|c| c["chunk_id"] == erased).unwrap()["event_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    q.ok(&["erase", "--reason", "user_request", "event", &event_id]);
+    let after = q.ok(&["export"]);
+    assert!(
+        of_kind(&after, "chunk_read")
+            .iter()
+            .all(|r| r["chunk_id"] != erased)
+    );
+    assert_eq!(of_kind(&after, "erasure").len(), 1);
+
+    // Consent withdrawn, the next chunk is not sent.
+    let withdrawn = q.ok(&["scope", "disallow", "acme", "--destination", &destination]);
+    assert_eq!(withdrawn[0]["changed"], true);
+    std::fs::write(
+        q.dir.path().join("more.jsonl"),
+        r#"{"scope":"acme","source_ns":"slack/T01","external_id":"later","profile_id":"core.chat_transcript","media_type":"text/plain","content":{"text":"Written after consent was withdrawn."},"parser_contract_version":"1"}"#,
+    )
+    .unwrap();
+    q.ok(&["ingest", "--input", "more.jsonl"]);
+    let refused = q.ok(&["read", "run"]);
+    assert_eq!(refused[0]["read"]["problem"], "no_consent");
+    assert_eq!(model.requests().len(), requests.len());
+}
+
+#[test]
+fn what_was_stored_before_a_reader_is_queued_and_failed_reads_are_retried() {
+    let model = StandIn::start();
+    let q = Quickstart::ready();
+    // No reader yet: nothing is queued, and reading is refused by name.
+    q.ok(&["ingest", "--input", "events.jsonl"]);
+    let none = q.run(&["read", "run"]);
+    assert_eq!(none.status.code(), Some(1));
+    assert!(stderr(&none).contains("[reader]"), "{}", stderr(&none));
+
+    q.configure(&model.config("max_attempts = 1"));
+    q.ok(&["scope", "allow", "acme", "--binding", "local"]);
+    assert_eq!(q.ok(&["read", "status"])[0]["ready"], 0);
+    assert!(q.ok(&["read", "run"]).is_empty());
+    let chunks = of_kind(&q.ok(&["export"]), "chunk").len();
+    assert_eq!(q.ok(&["read", "queue", "acme"])[0]["queued"], chunks);
+    assert_eq!(q.ok(&["read", "queue", "acme"])[0]["queued"], 0);
+
+    // The provider turns the binding down. With one attempt allowed, the
+    // reads are set aside for an operator.
+    model.fail_with(401);
+    let failed = q.ok(&["read", "run"]);
+    assert!(
+        failed
+            .iter()
+            .all(|b| b["read"]["problem"] == "binding_rejected" && b["read"]["stored"] == 0),
+        "{failed:?}"
+    );
+    let status = &q.ok(&["read", "status"])[0];
+    assert_eq!(
+        (&status["failed"], &status["problems"]["binding_rejected"]),
+        (&Value::from(chunks), &Value::from(chunks))
+    );
+    assert!(q.ok(&["read", "run"]).is_empty());
+
+    // Fixed, and told to try again.
+    model.fail_with(0);
+    assert_eq!(q.ok(&["read", "retry"])[0]["retried"], chunks);
+    let batches = q.ok(&["read", "run"]);
+    let read: u64 = batches
+        .iter()
+        .map(|b| b["read"]["stored"].as_u64().unwrap())
+        .sum();
+    assert_eq!(read, chunks as u64);
+    assert_eq!(of_kind(&q.ok(&["export"]), "chunk_read").len(), chunks);
+
+    // Read with one reader, the chunks are queued again only on request,
+    // and only when the reader differs.
+    assert_eq!(q.ok(&["read", "queue", "acme", "--reread"])[0]["queued"], 0);
+    let config = q.dir.path().join("core-memory.toml");
+    let text = std::fs::read_to_string(&config).unwrap();
+    std::fs::write(&config, text.replace("stand-in-1", "stand-in-2")).unwrap();
+    assert_eq!(q.ok(&["read", "queue", "acme"])[0]["queued"], 0);
+    assert_eq!(
+        q.ok(&["read", "queue", "acme", "--reread"])[0]["queued"],
+        chunks
+    );
+
+    // A scope that is not enrolled, and one that is paused.
+    let unknown = q.run(&["read", "queue", "nowhere"]);
+    assert_eq!(unknown.status.code(), Some(1));
+    assert!(stderr(&unknown).contains("not enrolled"));
+    q.ok(&["scope", "pause", "acme"]);
+    let paused = q.run(&["read", "queue", "acme"]);
+    assert_eq!(paused.status.code(), Some(1));
+    assert!(stderr(&paused).contains("paused"), "{}", stderr(&paused));
+}
+
+#[cfg(unix)]
+#[test]
+fn the_service_reads_what_it_admits_and_still_stops_cleanly() {
+    use std::io::{Read, Write};
+
+    let model = StandIn::start();
+    let q = Quickstart::ready();
+    q.configure(&model.config(""));
+    q.ok(&["scope", "allow", "acme", "--binding", "local"]);
+    let serving = Serving::start(&q, "shutdown_grace_ms = 2000");
+
+    let body = r#"{"scope":"acme","source_ns":"slack/T01","external_id":"served","profile_id":"core.chat_transcript","media_type":"text/plain","content":{"text":"Priya shipped the export on Friday."},"parser_contract_version":"1"}"#;
+    let mut stream = std::net::TcpStream::connect(serving.addr).unwrap();
+    write!(
+        stream,
+        "POST /v1/events HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer cm_test_token\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    )
+    .unwrap();
+    let mut answer = String::new();
+    stream.read_to_string(&mut answer).unwrap();
+    assert!(answer.starts_with("HTTP/1.1 200"), "{answer}");
+
+    // The reader beside the server picks the chunk up within a few seconds.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+    let reads = loop {
+        let reads = of_kind(&q.ok(&["export"]), "chunk_read").len();
+        if reads > 0 || std::time::Instant::now() > deadline {
+            break reads;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    };
+    assert_eq!(reads, 1);
+    assert_eq!(model.requests().len(), 1);
+
+    let (status, log) = serving.stop();
+    assert_eq!(status.code(), Some(0), "{log}");
+    assert!(!log.contains("panicked"), "{log}");
+    // The log says a chunk was read, and nothing of what it said.
+    assert!(log.contains("\"stored\":1"), "{log}");
+    assert!(!log.contains("Priya"), "{log}");
 }

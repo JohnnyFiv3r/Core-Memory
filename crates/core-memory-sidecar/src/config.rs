@@ -5,8 +5,9 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use core_memory_contract::Sha256Digest;
+use core_memory_core::read::ReaderConfig;
 use core_memory_core::{
-    EngineConfig, Limits, ScopeGrants, SourceProfile, Vocabulary, is_identifier,
+    BindingConfig, EngineConfig, Limits, ScopeGrants, SourceProfile, Vocabulary, is_identifier,
 };
 use core_memory_store_postgres::{ConnectConfig, MAX_CONNECT_TIMEOUT, MAX_STATEMENT_TIMEOUT};
 use serde::Deserialize;
@@ -25,6 +26,12 @@ pub struct SidecarConfig {
     pub profiles: Vec<SourceProfile>,
     #[serde(default)]
     pub limits: Limits,
+    /// Has a model read each chunk. Without it the engine calls no model.
+    #[serde(default)]
+    pub reader: Option<ReaderConfig>,
+    /// The models the engine may call.
+    #[serde(default, rename = "binding")]
+    pub bindings: Vec<BindingConfig>,
     /// Settings for `core-memory serve`.
     #[serde(default)]
     pub http: Option<HttpConfig>,
@@ -315,6 +322,21 @@ impl Loaded {
         if c.store.pool_size == 0 {
             return Err("store.pool_size must be 1 or more".into());
         }
+        for (n, binding) in c.bindings.iter().enumerate() {
+            // Anything else here is likely the key itself, and is not
+            // repeated.
+            if binding
+                .api_key_env
+                .as_deref()
+                .is_some_and(|name| !is_env_name(name))
+            {
+                return Err(format!(
+                    "binding number {}: api_key_env must be the name of an environment \
+                     variable that holds the key, such as ANTHROPIC_API_KEY",
+                    n + 1
+                ));
+            }
+        }
         for (name, value, max) in [
             (
                 "store.connect_timeout_ms",
@@ -411,6 +433,8 @@ impl Loaded {
             vocabulary: self.config.vocabulary.clone(),
             profiles: self.config.profiles.clone(),
             limits: self.config.limits,
+            reader: self.config.reader.clone(),
+            bindings: self.config.bindings.clone(),
         }
     }
 }

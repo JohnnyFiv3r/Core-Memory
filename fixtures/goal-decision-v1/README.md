@@ -28,9 +28,19 @@ decisions.
 
 ## Running it
 
-Nothing in the workspace runs these cases at the moment. Typing by a model is
-being rebuilt on the PostgreSQL store, and the test that scores these cases
-returns with it. The cases, labels and evidence ranges are unchanged.
+```bash
+cargo test -p core-memory-store-postgres --features postgres-tests --test fixture
+```
+
+The test admits every case and has a stand-in model read it. The stand-in
+answers from the labels, so the test measures no model. It checks the scorer,
+and that a label and its evidence pass through the engine unchanged: every
+evidence quote must come back as the byte range the case gives. A stand-in
+that makes the two confusions must be caught, and one that abstains must be
+counted as neither right nor wrong.
+
+Measuring a model means reading the same cases with a configured reader,
+which costs model calls. That is done by hand, not by the test suite.
 
 ## Where it came from
 
