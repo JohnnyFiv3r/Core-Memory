@@ -71,6 +71,12 @@ It writes `score.md`, what was right and wrong, case by case, and the smoke
 test's `report.md`, with the cost. `MAX_MINUTES` sets the time limit, an
 hour by default.
 
+To compare readers, `READER_ONLY=1` reads the messages and judges nothing:
+about a cent a run. `READER_EFFORT` sets the reader's `reasoning_effort`
+(`none` turns its thinking off). `report.md` then gives the reader's tokens,
+what its rejected replies had wrong (`reply_faults`) and the quotes it
+dropped.
+
 The judge answers a hard pair differently from run to run, so one run says
 little about a pair or about a change to the judge. `REPEATS=3` (up to 5,
 what the judge's budget of a day holds) runs the cases that many times at

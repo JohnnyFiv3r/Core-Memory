@@ -3,7 +3,8 @@
 //! One call is one `POST /v1/messages` with API version `2026-10-21`. The
 //! reply is constrained to the request's JSON Schema with
 //! `output_config.format`, and the binding's `reasoning_effort` becomes
-//! `output_config.effort`. Sampling parameters are not sent: that API
+//! `output_config.effort`, or with `none` turns thinking off at effort
+//! `low`. Sampling parameters are not sent: that API
 //! version rejects them. Server-side refusal fallbacks are not enabled,
 //! because a decision must come from the model its binding pins (MOD-02).
 //!
@@ -27,7 +28,9 @@ pub const DEFAULT_ENDPOINT: &str = "https://api.anthropic.com";
 /// The provider name bindings use for this adapter.
 pub const PROVIDER: &str = "anthropic";
 
-const EFFORT_LEVELS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
+/// `none` is not an effort the API knows: it turns thinking off, which the
+/// API takes at effort `low`.
+const EFFORT_LEVELS: [&str; 6] = ["none", "low", "medium", "high", "xhigh", "max"];
 
 pub struct AnthropicTransport {
     client: HttpClient,
@@ -97,7 +100,9 @@ impl AnthropicTransport {
                 json!({"type": "json_schema", "schema": sendable(&request.response_schema)}),
             );
         }
+        let thinking_off = binding.reasoning_effort.as_deref() == Some("none");
         if let Some(effort) = &binding.reasoning_effort {
+            let effort = if thinking_off { "low" } else { effort.as_str() };
             output_config.insert("effort".into(), json!(effort));
         }
         // The instructions are the same for every call of a reader or a
@@ -116,6 +121,9 @@ impl AnthropicTransport {
         });
         if !output_config.is_empty() {
             body["output_config"] = Value::Object(output_config);
+        }
+        if thinking_off {
+            body["thinking"] = json!({"type": "disabled"});
         }
         body
     }
@@ -321,6 +329,20 @@ mod tests {
         );
         assert!(sent.get("temperature").is_none());
         assert!(sent.get("fallbacks").is_none());
+    }
+
+    #[test]
+    fn effort_none_turns_thinking_off() {
+        let mut quiet = binding("https://api.anthropic.com");
+        quiet.reasoning_effort = Some("none".into());
+        AnthropicTransport::check_binding(&quiet).unwrap();
+        let sent = AnthropicTransport::body(&quiet, &request());
+        assert_eq!(sent["thinking"], json!({"type": "disabled"}));
+        assert_eq!(sent["output_config"]["effort"], "low");
+        // Any other effort leaves thinking to the model.
+        let sent = AnthropicTransport::body(&binding("https://api.anthropic.com"), &request());
+        assert!(sent.get("thinking").is_none());
+        assert_eq!(sent["output_config"]["effort"], "low");
     }
 
     #[test]
