@@ -248,6 +248,10 @@ certificates:
 ca_file = "proxy-ca.pem"   # trusted as well as the public roots
 ```
 
+Without it, a call to a server whose certificate is not trusted sends
+nothing: `core-memory read status` shows its work put off with the problem
+`endpoint_untrusted`, and no call of that kind is tried for ten minutes.
+
 ### Tool calls
 
 An agent's call of a tool is an event like any other, with the call as its

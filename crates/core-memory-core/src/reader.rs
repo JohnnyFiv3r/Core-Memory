@@ -37,8 +37,9 @@ use crate::store::{
 /// How long work waits when its scope cannot be read for now: it is not
 /// active, has not granted the destination, or the day's budget is spent.
 pub(crate) const DEFER_MS: u64 = 300_000;
-/// How long work waits after the provider turned a request itself down.
-/// That is a problem with the binding, which an operator has to fix.
+/// How long work waits after the provider turned a request itself down, or
+/// its server's certificate was not trusted. That is a problem with the
+/// binding or the trust settings, which an operator has to fix.
 pub const BINDING_FAULT_BACKOFF_MS: u64 = 600_000;
 /// Margin a lease has over the two calls it may cover.
 pub(crate) const LEASE_MARGIN_MS: u64 = 10_000;
@@ -116,6 +117,15 @@ pub(crate) fn failure(error: &TransportError, backoff_ms: u64) -> Failure {
         TransportError::Permanent { .. } => (
             CallResult::Failed,
             "binding_rejected",
+            false,
+            BINDING_FAULT_BACKOFF_MS.max(backoff_ms),
+        ),
+        // Nothing was sent, and nothing will be until an operator changes
+        // what the engine trusts: as long a wait as for a binding turned
+        // down.
+        TransportError::Untrusted { .. } => (
+            CallResult::NotSent,
+            "endpoint_untrusted",
             false,
             BINDING_FAULT_BACKOFF_MS.max(backoff_ms),
         ),
@@ -770,6 +780,34 @@ mod tests {
         // request may succeed.
         assert!(declined.alone && cut_off.alone);
         assert_eq!(cut_off.result, CallResult::Refused);
+    }
+
+    #[test]
+    fn a_server_not_trusted_is_told_from_a_call_in_doubt() {
+        let untrusted = super::failure(
+            &TransportError::Untrusted {
+                message: "certificate not trusted".into(),
+            },
+            1_000,
+        );
+        // Nothing was sent: the receipt says so, and the work is not in
+        // doubt. It waits as long as for a binding turned down, since every
+        // call fails alike until an operator fixes what is trusted.
+        assert_eq!(
+            (untrusted.result, untrusted.problem, untrusted.alone),
+            (CallResult::NotSent, "endpoint_untrusted", false)
+        );
+        assert_eq!(untrusted.wait_ms, super::BINDING_FAULT_BACKOFF_MS);
+        let in_doubt = super::failure(
+            &TransportError::InDoubt {
+                message: "timed out".into(),
+            },
+            1_000,
+        );
+        assert_eq!(
+            (in_doubt.result, in_doubt.problem),
+            (CallResult::InDoubt, "call_in_doubt")
+        );
     }
 
     use crate::{Engine, EngineConfig, ManualClock};

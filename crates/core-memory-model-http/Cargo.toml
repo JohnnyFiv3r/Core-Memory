@@ -12,6 +12,7 @@ publish.workspace = true
 
 [dependencies]
 core-memory-core.workspace = true
+rustls.workspace = true
 serde_json.workspace = true
 ureq.workspace = true
 webpki-root-certs.workspace = true

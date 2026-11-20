@@ -25,7 +25,10 @@ left in the queue, and the report says so.
   `ANTHROPIC_API_KEY` is not read, so that other tools on the machine do not
   start using the key;
 - `python3`, `curl` and `sha256sum`;
-- behind a proxy that re-signs TLS, its certificates in `MODELS_CA_FILE`.
+- behind a proxy or gateway that re-signs TLS, its certificate authority in
+  `MODELS_CA_FILE`, which the runner writes to the config as `[models]
+  ca_file`. Without it nothing is sent: the run stops at once and says to
+  set it.
 
 ## Running it
 

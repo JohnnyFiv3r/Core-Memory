@@ -65,8 +65,9 @@ while :; do
   fi
   cat "$out/last-rounds.jsonl" >>"$out/rounds.jsonl"
   cat "$out/last-run.log" >>"$out/runs.log"
-  # Calls made, work still to do (ready or leased), and whether the API
-  # turned a binding down.
+  # Calls made, work still to do (ready or leased), and whether no call
+  # can succeed: the API turned a binding down (1), or the server's
+  # certificate was not trusted (2).
   read -r calls owed rejected < <(python3 -I "$here/report.py" --left \
     "$out/last-run.log" "$out/last-rounds.jsonl")
   if [ "$owed" -eq 0 ]; then
@@ -75,6 +76,11 @@ while :; do
   fi
   if [ "$rejected" -eq 1 ]; then
     why="the API turned the key or a model down; see runs.log"
+    break
+  fi
+  if [ "$rejected" -eq 2 ]; then
+    why="the model server's TLS certificate was not trusted, so nothing was sent: \
+set MODELS_CA_FILE to the certificate authority of the proxy or gateway that re-signs it"
     break
   fi
   if [ "$calls" -eq 0 ]; then

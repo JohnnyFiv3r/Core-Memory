@@ -241,6 +241,10 @@ pub enum TransportError {
     DidNotFit { message: String },
     /// The request may have been processed: a timeout after sending.
     InDoubt { message: String },
+    /// The server's certificate was not trusted, so the connection was
+    /// refused before any of the request was sent. Every call will fail
+    /// alike until an operator changes what the engine trusts.
+    Untrusted { message: String },
 }
 
 impl fmt::Display for TransportError {
@@ -251,6 +255,7 @@ impl fmt::Display for TransportError {
             TransportError::Refused { message } => write!(f, "refused: {message}"),
             TransportError::DidNotFit { message } => write!(f, "did not fit: {message}"),
             TransportError::InDoubt { message } => write!(f, "in doubt: {message}"),
+            TransportError::Untrusted { message } => write!(f, "untrusted: {message}"),
         }
     }
 }
