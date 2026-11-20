@@ -348,10 +348,12 @@ What this is bound by, from OpenAI's Sign in with ChatGPT terms:
 - **Your plan's limits apply.** Plus has a five-hour limit shared by every app
   that uses your plan. When it is reached, `core-memory read status` shows
   work put off with the problem `plan_limit_reached`, and no call of that
-  kind is made for ten minutes. Work set aside meanwhile goes back with
-  `core-memory read retry`. See and change what Core Memory may use at
+  kind is made for ten minutes. A call your plan turned away costs the work
+  none of its attempts, so it waits for the limit to reset and is read then,
+  with nothing for you to do. See and change what Core Memory may use at
   [ChatGPT settings, Usage](https://chatgpt.com/settings/usage). A sign-in
-  that has ended shows as `signin_required`: run `core-memory login chatgpt`.
+  that has ended shows as `signin_required`: run `core-memory login chatgpt`,
+  then `core-memory read retry` for any work set aside meanwhile.
 
 On a server with no browser, sign in where your browser is, into a file kept
 apart from your own sign-in, copy it over SSH, and import it on the server.

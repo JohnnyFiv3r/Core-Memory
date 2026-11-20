@@ -715,13 +715,14 @@ read's identity.
 | The provider turned the request itself down | Tried again after ten minutes. An operator has to fix the binding. No lane of that kind (chunks, tool calls or judging) starts another call for those ten minutes: a wrong key or model fails every call alike. Lanes that were already calling may each be turned down too. | `binding_rejected` |
 | The server's certificate is not trusted | Nothing was sent: the receipt says `not_sent`. Tried again after ten minutes, and no lane of that kind starts another call meanwhile, as for a binding turned down. An operator has to trust the certificate's authority with `[models] ca_file`, as behind a proxy or gateway that re-signs TLS. | `endpoint_untrusted` |
 | A binding signed in to cannot use its sign-in: there is none, it has ended, it lacks the plan's permission, or its owner has not agreed on this machine to calls in the background | Nothing reached the model: the receipt says `not_sent`. Tried again after ten minutes, and no lane of that kind starts another call meanwhile. The owner has to sign in again (`core-memory login chatgpt`). | `signin_required` |
-| The plan behind a binding has used what it may for now | Tried again after ten minutes, and no lane of that kind starts another call meanwhile. The receipt says `not_sent` if the provider turned the call away, and `in_doubt` if it stopped a reply it had begun. | `plan_limit_reached` |
+| The plan behind a binding has used what it may for now | Tried again after ten minutes, and no lane of that kind starts another call meanwhile. The receipt says `not_sent` if the provider turned the call away, and `in_doubt` if it stopped a reply it had begun. A call turned away costs the work no attempt, unless another call was made for it that round: the allowance comes back by itself, so the work waits for it instead of being set aside. | `plan_limit_reached` |
 | A tool call's stored text does not hold what its event says | Set aside at once. Nothing is sent. | `text_unreadable` |
 | The work was handed out `max_attempts` times and never settled | Set aside, when it would have been handed out again. | `attempts_spent` |
 
 Work that was put off before any call was made does not count as an
-attempt. Once a call was made for it, the attempt counts whatever comes
-next: a repair that is not permitted leaves the work put off and one attempt
+attempt, and neither does a call a plan turned away at the door because its
+allowance is spent for now. Once a call was made for it, the attempt counts
+whatever comes next: a repair that is not permitted leaves the work put off and one attempt
 poorer. After `max_attempts` calls an item's work is set aside as `failed`,
 until `core-memory read retry` puts it back.
 

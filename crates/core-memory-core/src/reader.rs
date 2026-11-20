@@ -98,6 +98,23 @@ pub(crate) struct Failure {
     /// Whether each item should be tried on its own from now on.
     pub alone: bool,
     pub wait_ms: u64,
+    /// Whether the call used an attempt of the work it was for. A call a
+    /// plan turned away at the door, because its allowance is spent for
+    /// now, did not: the allowance comes back by itself, and the work is
+    /// not to be set aside for an operator while it waits.
+    pub counts: bool,
+}
+
+impl Failure {
+    /// The same failure, for a call made after another in the same round
+    /// for the same work. That first call used the attempt, whatever
+    /// became of this one.
+    pub(crate) fn after_a_call(self) -> Self {
+        Self {
+            counts: true,
+            ..self
+        }
+    }
 }
 
 /// Sorts a transport error. `backoff_ms` is the reader's own wait between
@@ -156,6 +173,7 @@ pub(crate) fn failure(error: &TransportError, backoff_ms: u64) -> Failure {
         problem,
         alone,
         wait_ms,
+        counts: !matches!(error, TransportError::LimitReached { started: false, .. }),
     }
 }
 
@@ -415,7 +433,8 @@ impl Engine {
         let response = match self.call(transport, reader, &request, &mut report) {
             Ok(response) => response,
             Err(e) => {
-                self.finish_failed(store, reader, &batch, &first, &e, &mut report)?;
+                let failed = failure(&e, self.backoff_ms());
+                self.finish_failed(store, reader, &batch, &first, failed, &mut report)?;
                 return Ok(ReadRound::Handled(report));
             }
         };
@@ -508,7 +527,8 @@ impl Engine {
         let response = match self.call(transport, reader, &repair_request, &mut report) {
             Ok(response) => response,
             Err(e) => {
-                self.finish_failed(store, reader, &batch, &second, &e, &mut report)?;
+                let failed = failure(&e, self.backoff_ms()).after_a_call();
+                self.finish_failed(store, reader, &batch, &second, failed, &mut report)?;
                 return Ok(ReadRound::Handled(report));
             }
         };
@@ -642,7 +662,7 @@ impl Engine {
         reader: &CompiledReader,
         batch: &ReadBatch,
         sent: &Sent<'_>,
-        error: &TransportError,
+        failed: Failure,
         report: &mut ReadReport,
     ) -> Result<(), EngineError> {
         let Failure {
@@ -650,8 +670,21 @@ impl Engine {
             problem,
             alone,
             wait_ms,
-        } = failure(error, self.backoff_ms());
-        let work = if result == CallResult::Refused && sent.chunks.len() == 1 {
+            counts,
+        } = failed;
+        let work = if !counts {
+            // Turned away before anything was read, for a reason that
+            // passes by itself: put off, its attempt given back.
+            let not_before = self.clock.now().truncated_to_micros().plus_millis(wait_ms);
+            sent.chunks
+                .iter()
+                .map(|chunk| WorkUpdate {
+                    item: WorkItem::Chunk(chunk.chunk_id),
+                    next: WorkNext::Defer { not_before },
+                    problem,
+                })
+                .collect()
+        } else if result == CallResult::Refused && sent.chunks.len() == 1 {
             // The model declined this one chunk, or it does not fit. The
             // same request would get the same answer, so it is not made
             // again until an operator has looked.
@@ -881,6 +914,13 @@ mod tests {
         );
         assert_eq!(at_door.wait_ms, super::BINDING_FAULT_BACKOFF_MS);
         assert!(!at_door.alone && !mid_reply.alone);
+        // Turned away at the door, the work keeps its attempt: the
+        // allowance comes back by itself. Not so once the reply began, or
+        // after another call this round, or for a sign-in that someone
+        // must renew.
+        assert!(!at_door.counts);
+        assert!(mid_reply.counts && signin.counts);
+        assert!(at_door.after_a_call().counts);
     }
 
     use crate::{Engine, EngineConfig, ManualClock};

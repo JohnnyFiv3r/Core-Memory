@@ -1173,6 +1173,38 @@ fn a_sign_in_to_renew_or_a_plan_limit_is_recorded_as_such_and_waits() {
 }
 
 #[test]
+fn a_plan_limit_at_the_door_puts_work_off_without_spending_its_attempts() {
+    let mut w = reading("");
+    w.accept(&chat("1", "read once the plan's allowance comes back"));
+    let at_door = || TransportError::LimitReached {
+        message: "limit".into(),
+        started: false,
+    };
+    // More rounds than the reader's three attempts: a Plus plan's limit
+    // lasts hours, and comes back by itself.
+    let transport = ScriptedTransport::new((0..5).map(|_| Err(at_door())).collect());
+    for _ in 0..5 {
+        assert_eq!(
+            handled(round(&mut w, &transport)).problem,
+            Some("plan_limit_reached")
+        );
+        // Nothing was read, and nothing counts against the chunk.
+        assert_eq!(
+            w.count("SELECT attempts::bigint FROM core_memory.work WHERE state = 'ready'"),
+            0
+        );
+        w.clock.advance_millis(660_000);
+    }
+    let counts = w.store.work_counts(Purpose::ChunkRead).unwrap();
+    assert_eq!((counts.ready, counts.failed), (1, 0), "never set aside");
+    assert_eq!(
+        w.count("SELECT count(*) FROM core_memory.outbound_results WHERE result = 'not_sent'"),
+        5
+    );
+    assert_eq!(handled(round(&mut w, &FnTransport(decide_all))).stored, 1);
+}
+
+#[test]
 fn a_days_budget_stops_calls_until_the_next_day() {
     let mut w =
         reading("[binding.budget]\nmax_requests_per_day = 1\nmax_tokens_per_day = 1000000\n");

@@ -504,7 +504,7 @@ impl Engine {
             Ok(response) => response,
             Err(e) => {
                 report.calls += 1;
-                let failed = failure(&e, settings.retry_backoff_ms);
+                let failed = failure(&e, settings.retry_backoff_ms).after_a_call();
                 report.problem = Some(failed.problem);
                 self.finish_judgment(
                     store,
@@ -631,7 +631,12 @@ impl Engine {
             .iter()
             .map(|bead| WorkUpdate {
                 item: reading.item(*bead),
-                next: if declined_alone {
+                next: if !failed.counts {
+                    // Turned away before anything was read, for a reason
+                    // that passes by itself: put off, its attempt given
+                    // back.
+                    WorkNext::Defer { not_before }
+                } else if declined_alone {
                     WorkNext::Failed
                 } else {
                     reading.retry(*bead, not_before, failed.alone)
