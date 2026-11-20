@@ -41,6 +41,11 @@ what the judge said, with the text of both beads, for a person to read.
 The output folder holds the conversation's text (`events.jsonl`,
 `export.jsonl`). Keep it out of this repository.
 
+The reader types chunks with memoriesQL's current bead types at its schema
+60: the keys, revisions, definitions and order its `engine_vocabulary_v1()`
+returns, written into `core-memory.toml`, since the test runs without
+memoriesQL.
+
 Settings: `LOCOMO_SAMPLE` for another conversation, `MAX_MINUTES` for another
 time limit. The test refuses to start with less than the time limit and half
 an hour left in the UTC day, since a run past midnight would get a second

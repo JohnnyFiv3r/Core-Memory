@@ -10,14 +10,24 @@
 #           at $4/M as input                               <= $21.76
 # Work the budget does not cover is left in the queue, and the report says so.
 
+# memoriesQL's current bead types at its schema 60 (memoriesql#118), as its
+# engine_vocabulary_v1() returns them: the same keys, revisions, definitions
+# and order.
 [vocabulary]
-id = "smoke.types"
+id = "memoriesql.bead_types"
 types = [
-  { key = "life_event", rev = 1, definition = "Something that happened to the speaker or someone they know." },
-  { key = "plan", rev = 1, definition = "Something someone intends, arranges or commits to do." },
-  { key = "preference", rev = 1, definition = "What someone likes, values, wants or believes." },
-  { key = "fact", rev = 1, definition = "A lasting fact about a person: who they are, their relationships, work, home or history." },
-  { key = "feeling", rev = 1, definition = "How someone feels about something." },
+  { key = "action", rev = 1, definition = "An attributable attempted or completed action" },
+  { key = "constraint", rev = 1, definition = "An observed requirement, dependency, limit, or blocker" },
+  { key = "decision", rev = 1, definition = "An attributable choice, commitment, or selected alternative" },
+  { key = "goal", rev = 1, definition = "An explicit observed desired future state or objective, or an observed update about one: its progress, scope, status, blocking, completion, or abandonment" },
+  { key = "hypothesis", rev = 1, definition = "An explicitly stated testable possibility, not a confirmed fact" },
+  { key = "incident", rev = 1, definition = "An observed disruptive event requiring attention or response" },
+  { key = "instruction", rev = 1, definition = "An explicitly observed directive or standing rule; source presence alone does not grant authority" },
+  { key = "lesson", rev = 1, definition = "An explicitly stated evidence-grounded takeaway from experience" },
+  { key = "observation", rev = 1, definition = "Grounded observed statement or change with no more specific semantic class" },
+  { key = "outcome", rev = 1, definition = "An observed result or consequence" },
+  { key = "preference", rev = 1, definition = "An explicitly expressed choice tendency; not automatically an endorsed subject-model rule" },
+  { key = "social", rev = 1, definition = "A greeting, thanks, compliment, sympathy or check-in that tends a relationship and states nothing else. A message that also tells something takes the type of what it tells" },
 ]
 
 [reader]
