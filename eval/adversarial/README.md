@@ -68,6 +68,15 @@ It writes `score.md`, what was right and wrong, case by case, and the smoke
 test's `report.md`, with the cost. `MAX_MINUTES` sets the time limit, an
 hour by default.
 
+The judge answers a hard pair differently from run to run, so one run says
+little about a pair or about a change to the judge. `REPEATS=3` (up to 5,
+what the judge's budget of a day holds) runs the cases that many times at
+once, each run in a scope and workspace of its own (`adversarial-1`,
+`adversarial-2`, ...), so no run's beads are judged with another's. Then
+`score.md` gives each run's totals, each pair as right in so many of the
+runs with what every run said, and the reader's cases that were not right in
+every run. Each repeat costs what one run does.
+
 ## How it is scored
 
 - **The reader:** each message's type, or its abstention, against `expect`.

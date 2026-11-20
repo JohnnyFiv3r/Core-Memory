@@ -18,6 +18,14 @@ if [ -z "${CORE_MEMORY_ANTHROPIC_KEY:-}" ]; then
 fi
 bin=${CORE_MEMORY_BIN:-core-memory}
 max_minutes=${MAX_MINUTES:-60}
+# Independent runs of the cases, each in a scope and workspace of its own, so
+# no run's beads are judged with another's. The judge's budget of a day holds
+# five.
+repeats=${REPEATS:-1}
+case "$repeats" in
+  [1-5]) ;;
+  *) echo "run.sh: REPEATS must be 1 to 5" >&2; exit 2 ;;
+esac
 pause=${PAUSE_SECONDS:-30}
 quiet_limit=${QUIET_RUNS:-20}
 
@@ -28,8 +36,6 @@ if [ "$left_in_day" -lt $(((max_minutes + 30) * 60)) ]; then
   exit 2
 fi
 
-python3 -I "$here/cases_to_events.py" "$here/cases.toml" adversarial "$out/events.jsonl"
-
 config="$out/core-memory.toml"
 cp "$smoke/core-memory.toml" "$config"
 if [ -n "${MODELS_CA_FILE:-}" ]; then
@@ -39,10 +45,15 @@ cm() { "$bin" --config "$config" "$@"; }
 
 cm check >"$out/check.jsonl"
 cm migrate
-cm scope add adversarial --workspace adversarial
-# One allowance covers both bindings: they send to the same destination.
-cm scope allow adversarial --binding reader
-cm ingest --input "$out/events.jsonl" >"$out/ingest.jsonl"
+: >"$out/ingest.jsonl"
+for i in $(seq 1 "$repeats"); do
+  scope="adversarial-$i"
+  python3 -I "$here/cases_to_events.py" "$here/cases.toml" "$scope" "$out/events-$i.jsonl"
+  cm scope add "$scope" --workspace "$scope"
+  # One allowance covers both bindings: they send to the same destination.
+  cm scope allow "$scope" --binding reader
+  cm ingest --input "$out/events-$i.jsonl" >>"$out/ingest.jsonl"
+done
 
 : >"$out/rounds.jsonl"
 : >"$out/runs.log"
