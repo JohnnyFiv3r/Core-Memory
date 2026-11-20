@@ -39,6 +39,26 @@ nothing, and needs no key.
 
 ## What it has found
 
+**2026-11-20, one goal and `social` that yields to content** ($0.006, one
+run of 30 turns):
+
+| Vocabulary | Small talk (14) | Statements (10) | Goal turns (6) |
+|---|---|---|---|
+| memoriesQL's 11, one `goal` | 13 untyped, 1 `observation` | all typed by what they state | 4 `goal`, 1 `decision`, 1 `action` |
+| the 11 and `social` | 14 `social` | 9 typed by what they state, 1 `social` | 4 `goal`, 1 `decision`, 1 `preference` |
+
+- With its precedence ("states nothing else; a message that also tells
+  something takes the type of what it tells"), `social` no longer takes the
+  statements that open with thanks: the necklace from a grandmother is an
+  `observation`, "Pottery is a huge part of my life" a `preference`. The
+  first wording took four of ten statements; this one took one (D3:16, "5
+  years already! Time flies… Thanks, Caroline!").
+- One `goal` took four of the six goal turns; the others went to `decision`
+  ("Gonna continue my edu") and `action` or `preference` ("I've been looking
+  into counseling more"), which the judge can still relate to the goal.
+- With `social` offered, a few questions were quoted as actions ("Care to
+  share some stories?").
+
 **2026-11-19, vocabularies** ($0.009, one run of 30 turns, so a turn can
 flip between runs):
 
