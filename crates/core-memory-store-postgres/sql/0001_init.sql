@@ -362,7 +362,8 @@ CREATE TABLE core_memory.chunk_read_spans (
     chunk_id uuid NOT NULL REFERENCES core_memory.chunks,
     kind text NOT NULL CHECK (kind IN ('entity', 'action', 'outcome')),
     entity_kind text CHECK (entity_kind IN (
-        'person', 'organization', 'place', 'product', 'project', 'artifact', 'event', 'other'
+        'person', 'organization', 'group', 'place', 'project', 'product', 'system', 'agent',
+        'artifact', 'event', 'other'
     )),
     byte_start bigint NOT NULL CHECK (byte_start >= 0),
     byte_end bigint NOT NULL CHECK (byte_end > byte_start),

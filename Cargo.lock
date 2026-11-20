@@ -1180,6 +1180,7 @@ dependencies = [
 name = "reader-probe"
 version = "2.0.0-alpha.1"
 dependencies = [
+ "core-memory-contract",
  "core-memory-core",
  "core-memory-model-anthropic",
  "core-memory-model-http",

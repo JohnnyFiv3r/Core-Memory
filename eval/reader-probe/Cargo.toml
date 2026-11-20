@@ -1,6 +1,6 @@
 [package]
 name = "reader-probe"
-description = "Sends the engine's chunk reader the same LoCoMo turns under a few settings, to see why it types small talk"
+description = "Sends the engine's chunk reader the same LoCoMo turns under a few vocabularies, to see what it types and quotes"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -11,6 +11,7 @@ authors.workspace = true
 publish.workspace = true
 
 [dependencies]
+core-memory-contract.workspace = true
 core-memory-core.workspace = true
 core-memory-model-anthropic.workspace = true
 core-memory-model-http.workspace = true

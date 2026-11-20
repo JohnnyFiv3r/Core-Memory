@@ -27,7 +27,11 @@ use crate::model::{BindingConfig, ModelRequest};
 /// 3: the provider is no longer asked to hold the reply to its shape. Held
 /// to it, Claude Haiku 5.5 typed every chunk, small talk included, and
 /// quoted nothing (eval/reader-probe).
-pub const PROMPT_REV: u32 = 3;
+///
+/// 4: the entity kinds of memoriesQL's registry, and no rule of its own
+/// about small talk: whether a greeting or thanks has a type is the
+/// vocabulary's to say.
+pub const PROMPT_REV: u32 = 4;
 /// Revision of the reply validator. Part of every binding revision.
 pub const VALIDATOR_REV: u32 = 1;
 
@@ -48,10 +52,21 @@ For every chunk:
    - "no_fit": none of the listed types describes the chunk.
    - "insufficient_evidence": the chunk is too short or unclear to tell.
    - "ambiguous": two or more types fit equally well.
-   Abstaining is a correct answer, and often the right one. A message that only keeps a conversation going states nothing a type describes: a greeting, thanks, praise, agreement, or a question that asks the other person to say more. Abstain on it with "no_fit". A wrong type is worse than none.
+   Abstaining is a correct answer. A wrong type is worse than none.
 
 2. Mark what the chunk mentions, by quoting it:
-   - entities: named people, organizations, places, products, projects, artifacts (a document, file, ticket, message or piece of code) and events (a meeting, a release, an incident). Quote the name as it is written, and give its kind: person, organization, place, product, project, artifact, event or other.
+   - entities: what the chunk names. Quote the name as it is written, and give its kind:
+     - person: an individual human being;
+     - organization: a formally identified institution or company;
+     - group: a collection of people or other entities acting together;
+     - place: a geographically or logically located place;
+     - project: a bounded coordinated effort with an intended result;
+     - product: a product or service offered for use;
+     - system: a technical or socio-technical system;
+     - agent: an autonomous or delegated software agent;
+     - artifact: a created document, file, record, or other durable artifact (a ticket, a message, a piece of code);
+     - event: a meeting, a release, an incident or another thing that happens;
+     - other: a named thing that is none of these.
    - actions: what someone did, is doing or commits to doing. Quote the words that state it.
    - outcomes: a result that happened or a state that was reached. Quote the words that state it.
    Many chunks have none of these. Leave a list empty rather than stretch.

@@ -1,12 +1,11 @@
 //! Sends the engine's chunk reader the same LoCoMo turns under a few
-//! settings, and says for each what the model chose and how each call
-//! ended. The second live run (eval/locomo-smoke) typed every chunk, small
-//! talk included, and four harmless questions were refused; this finds
-//! out why. See README.md.
+//! vocabularies, and says for each turn what type the model chose and
+//! what it quoted. See README.md.
 //!
 //! The requests are the engine's own: its reader prompt and reply shape
 //! (`read::render`), its Anthropic request body (`AnthropicTransport::body`)
-//! and its HTTP client. Only the setting a variant names is changed.
+//! and its HTTP client, with the engine's settings for the reader. Only
+//! the vocabulary changes between variants.
 
 // A probe's output is what it prints, for a person to read.
 #![allow(clippy::print_stdout, clippy::print_stderr)]
@@ -16,104 +15,199 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Duration;
 
+use core_memory_contract::SpanKind;
 use core_memory_core::model::BindingConfig;
-use core_memory_core::read::{self, ChunkInput, Quotes, TypeOption};
+use core_memory_core::read::{self, ChunkInput, ChunkReading, Quotes, ReadChoice, TypeOption};
 use core_memory_model_anthropic::{API_VERSION, AnthropicTransport};
 use core_memory_model_http::{HttpClient, Roots};
 use serde_json::{Value, json};
 
 const ENDPOINT: &str = "https://api.anthropic.com";
 const MODEL: &str = "claude-haiku-5-5";
+const EFFORT: &str = "low";
+const PER_CALL: usize = 8;
 const MAX_OUTPUT_TOKENS: u32 = 4096;
 const KEY_ENV: &str = "CORE_MEMORY_ANTHROPIC_KEY";
 /// Dollars per million tokens, input and output.
 const PRICE: (f64, f64) = (0.10, 0.50);
 const SAMPLE: &str = "conv-26";
 
-/// The vocabulary of eval/locomo-smoke/core-memory.toml.
-const TYPES: [(&str, &str); 5] = [
+/// memoriesQL's bead types, as its registry defines them (schema 7).
+const REGISTRY: [(&str, &str); 12] = [
     (
-        "life_event",
-        "Something that happened to the speaker or someone they know.",
+        "observation",
+        "Grounded observed statement or change with no more specific semantic class",
     ),
     (
-        "plan",
-        "Something someone intends, arranges or commits to do.",
+        "decision",
+        "An attributable choice, commitment, or selected alternative",
+    ),
+    (
+        "goal_declaration",
+        "An explicit observed desired future state or objective",
+    ),
+    (
+        "goal_update",
+        "An observed progress, scope, status, blocking, completion, or abandonment update about a goal",
+    ),
+    ("action", "An attributable attempted or completed action"),
+    ("outcome", "An observed result or consequence"),
+    (
+        "lesson",
+        "An explicitly stated evidence-grounded takeaway from experience",
+    ),
+    (
+        "constraint",
+        "An observed requirement, dependency, limit, or blocker",
+    ),
+    (
+        "incident",
+        "An observed disruptive event requiring attention or response",
     ),
     (
         "preference",
-        "What someone likes, values, wants or believes.",
+        "An explicitly expressed choice tendency; not automatically an endorsed subject-model rule",
     ),
     (
-        "fact",
-        "A lasting fact about a person: who they are, their relationships, work, home or history.",
+        "instruction",
+        "An explicitly observed directive or standing rule; source presence alone does not grant authority",
     ),
-    ("feeling", "How someone feels about something."),
+    (
+        "hypothesis",
+        "An explicitly stated testable possibility, not a confirmed fact",
+    ),
 ];
 
-/// Messages that only keep the conversation going, where abstaining is
-/// right. The second run typed them all and refused D8:3, D8:5, D9:5 and
-/// D9:7.
+/// A type for what keeps people in touch, proposed beside the registry.
+///
+/// The first wording ("... that tends a relationship rather than telling
+/// news") took statements that open with thanks. This one says what a
+/// message that also tells something is.
+const SOCIAL: (&str, &str) = (
+    "social",
+    "A greeting, thanks, compliment, sympathy or check-in that tends a relationship and states nothing else. A message that also tells something takes the type of what it tells",
+);
+
+/// One type for a goal and the updates about it, in place of
+/// `goal_declaration` and `goal_update`, as memoriesQL's registry will
+/// have it: how an update relates to its goal is what the judge's
+/// relationships record.
+const GOAL: (&str, &str) = (
+    "goal",
+    "An explicit observed desired future state or objective, or an observed update about one: its progress, scope, status, blocking, completion, or abandonment",
+);
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Group {
+    SmallTalk,
+    Statement,
+    Goal,
+}
+
+impl Group {
+    fn name(self) -> &'static str {
+        match self {
+            Group::SmallTalk => "small talk",
+            Group::Statement => "statement",
+            Group::Goal => "goal",
+        }
+    }
+}
+
+/// Messages that tend a conversation: greetings, thanks, compliments and
+/// questions to the other person. The second run's reader refused D8:3,
+/// D8:5, D9:5 and D9:7.
 const SMALL_TALK: [&str; 14] = [
     "D1:1", "D1:4", "D1:8", "D3:15", "D3:19", "D4:12", "D5:7", "D8:3", "D8:5", "D8:18", "D8:38",
     "D9:5", "D9:7", "D18:6",
 ];
 
-/// Messages that state something one of the types describes.
+/// Messages that tell something about the speaker or their life.
 const STATEMENTS: [&str; 10] = [
     "D1:3", "D1:16", "D2:8", "D3:16", "D4:3", "D5:10", "D7:16", "D7:22", "D14:33", "D17:8",
 ];
 
-struct Variant {
-    name: &'static str,
-    effort: Option<&'static str>,
-    per_call: usize,
-    /// Whether the provider is asked to hold the reply to its shape, as the
-    /// engine did until reader prompt revision 3.
-    enforced: bool,
-}
-
-const VARIANTS: [Variant; 4] = [
-    Variant {
-        name: "as the second run: effort low, 8 to a call",
-        effort: Some("low"),
-        per_call: 8,
-        enforced: true,
-    },
-    Variant {
-        name: "effort medium, 8 to a call",
-        effort: Some("medium"),
-        per_call: 8,
-        enforced: true,
-    },
-    Variant {
-        name: "effort low, 1 to a call",
-        effort: Some("low"),
-        per_call: 1,
-        enforced: true,
-    },
-    Variant {
-        name: "effort low, 8 to a call, reply shape not enforced",
-        effort: Some("low"),
-        per_call: 8,
-        enforced: false,
-    },
-];
+/// Caroline's goal of working in counselling, and of adopting, stated and
+/// then restated with its progress.
+const GOALS: [&str; 6] = ["D1:9", "D1:11", "D2:10", "D4:13", "D6:3", "D7:5"];
 
 struct Turn {
     id: &'static str,
-    small_talk: bool,
+    group: Group,
     text: String,
 }
 
-/// What became of one turn in one variant.
+struct Variant {
+    name: &'static str,
+    types: Vec<(&'static str, &'static str)>,
+}
+
+fn variants() -> Vec<Variant> {
+    // memoriesQL's registry once the two goal types are merged.
+    let mut merged: Vec<_> = REGISTRY
+        .iter()
+        .copied()
+        .filter(|(key, _)| !key.starts_with("goal_"))
+        .collect();
+    merged.insert(2, GOAL);
+    let mut with_social = merged.clone();
+    with_social.push(SOCIAL);
+    vec![
+        Variant {
+            name: "memoriesQL's 11 types, with one goal",
+            types: merged,
+        },
+        Variant {
+            name: "the 11 and social",
+            types: with_social,
+        },
+    ]
+}
+
+/// The vocabularies of the probe's second run, kept so that a run can be
+/// repeated: memoriesQL's 12, the 12 and the first `social`, and 11 and the
+/// first `social` with one `goal`.
+#[allow(dead_code)]
+fn earlier_variants() -> Vec<Variant> {
+    let registry: Vec<_> = REGISTRY.to_vec();
+    let first_social = (
+        "social",
+        "A greeting, thanks, compliment, sympathy or check-in that tends a relationship rather than telling news",
+    );
+    let mut with_social = registry.clone();
+    with_social.push(first_social);
+    let mut one_goal: Vec<_> = REGISTRY
+        .iter()
+        .copied()
+        .filter(|(key, _)| !key.starts_with("goal_"))
+        .collect();
+    one_goal.insert(2, GOAL);
+    one_goal.push(first_social);
+    vec![
+        Variant {
+            name: "memoriesQL's 12 types",
+            types: registry,
+        },
+        Variant {
+            name: "the 12 and social",
+            types: with_social,
+        },
+        Variant {
+            name: "11 and social: one goal for goal_declaration and goal_update",
+            types: one_goal,
+        },
+    ]
+}
+
 #[derive(Default)]
 struct Tally {
-    abstained_small_talk: usize,
-    typed_statements: usize,
+    chosen: BTreeMap<String, usize>,
+    entities: usize,
+    actions: usize,
+    outcomes: usize,
     calls: usize,
-    refused: usize,
     cut_off: usize,
+    refused: usize,
     invalid: usize,
     failed: usize,
     input_tokens: u64,
@@ -151,30 +245,34 @@ fn run(data: &Path, dry_run: bool) -> Result<(), String> {
         None => None,
     };
     let client = HttpClient::trusting(Duration::from_secs(120), roots.as_ref());
-    let types: Vec<TypeOption<'_>> = TYPES
-        .iter()
-        .map(|(key, definition)| TypeOption {
-            key,
-            definition: Some(definition),
-        })
-        .collect();
-    let allowed: BTreeSet<&str> = TYPES.iter().map(|(key, _)| *key).collect();
+    let binding: BindingConfig = serde_json::from_value(json!({
+        "id": "probe",
+        "provider": "anthropic",
+        "endpoint": ENDPOINT,
+        "model": MODEL,
+        "reasoning_effort": EFFORT,
+        "max_output_tokens": MAX_OUTPUT_TOKENS,
+        "api_key_env": KEY_ENV,
+    }))
+    .map_err(|e| e.to_string())?;
 
+    let variants = variants();
+    // What each variant chose for each turn, for the side-by-side table.
+    let mut grid: BTreeMap<&str, Vec<String>> = BTreeMap::new();
     let mut summary = Vec::new();
-    for variant in &VARIANTS {
+    for variant in &variants {
         println!("\n## {}\n", variant.name);
-        let binding: BindingConfig = serde_json::from_value(json!({
-            "id": "probe",
-            "provider": "anthropic",
-            "endpoint": ENDPOINT,
-            "model": MODEL,
-            "reasoning_effort": variant.effort,
-            "max_output_tokens": MAX_OUTPUT_TOKENS,
-            "api_key_env": KEY_ENV,
-        }))
-        .map_err(|e| e.to_string())?;
+        let types: Vec<TypeOption<'_>> = variant
+            .types
+            .iter()
+            .map(|(key, definition)| TypeOption {
+                key,
+                definition: Some(definition),
+            })
+            .collect();
+        let allowed: BTreeSet<&str> = variant.types.iter().map(|(key, _)| *key).collect();
         let mut tally = Tally::default();
-        for batch in turns.chunks(variant.per_call) {
+        for batch in turns.chunks(PER_CALL) {
             let inputs: Vec<ChunkInput<'_>> = batch
                 .iter()
                 .map(|turn| ChunkInput {
@@ -182,8 +280,7 @@ fn run(data: &Path, dry_run: bool) -> Result<(), String> {
                     role: Some("user"),
                 })
                 .collect();
-            let mut request = read::render(&types, &inputs, MAX_OUTPUT_TOKENS);
-            request.enforce_schema = variant.enforced;
+            let request = read::render(&types, &inputs, MAX_OUTPUT_TOKENS);
             let body = AnthropicTransport::body(&binding, &request);
             if dry_run {
                 println!(
@@ -193,7 +290,10 @@ fn run(data: &Path, dry_run: bool) -> Result<(), String> {
                 break;
             }
             tally.calls += 1;
-            call(&client, &key, &body, batch, &allowed, &mut tally)?;
+            let choices = call(&client, &key, &body, batch, &allowed, &mut tally)?;
+            for (turn, choice) in batch.iter().zip(choices) {
+                grid.entry(turn.id).or_default().push(choice);
+            }
         }
         summary.push((variant.name, tally));
     }
@@ -201,24 +301,39 @@ fn run(data: &Path, dry_run: bool) -> Result<(), String> {
         return Ok(());
     }
 
+    println!("\n## Each turn under each vocabulary\n");
+    let names: Vec<&str> = variants.iter().map(|v| v.name).collect();
+    println!("| Turn | Group | {} |", names.join(" | "));
+    println!("|---|---|{}", "---|".repeat(names.len()));
+    for turn in &turns {
+        let chosen = grid.get(turn.id).cloned().unwrap_or_default();
+        println!(
+            "| {} | {} | {} |",
+            turn.id,
+            turn.group.name(),
+            chosen.join(" | ")
+        );
+    }
+
     println!("\n## Summary\n");
     println!(
-        "| Variant | Small talk abstained | Statements typed | Calls | Refused | Cut off | Invalid | Failed | Cost |"
+        "| Vocabulary | Choices | Entities, actions, outcomes quoted | Calls | Cut off | Refused | Invalid | Failed | Cost |"
     );
     println!("|---|---|---|---|---|---|---|---|---|");
     let mut total = 0.0;
     for (name, t) in &summary {
         let cost = (t.input_tokens as f64 * PRICE.0 + t.output_tokens as f64 * PRICE.1) / 1e6;
         total += cost;
+        let chosen: Vec<String> = t.chosen.iter().map(|(k, n)| format!("{k} {n}")).collect();
         println!(
-            "| {name} | {} of {} | {} of {} | {} | {} | {} | {} | {} | ${cost:.3} |",
-            t.abstained_small_talk,
-            SMALL_TALK.len(),
-            t.typed_statements,
-            STATEMENTS.len(),
+            "| {name} | {} | {}, {}, {} | {} | {} | {} | {} | {} | ${cost:.3} |",
+            chosen.join(", "),
+            t.entities,
+            t.actions,
+            t.outcomes,
             t.calls,
-            t.refused,
             t.cut_off,
+            t.refused,
             t.invalid,
             t.failed,
         );
@@ -227,9 +342,9 @@ fn run(data: &Path, dry_run: bool) -> Result<(), String> {
     Ok(())
 }
 
-/// Sends one batch and prints, for each turn, what the model chose. A key
-/// or model the API turns down stops the probe: every call would fail
-/// alike.
+/// Sends one batch, prints for each turn what the model chose and quoted,
+/// and returns the choices in batch order. A key or model the API turns
+/// down stops the probe: every call would fail alike.
 fn call(
     client: &HttpClient,
     key: &str,
@@ -237,7 +352,8 @@ fn call(
     batch: &[Turn],
     allowed: &BTreeSet<&str>,
     tally: &mut Tally,
-) -> Result<(), String> {
+) -> Result<Vec<String>, String> {
+    let unread = |why: &str| vec![format!("({why})"); batch.len()];
     let reply = match client.post_json(
         &format!("{ENDPOINT}/v1/messages"),
         &[("x-api-key", key), ("anthropic-version", API_VERSION)],
@@ -247,7 +363,7 @@ fn call(
         Err(e) => {
             tally.failed += 1;
             println!("- call failed before a reply: {e:?}");
-            return Ok(());
+            return Ok(unread("failed"));
         }
     };
     let said: Value = serde_json::from_str(&reply.body).unwrap_or(Value::Null);
@@ -259,40 +375,26 @@ fn call(
     }
     if !(200..300).contains(&reply.status) {
         tally.failed += 1;
-        println!(
-            "- HTTP {}: {} {}",
-            reply.status,
-            said["error"]["type"],
-            said["error"]["message"]
-                .as_str()
-                .unwrap_or_default()
-                .chars()
-                .take(200)
-                .collect::<String>()
-        );
-        return Ok(());
+        println!("- HTTP {}: {}", reply.status, said["error"]["type"]);
+        return Ok(unread("failed"));
     }
     tally.input_tokens += said["usage"]["input_tokens"].as_u64().unwrap_or(0);
     tally.output_tokens += said["usage"]["output_tokens"].as_u64().unwrap_or(0);
     let stop = said["stop_reason"].as_str().unwrap_or("?");
     let ids: Vec<&str> = batch.iter().map(|turn| turn.id).collect();
     println!(
-        "- call for {}: stop_reason {stop}{}, {} output tokens",
+        "- call for {}: stop_reason {stop}, {} output tokens",
         ids.join(" "),
-        match said["stop_details"]["category"].as_str() {
-            Some(category) => format!(" ({category})"),
-            None => String::new(),
-        },
         said["usage"]["output_tokens"]
     );
     match stop {
         "refusal" => {
             tally.refused += 1;
-            return Ok(());
+            return Ok(unread("refused"));
         }
         "max_tokens" => {
             tally.cut_off += 1;
-            return Ok(());
+            return Ok(unread("cut off"));
         }
         _ => {}
     }
@@ -307,63 +409,69 @@ fn call(
         })
         .unwrap_or_default();
     let texts: Vec<&str> = batch.iter().map(|turn| turn.text.as_str()).collect();
-    if let Err(problems) = read::validate(&text, &texts, allowed, Quotes::DropUnfound) {
-        tally.invalid += 1;
-        println!(
-            "  the engine would reject this reply: {}",
-            problems.first().map(String::as_str).unwrap_or("?")
-        );
-    }
-    let choices = choices(&text);
-    for (i, turn) in batch.iter().enumerate() {
-        let choice = choices
-            .get(&format!("C{}", i + 1))
-            .cloned()
-            .unwrap_or_else(|| "(no answer)".into());
-        if turn.small_talk && choice.starts_with("abstain") {
-            tally.abstained_small_talk += 1;
+    let readings = match read::validate(&text, &texts, allowed, Quotes::DropUnfound) {
+        Ok(readings) => readings,
+        Err(problems) => {
+            tally.invalid += 1;
+            println!(
+                "  the engine would reject this reply: {}",
+                problems.first().map(String::as_str).unwrap_or("?")
+            );
+            return Ok(unread("invalid"));
         }
-        if !turn.small_talk && choice.starts_with("type") {
-            tally.typed_statements += 1;
-        }
-        let kind = if turn.small_talk {
-            "small talk"
-        } else {
-            "statement"
+    };
+    let mut choices = Vec::new();
+    for (turn, reading) in batch.iter().zip(&readings) {
+        let choice = match &reading.choice {
+            ReadChoice::Type(key) => key.clone(),
+            ReadChoice::Abstain(why) => format!("no type ({})", why.as_str()),
         };
+        *tally.chosen.entry(choice.clone()).or_default() += 1;
         let shown: String = turn.text.chars().take(70).collect();
-        println!("  - {} ({kind}): {choice} — \"{shown}…\"", turn.id);
+        println!(
+            "  - {} ({}): {choice} — \"{shown}…\"",
+            turn.id,
+            turn.group.name()
+        );
+        let quoted = quotes(&turn.text, reading, tally);
+        if !quoted.is_empty() {
+            println!("    {}", quoted.join("; "));
+        }
+        choices.push(choice);
     }
-    Ok(())
+    Ok(choices)
 }
 
-/// What the reply chose for each handle: `type <key>`, `abstain <reason>`,
-/// or a note that it gave both or neither.
-fn choices(text: &str) -> BTreeMap<String, String> {
-    let trimmed = text
-        .trim()
-        .trim_start_matches("```json")
-        .trim_start_matches("```")
-        .trim_end_matches("```");
-    let value: Value = serde_json::from_str(trimmed.trim()).unwrap_or(Value::Null);
-    let mut out = BTreeMap::new();
-    for item in value["items"].as_array().into_iter().flatten() {
-        let Some(handle) = item["chunk"].as_str() else {
-            continue;
-        };
-        let choice = match (item["type"].as_str(), item["abstain"].as_str()) {
-            (Some(key), None) => format!("type {key}"),
-            (None, Some(reason)) => format!("abstain {reason}"),
-            (Some(key), Some(reason)) => format!("both: type {key}, abstain {reason}"),
-            (None, None) => "neither".into(),
-        };
-        out.insert(handle.to_string(), choice);
-    }
-    out
+/// What a reading quoted, as `kind: "words"`, and counted in `tally`.
+fn quotes(text: &str, reading: &ChunkReading, tally: &mut Tally) -> Vec<String> {
+    reading
+        .spans
+        .iter()
+        .map(|span| {
+            let words = text
+                .get(span.byte_start as usize..span.byte_end as usize)
+                .unwrap_or("?");
+            let kind = match span.kind {
+                SpanKind::Entity { entity_kind } => {
+                    tally.entities += 1;
+                    entity_kind.as_str()
+                }
+                SpanKind::Action => {
+                    tally.actions += 1;
+                    "action"
+                }
+                SpanKind::Outcome => {
+                    tally.outcomes += 1;
+                    "outcome"
+                }
+            };
+            format!("{kind}: \"{words}\"")
+        })
+        .collect()
 }
 
-/// The probe's turns from conv-26, small talk and statements alternating
-/// so each call of eight sees both.
+/// The probe's turns from conv-26: small talk, statements and goals
+/// interleaved, so each call sees all three.
 fn turns(data: &Path) -> Result<Vec<Turn>, String> {
     let text = std::fs::read_to_string(data).map_err(|e| format!("{}: {e}", data.display()))?;
     let all: Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
@@ -383,23 +491,34 @@ fn turns(data: &Path) -> Result<Vec<Turn>, String> {
             }
         }
     }
-    let mut small = SMALL_TALK.iter().map(|id| (*id, true));
-    let mut said = STATEMENTS.iter().map(|id| (*id, false));
+    let mut groups = [
+        SMALL_TALK
+            .iter()
+            .map(|id| (*id, Group::SmallTalk))
+            .collect::<Vec<_>>(),
+        STATEMENTS
+            .iter()
+            .map(|id| (*id, Group::Statement))
+            .collect(),
+        GOALS.iter().map(|id| (*id, Group::Goal)).collect(),
+    ]
+    .map(|group| group.into_iter());
     let mut order = Vec::new();
     loop {
-        let (a, b) = (small.next(), said.next());
-        if a.is_none() && b.is_none() {
+        let before = order.len();
+        for group in &mut groups {
+            order.extend(group.next());
+        }
+        if order.len() == before {
             break;
         }
-        order.extend(a);
-        order.extend(b);
     }
     order
         .into_iter()
-        .map(|(id, small_talk)| {
+        .map(|(id, group)| {
             Ok(Turn {
                 id,
-                small_talk,
+                group,
                 text: by_id
                     .get(id)
                     .cloned()
@@ -414,17 +533,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_reply_is_read_as_one_choice_per_handle() {
-        let reply = "```json\n{\"items\": [\
-            {\"chunk\": \"C1\", \"type\": \"fact\"},\
-            {\"chunk\": \"C2\", \"abstain\": \"no_fit\"},\
-            {\"chunk\": \"C3\", \"type\": \"plan\", \"abstain\": \"ambiguous\"},\
-            {\"chunk\": \"C4\"}]}\n```";
-        let read = choices(reply);
-        assert_eq!(read["C1"], "type fact");
-        assert_eq!(read["C2"], "abstain no_fit");
-        assert_eq!(read["C3"], "both: type plan, abstain ambiguous");
-        assert_eq!(read["C4"], "neither");
-        assert!(choices("not json").is_empty());
+    fn the_merged_registry_has_one_goal_and_social_is_added_to_it() {
+        let [merged, social] = variants().try_into().ok().unwrap();
+        assert_eq!(merged.types.len(), 11);
+        assert!(merged.types.contains(&GOAL));
+        assert!(!merged.types.iter().any(|(key, _)| key.starts_with("goal_")));
+        assert_eq!(social.types.len(), 12);
+        assert!(social.types.contains(&SOCIAL));
+    }
+
+    #[test]
+    fn the_earlier_vocabularies_differ_only_as_proposed() {
+        let [registry, social, goal] = earlier_variants().try_into().ok().unwrap();
+        assert_eq!(registry.types.len(), 12);
+        assert_eq!(social.types.len(), 13);
+        assert!(social.types.iter().any(|(key, _)| *key == "social"));
+        assert_eq!(goal.types.len(), 12);
+        assert!(goal.types.contains(&GOAL));
+        assert!(!goal.types.iter().any(|(key, _)| key.starts_with("goal_")));
     }
 }

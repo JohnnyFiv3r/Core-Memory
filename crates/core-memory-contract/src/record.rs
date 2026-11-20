@@ -377,8 +377,7 @@ pub struct ReadSpan {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SpanKind {
-    /// A named person, organization, place, product, project, artifact or
-    /// event the chunk mentions.
+    /// Something the chunk names, of one of the entity kinds.
     Entity { entity_kind: EntityKind },
     /// Something someone did, is doing or commits to doing.
     Action,
@@ -415,29 +414,46 @@ impl SpanKind {
     }
 }
 
-/// A coarse, closed set of entity kinds.
+/// A coarse, closed set of entity kinds: the entity types of memoriesQL's
+/// registry, and `other` for a named thing that is none of them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum EntityKind {
+    /// An individual human being.
     Person,
+    /// A formally identified institution or company.
     Organization,
+    /// A collection of people or other entities acting together.
+    Group,
+    /// A geographically or logically located place.
     Place,
-    Product,
+    /// A bounded coordinated effort with an intended result.
     Project,
-    /// A document, file, ticket, message, code object or other made thing.
+    /// A product or service offered for use.
+    Product,
+    /// A technical or socio-technical system.
+    System,
+    /// An autonomous or delegated software agent.
+    Agent,
+    /// A created document, file, record, or other durable artifact.
     Artifact,
     /// A meeting, release, incident or other thing that happens.
     Event,
+    /// A named thing that is none of the above. memoriesQL has no type for
+    /// it.
     Other,
 }
 
 impl EntityKind {
-    pub const ALL: [EntityKind; 8] = [
+    pub const ALL: [EntityKind; 11] = [
         EntityKind::Person,
         EntityKind::Organization,
+        EntityKind::Group,
         EntityKind::Place,
-        EntityKind::Product,
         EntityKind::Project,
+        EntityKind::Product,
+        EntityKind::System,
+        EntityKind::Agent,
         EntityKind::Artifact,
         EntityKind::Event,
         EntityKind::Other,
@@ -447,9 +463,12 @@ impl EntityKind {
         match self {
             EntityKind::Person => "person",
             EntityKind::Organization => "organization",
+            EntityKind::Group => "group",
             EntityKind::Place => "place",
-            EntityKind::Product => "product",
             EntityKind::Project => "project",
+            EntityKind::Product => "product",
+            EntityKind::System => "system",
+            EntityKind::Agent => "agent",
             EntityKind::Artifact => "artifact",
             EntityKind::Event => "event",
             EntityKind::Other => "other",

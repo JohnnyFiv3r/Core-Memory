@@ -1,38 +1,27 @@
 # Reader probe
 
-The second live run of `eval/locomo-smoke` typed every chunk, small talk
-included, and abstained on none, although the reader's prompt asks it to
-abstain on a message that only keeps a conversation going. Four harmless
-questions were also refused. This probe found out why.
+Sends the engine's chunk reader the same 30 turns of LoCoMo's `conv-26`
+under two vocabularies, and prints, for each turn, the type the model chose
+and what it quoted: the entities with their kinds, the actions and the
+outcomes. A table at the end puts the two side by side.
 
-**What it found (2026-11-19):** held to its reply shape, the model typed
-all 14 turns of small talk, and wrote about 160 output tokens for eight
-turns, too few for any quotes. With the shape not enforced, it abstained on
-all 14 and typed all 10 statements, writing several times as much, and the
-engine accepted every reply. Effort and batch size changed nothing. The four "refusals" were
-replies cut off at `max_output_tokens`. Since reader prompt revision 3 the
-engine no longer asks the provider to hold the reader's reply to its shape,
-and a cut-off reply is reported as `did_not_fit`. It cost $0.016.
+The requests are the engine's own: its reader prompt and reply shape
+(`read::render`), its Anthropic request body and its HTTP client, with the
+reader's settings of `eval/locomo-smoke` (Claude Haiku 5.5 at effort `low`,
+eight turns to a call). Only the vocabulary changes:
 
-It sends the engine's chunk reader 24 turns of LoCoMo's `conv-26`: 14 of
-small talk, where abstaining is right (the four that were refused among
-them), and 10 that state something a type describes. It sends them four
-times, changing one thing each time:
+1. memoriesQL's bead types with `goal_declaration` and `goal_update` merged
+   into one `goal`: 11 types;
+2. the 11 and `social`: a greeting, thanks, compliment, sympathy or
+   check-in that tends a relationship and states nothing else; a message
+   that also tells something takes the type of what it tells.
 
-1. as in the second run: Claude Haiku 5.5 at effort `low`, eight to a call;
-2. at effort `medium`;
-3. one to a call;
-4. with the reply shape not enforced, so the model answers from the prompt
-   alone.
+The turns are 14 of small talk, 10 that tell something about the speaker,
+and 6 about Caroline's goals, stated and then restated with their progress.
+The vocabularies of the earlier run are kept in `earlier_variants`.
 
-The requests are the engine's own: its prompt and reply shape, its Anthropic
-request body and its HTTP client. For each call it prints how the call ended
-(`stop_reason`, so a refusal and a cut-off reply are told apart), whether the
-engine would accept the reply, and what was chosen for each turn. A summary
-table ends the output.
-
-**It spends real money, very little:** 4 + 4 + 24 + 4 = 36 calls of Claude
-Haiku 5.5, about $0.03 in all.
+**It spends real money, very little:** 8 calls of Claude Haiku 5.5, under
+$0.01. It stops at once if the key is turned down.
 
 ## Running it
 
@@ -45,5 +34,65 @@ CORE_MEMORY_ANTHROPIC_KEY=... MODELS_CA_FILE=... \
 ```
 
 `MODELS_CA_FILE` is needed only behind a proxy that re-signs TLS. With
-`--dry-run` it prints the first request of each variant and sends nothing,
-and needs no key.
+`--dry-run` it prints the first request of each vocabulary and sends
+nothing, and needs no key.
+
+## What it has found
+
+**2026-11-20, one goal and `social` that yields to content** ($0.006, one
+run of 30 turns):
+
+| Vocabulary | Small talk (14) | Statements (10) | Goal turns (6) |
+|---|---|---|---|
+| memoriesQL's 11, one `goal` | 13 untyped, 1 `observation` | all typed by what they state | 4 `goal`, 1 `decision`, 1 `action` |
+| the 11 and `social` | 14 `social` | 9 typed by what they state, 1 `social` | 4 `goal`, 1 `decision`, 1 `preference` |
+
+- With its precedence ("states nothing else; a message that also tells
+  something takes the type of what it tells"), `social` no longer takes the
+  statements that open with thanks: the necklace from a grandmother is an
+  `observation`, "Pottery is a huge part of my life" a `preference`. The
+  first wording took four of ten statements; this one took one (D3:16, "5
+  years already! Time flies… Thanks, Caroline!").
+- One `goal` took four of the six goal turns; the others went to `decision`
+  ("Gonna continue my edu") and `action` or `preference` ("I've been looking
+  into counseling more"), which the judge can still relate to the goal.
+- With `social` offered, a few questions were quoted as actions ("Care to
+  share some stories?").
+
+**2026-11-19, vocabularies** ($0.009, one run of 30 turns, so a turn can
+flip between runs):
+
+| Vocabulary | Small talk (14) | Statements (10) | Goal turns (6) |
+|---|---|---|---|
+| memoriesQL's 12 | 14 untyped | all typed but D3:16 | 5 `goal_declaration`, 1 `goal_update` |
+| 12 and `social` | 9 `social`, 2 untyped, 3 in an invalid reply | D3:16 `social`, 4 in an invalid reply | 5 `goal_declaration`, 1 in an invalid reply |
+| 11 and `social`, one `goal` | 14 `social` | 4 `social` | 4 `goal`, 1 `action`, 1 `preference` |
+
+- With the reply shape not enforced the reader quotes again: 17 to 20
+  entities, 12 to 14 actions and 2 to 4 outcomes in 30 turns, using the new
+  kinds (`group`, `event`, `project`, `organization`).
+- Without a rule of its own about small talk, the reader left all 14 turns
+  untyped when no type fit them, and typed them `social` when that was
+  offered.
+- `social` as defined here takes statements that open with thanks ("Thanks,
+  Melanie! This necklace is super special to me - a gift from my grandma"):
+  its definition needs to say that a message which also tells something
+  takes the type of what it tells.
+- `goal_declaration` and `goal_update` were not told apart reliably: one of
+  three updates was typed `goal_update`. One `goal` took two of the three
+  declarations and two of the three updates; the others went to
+  `preference` and `action`. How an update relates to its goal is
+  what the judge's edges record (a `reaffirm` chain in both live runs).
+- One reply in twelve wrote an outcome as a string; the engine would repair
+  it once, which the probe does not.
+
+**2026-11-19, the reply shape.** An earlier version sent 24 turns four ways.
+Held to its reply shape by the provider, the model typed all 14 turns of
+small talk and wrote about 160 output tokens for eight turns, too few for
+any quotes; effort and batch size changed nothing. With the shape not
+enforced, it abstained where its prompt said to and typed the rest, writing
+several times as much, and the engine accepted every reply. The second live
+run's four "refusals" were replies cut off at `max_output_tokens`. Since
+reader prompt revision 3 the engine no longer asks the provider to hold the
+reader's reply to its shape, and a cut-off reply is reported as
+`did_not_fit`. It cost $0.016.
