@@ -9,14 +9,17 @@
 mod common;
 
 use common::{CONFIG, World, tool_call};
+use std::collections::BTreeMap;
+
 use core_memory_contract::{
-    BeadId, BeadKind, RecallAnswer, RecallFound, RecallVia, RecalledBead, SourceEvent,
+    BeadId, BeadKind, ChunkId, RecallAnswer, RecallFound, RecallVia, RecalledBead, SourceEvent,
 };
 use core_memory_core::model::{FnTransport, ModelRequest, ModelResponse, TransportError, Usage};
 use core_memory_core::store::Store;
 use core_memory_core::{JudgeRound, RecallQuery, ScopeGrants};
 use core_memory_store_postgres::{ConnectConfig, PostgresStore};
 use serde_json::{Value, json};
+use uuid::Uuid;
 
 const DESTINATION: &str = "judge.test:8080";
 
@@ -630,4 +633,246 @@ fn the_engine_role_recalls_and_the_search_uses_the_index() {
     admin
         .batch_execute("DROP OWNED BY cm_t_recall_engine; DROP ROLE cm_t_recall_engine;")
         .unwrap();
+}
+
+// ---- The read views (migration 3) ------------------------------------------
+
+/// What `bead_state` says of each live bead, read as the database owner:
+/// whether it is current, what ended it and with which arrow, and whether
+/// it is disputed.
+fn states(w: &World) -> BTreeMap<BeadId, (bool, Option<BeadId>, Option<String>, bool)> {
+    w.db.connect()
+        .query(
+            "SELECT bead_id, current, ended_by, ended_with, disputed FROM core_memory.bead_state",
+            &[],
+        )
+        .unwrap()
+        .iter()
+        .map(|r| {
+            (
+                BeadId(r.get(0)),
+                (
+                    r.get(1),
+                    r.get::<_, Option<Uuid>>(2).map(BeadId),
+                    r.get(3),
+                    r.get(4),
+                ),
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn the_read_views_say_what_recall_says_of_what_is_current() {
+    let mut w = world();
+    let thursday = bead(&mut w, &said("1", 0, "The launch is on Thursday."));
+    let friday = bead(&mut w, &said("2", 5, "We moved it: Friday now."));
+    let three = bead(&mut w, &said("3", 9, "The demo is at 3pm."));
+    let four = bead(&mut w, &said("4", 12, "I heard the demo is at 4pm."));
+    judge(
+        &mut w,
+        &[
+            ("Friday now", "Thursday", "repl"),
+            ("4pm", "3pm", "!contradicts"),
+        ],
+    );
+
+    let state = states(&w);
+    assert_eq!(
+        state[&thursday],
+        (false, Some(friday), Some("repl".to_string()), false)
+    );
+    assert_eq!(state[&friday], (true, None, None, false));
+    assert_eq!(state[&three], (true, None, None, true));
+    assert_eq!(state[&four], (true, None, None, true));
+
+    // Recall, asked for every statement, says the same of each.
+    let mut asked = ask("Thursday or Friday or demo");
+    asked.include_ended = true;
+    let answer = w.store.recall(&asked).unwrap();
+    assert_eq!(answer.beads.len(), 4);
+    for recalled in &answer.beads {
+        let (current, ended_by, _, disputed) = &state[&recalled.bead_id];
+        assert_eq!(
+            (recalled.current, recalled.ended_by, recalled.disputed),
+            (*current, *ended_by, *disputed),
+            "{}",
+            text(recalled)
+        );
+    }
+
+    // bead_text holds each bead's own text.
+    let texts: BTreeMap<BeadId, String> =
+        w.db.connect()
+            .query("SELECT bead_id, text FROM core_memory.bead_text", &[])
+            .unwrap()
+            .iter()
+            .map(|r| (BeadId(r.get(0)), r.get(1)))
+            .collect();
+    assert_eq!(texts[&friday], "We moved it: Friday now.");
+    assert_eq!(texts.len(), 4);
+}
+
+#[test]
+fn an_erased_statement_leaves_the_views_and_what_it_replaced_stays_ended() {
+    let mut w = world();
+    let thursday = bead(&mut w, &said("1", 0, "The launch is on Thursday."));
+    let (gone, gone_chunks) = w.accept(&said("2", 5, "We moved it: Friday now."));
+    // A message's bead has its chunk's ID.
+    let friday = BeadId(gone_chunks[0].0);
+    judge(&mut w, &[("Friday now", "Thursday", "repl")]);
+    w.db.connect()
+        .execute(
+            "SELECT core_memory.erase_event($1, 'user_request', 'test')",
+            &[&gone.0],
+        )
+        .unwrap();
+
+    let state = states(&w);
+    assert!(!state.contains_key(&friday));
+    // As recall has it: the replacement stays in force.
+    let (current, ended_by, ..) = &state[&thursday];
+    assert!(!current);
+    assert_eq!(*ended_by, Some(friday));
+    let left: i64 =
+        w.db.connect()
+            .query_one(
+                "SELECT count(*) FROM core_memory.bead_text WHERE text LIKE '%Friday%'",
+                &[],
+            )
+            .unwrap()
+            .get(0);
+    assert_eq!(left, 0);
+}
+
+#[test]
+fn a_tool_call_has_all_its_chunks_in_bead_text_in_order() {
+    let mut w = world();
+    let (event_id, chunks) = w.accept(&tool_call(
+        "call-1",
+        "search",
+        json!({"q": "quarterly revenue"}),
+        "Found three reports on quarterly revenue.",
+        None,
+    ));
+    let rows: Vec<(Uuid, i32, Uuid)> =
+        w.db.connect()
+            .query(
+                "SELECT bead_id, ordinal, chunk_id FROM core_memory.bead_text ORDER BY ordinal",
+                &[],
+            )
+            .unwrap()
+            .iter()
+            .map(|r| (r.get(0), r.get(1), r.get(2)))
+            .collect();
+    assert!(rows.iter().all(|(bead, ..)| *bead == event_id.0));
+    let ids: Vec<_> = rows.iter().map(|(_, _, chunk)| ChunkId(*chunk)).collect();
+    assert_eq!(ids, chunks);
+}
+
+#[test]
+fn a_reader_of_the_views_sees_only_what_its_own_policies_let_it() {
+    let mut w = world();
+    let mine = bead(&mut w, &said_in("acme", "1", 0, "The demo is at 3pm."));
+    let theirs = bead(
+        &mut w,
+        &said_in("other", "2", 5, "I heard the demo is at 4pm."),
+    );
+    judge(&mut w, &[("4pm", "3pm", "!contradicts")]);
+    assert!(states(&w)[&mine].3, "the owner sees the dispute");
+
+    let mut admin = w.db.connect();
+    admin
+        .batch_execute(
+            "DROP ROLE IF EXISTS cm_t_view_reader;
+             CREATE ROLE cm_t_view_reader NOLOGIN;
+             GRANT USAGE ON SCHEMA core_memory TO cm_t_view_reader;
+             GRANT SELECT ON core_memory.bead_state, core_memory.bead_text,
+                             core_memory.beads, core_memory.edges, core_memory.chunk_reads,
+                             core_memory.chunks, core_memory.chunk_text
+                TO cm_t_view_reader;",
+        )
+        .unwrap();
+    let seen = |admin: &mut postgres::Client| -> (Vec<(Uuid, bool)>, i64) {
+        let mut tx = admin.transaction().unwrap();
+        tx.batch_execute("SET LOCAL ROLE cm_t_view_reader").unwrap();
+        let state = tx
+            .query("SELECT bead_id, disputed FROM core_memory.bead_state", &[])
+            .unwrap()
+            .iter()
+            .map(|r| (r.get(0), r.get(1)))
+            .collect();
+        let texts: i64 = tx
+            .query_one("SELECT count(*) FROM core_memory.bead_text", &[])
+            .unwrap()
+            .get(0);
+        tx.rollback().unwrap();
+        (state, texts)
+    };
+
+    // A grant without a policy shows nothing: the views read as their
+    // reader, and row security is on for every table underneath.
+    assert_eq!(seen(&mut admin), (vec![], 0));
+
+    // Its own policies let it read one scope.
+    admin
+        .batch_execute(
+            "CREATE POLICY t_reader ON core_memory.beads FOR SELECT TO cm_t_view_reader
+                 USING (scope = 'acme');
+             CREATE POLICY t_reader ON core_memory.edges FOR SELECT TO cm_t_view_reader
+                 USING (true);
+             CREATE POLICY t_reader ON core_memory.chunk_reads FOR SELECT TO cm_t_view_reader
+                 USING (scope = 'acme');
+             CREATE POLICY t_reader ON core_memory.chunks FOR SELECT TO cm_t_view_reader
+                 USING (true);
+             CREATE POLICY t_reader ON core_memory.chunk_text FOR SELECT TO cm_t_view_reader
+                 USING (scope = 'acme');",
+        )
+        .unwrap();
+    // It sees its scope's bead and text only. The other side of the dispute
+    // is in a scope it may not read, so the view does not show it as
+    // disputed: no view shows more than its tables would.
+    assert_eq!(seen(&mut admin), (vec![(mine.0, false)], 1));
+    assert!(!seen(&mut admin).0.iter().any(|(b, _)| *b == theirs.0));
+
+    admin
+        .batch_execute(
+            "DROP POLICY t_reader ON core_memory.beads;
+             DROP POLICY t_reader ON core_memory.edges;
+             DROP POLICY t_reader ON core_memory.chunk_reads;
+             DROP POLICY t_reader ON core_memory.chunks;
+             DROP POLICY t_reader ON core_memory.chunk_text;
+             DROP OWNED BY cm_t_view_reader;
+             DROP ROLE cm_t_view_reader;",
+        )
+        .unwrap();
+}
+
+#[test]
+fn the_read_views_name_the_arrows_the_directory_flags() {
+    let w = world();
+    let mut admin = w.db.connect();
+    let flagged = |admin: &mut postgres::Client, flag: &str| -> Vec<String> {
+        admin
+            .query(
+                &format!("SELECT arrow FROM core_memory.arrows WHERE {flag} ORDER BY arrow"),
+                &[],
+            )
+            .unwrap()
+            .iter()
+            .map(|r| r.get(0))
+            .collect()
+    };
+    assert_eq!(flagged(&mut admin, "ends_currency"), ["repl", "withdraws"]);
+    assert_eq!(flagged(&mut admin, "disputes"), ["!contradicts"]);
+    let view: String = admin
+        .query_one(
+            "SELECT pg_catalog.pg_get_viewdef('core_memory.bead_state'::regclass)",
+            &[],
+        )
+        .unwrap()
+        .get(0);
+    for arrow in ["'repl'", "'withdraws'", "'!contradicts'"] {
+        assert!(view.contains(arrow), "{arrow} in {view}");
+    }
 }

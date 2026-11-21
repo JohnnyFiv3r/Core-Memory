@@ -572,6 +572,64 @@ Every row in `events`, `beads`, `erasures`, `chunk_reads`, `tool_outcomes`,
 commit in `seq` order, so a reader that pages by
 `workspace_id = $1 AND seq > $2` never misses a row.
 
+### Reading in place
+
+A system that shares the engine's database reads what the engine stored
+where it is, and keeps no copy of it. A correction or an erasure is
+therefore visible to it the moment the engine commits it, and there is
+nothing to deliver, replay or reconcile. Two views save it from repeating
+rules the engine owns:
+
+| View | One row for | Columns |
+|---|---|---|
+| `core_memory.bead_state` | each live bead | `workspace_id`, `seq`, `bead_id`, `scope`, `kind`, `event_id`, `chunk_id`, `created_by`, `time_at`, `time_basis`; `current`; `ended_by` and `ended_with`, the bead whose arrow ended it and that arrow (`repl` or `withdraws`); `disputed`; `type_key`, the type its chunk was last read as |
+| `core_memory.bead_text` | each chunk of a live bead's text | `workspace_id`, `bead_id`, `scope`, `ordinal`, `chunk_id`, `text` |
+
+They apply recall's rules. A bead is current while no `repl` or `withdraws`
+arrow points at it. A current bead is disputed while a `!contradicts` arrow
+joins it to another live, current bead. To answer with what holds now,
+follow `ended_by` from an ended bead until a current one: a chain never
+branches, so it has one end.
+
+Both views run with the rights of the role that reads them, so that role's
+own grants and policies decide every row, and no view shows more than its
+tables would. Nothing is granted on them. Grant a reading role the view and
+the tables under it, and give it a policy on each table:
+
+```sql
+GRANT USAGE ON SCHEMA core_memory TO app_reader;
+GRANT SELECT ON core_memory.bead_state, core_memory.bead_text,
+                core_memory.beads, core_memory.edges, core_memory.chunk_reads,
+                core_memory.chunks, core_memory.chunk_text
+   TO app_reader;
+-- What the role may read, decided by your own records of who may read what.
+CREATE POLICY app_reader ON core_memory.beads FOR SELECT TO app_reader
+    USING (app.may_read_scope(scope));
+CREATE POLICY app_reader ON core_memory.chunk_text FOR SELECT TO app_reader
+    USING (app.may_read_scope(scope));
+CREATE POLICY app_reader ON core_memory.chunk_reads FOR SELECT TO app_reader
+    USING (app.may_read_scope(scope));
+CREATE POLICY app_reader ON core_memory.chunks FOR SELECT TO app_reader
+    USING (true);   -- IDs, ranges and ordinals; the text is in chunk_text
+CREATE POLICY app_reader ON core_memory.edges FOR SELECT TO app_reader
+    USING (true);   -- IDs and a word from the arrows directory
+```
+
+With policies like these, a role sees the beads and text of the scopes it
+may read, and nothing of the others. A dispute with a bead it may not see
+is not shown as one. A policy that hides an edge hides what the edge says
+too: a bead counts as ended only if the reader may see the edge that ended
+it.
+
+Revoking or pausing a scope stops what the engine takes in from it, not
+what may be read of what it already holds. Who may read that is decided by
+the reading system's own policies, as above. To make it unreadable for
+everyone, erase it.
+
+Govern from the same transactions that change your own records: revoke a
+scope with `core_memory.set_scope_state`, erase with `core_memory.erase_*`,
+and your change and the engine's commit together.
+
 ## Connecting to the database
 
 The URL is read from `CORE_MEMORY_DATABASE_URL`, or from the variable named

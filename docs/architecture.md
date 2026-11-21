@@ -373,6 +373,32 @@ may read it: a role that reads one scope reads what was judged inside it.
 Edges and the beads a judge made hold IDs and one of a fixed set of words,
 and carry no scope.
 
+### Reading in place
+
+A host that shares the database reads the engine's rows where they are and
+keeps no copy. A correction or an erasure reaches it as the engine commits
+it, with nothing to deliver or reconcile, which is why the engine has no
+delivery step. Migration 3 adds two views so that a host does not repeat
+rules the engine owns:
+
+- `bead_state`: every live bead, whether it is current, the bead and arrow
+  that ended it, whether it is in dispute, and the type its chunk was last
+  read as. These are recall's rules: a bead is current while no `repl` or
+  `withdraws` edge points at it, whatever has become of the bead that ended
+  it, and a current bead is disputed while a `!contradicts` edge joins it to
+  another live, current bead.
+- `bead_text`: the stored text of every live bead of source content, chunk
+  by chunk; a tool call's bead has every chunk of its event.
+
+Both are `security_invoker` views: they run with the rights of the role that
+reads them, so that role's own grants and policies on `beads`, `edges`,
+`chunk_reads`, `chunks` and `chunk_text` decide every row it sees, and a
+view shows nothing its tables would not. Nothing is granted on them. A
+policy that hides an edge hides what it says about currency and disputes
+too. The views name the arrows that end and dispute, as the engine's
+indexes do; a test checks them against the directory's flags, and the
+migration that changes the directory replaces the views.
+
 The two roles belong to the database cluster, not to one database. A login
 that holds one of them holds it in every Core Memory database of the
 cluster it can connect to. Where one cluster holds databases that should
@@ -477,6 +503,10 @@ each one it applies and refuses a database whose history differs.
 
 2.0.0 released migrations 1 and 2, and they no longer change. A database
 created by a build from before 2.0.0 must be recreated, not migrated.
+
+Migration 3 adds two views for a host that reads the engine's tables in
+place, `bead_state` and `bead_text`; [Reading in place](#reading-in-place)
+says what they hold. It changes no table.
 
 Migration 2 builds the [recall](#recall) index over the text of every
 chunk stored. Admissions wait while it is built, as they wait for any
