@@ -20,6 +20,7 @@ types = [
 #
 # [reader]
 # binding = "small"
+# workers = 1                # batches read at once; raise it to clear a backlog faster
 #
 # To have a model say of each tool call what it did and what came of it:
 #
@@ -33,6 +34,16 @@ types = [
 #
 # [judge]
 # binding = "small"
+# window_ms = 604800000      # how far apart in time two memories may be: 7 days
+# max_window_beads = 40      # memories shown beside the new ones, nearest in time first
+# max_window_bytes = 64000   # and at most this much of their text
+# max_new_beads = 8          # new memories judged in one call
+# second_read = true         # read a replacement twice before it is written
+#
+# Each line above shows the default. In a store that fills quickly, the 40
+# nearest memories lie much closer than 7 days, and max_window_beads, not
+# window_ms, sets how far the judge looks. Raising it widens the reach and
+# costs tokens in proportion.
 #
 # [[binding]]
 # id = "small"
