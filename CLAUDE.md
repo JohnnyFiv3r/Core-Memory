@@ -137,7 +137,8 @@ facets and candidate seeds, not relationships.
   inside that transaction. There is no second copy and no delivery step.
 - Stored rows are immutable. Only erasing changes them.
 - Only the engine writes the `core_memory` data tables. Hosts govern through
-  the SQL functions and read through grants and policies of their own. Row
+  the SQL functions and read through grants and policies of their own, on
+  the tables or on the read views, which run with the reader's rights. Row
   security stays on for every table and nothing is granted to `PUBLIC`.
 - The engine's database role can read and insert. It cannot change or delete
   what it stored, change a scope's state, give model consent, or erase. The

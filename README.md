@@ -126,7 +126,7 @@ See the [full guide](https://github.com/JohnnyFiv3r/Core-Memory/blob/main/docs/g
 |---|---|---|
 | Command line | `core-memory ingest`, `read run`, `recall`, `erase` and `export` | [Try it](https://github.com/JohnnyFiv3r/Core-Memory/blob/main/docs/guide.md#try-it) |
 | HTTP service | `core-memory serve`: `POST /v1/events`, `POST /v1/recall`, `GET /v1/openapi.json` | [Over HTTP](https://github.com/JohnnyFiv3r/Core-Memory/blob/main/docs/guide.md#over-http) |
-| Inside your own PostgreSQL | The engine owns one `core_memory` schema. Your system governs it through SQL functions and reads its tables through grants of its own. | [Running inside another system's database](https://github.com/JohnnyFiv3r/Core-Memory/blob/main/docs/guide.md#running-inside-another-systems-database) |
+| Inside your own PostgreSQL | The engine owns one `core_memory` schema. Your system governs it through SQL functions and reads its tables, or two read views, through grants and policies of its own, with no copy to keep in step. | [Running inside another system's database](https://github.com/JohnnyFiv3r/Core-Memory/blob/main/docs/guide.md#running-inside-another-systems-database) |
 
 ---
 

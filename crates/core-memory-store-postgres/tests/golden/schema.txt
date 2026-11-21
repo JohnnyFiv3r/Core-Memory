@@ -430,6 +430,33 @@ table workspaces
   trigger workspaces_no_truncate BEFORE TRUNCATE FOR EACH STATEMENT EXECUTE FUNCTION core_memory.refuse_change()
   primary key workspaces_pkey (workspace_id)
 
+view bead_state (reads as its reader)
+  workspace_id text
+  seq bigint
+  bead_id uuid
+  scope text
+  kind text
+  event_id uuid
+  chunk_id uuid
+  created_by text
+  time_at timestamp with time zone
+  time_basis text
+  current boolean
+  ended_by uuid
+  ended_with text
+  disputed boolean
+  type_key text
+  may: no role
+
+view bead_text (reads as its reader)
+  workspace_id text
+  bead_id uuid
+  scope text
+  ordinal integer
+  chunk_id uuid
+  text text
+  may: no role
+
 function beads_only_erase() returns trigger
   runs as its caller; search_path=pg_catalog, pg_temp
   may call: no role

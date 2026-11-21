@@ -182,6 +182,44 @@ fn the_schema_a_host_sees_matches_the_golden_file() {
         out.push(String::new());
     }
 
+    // A view runs with its reader's rights or its owner's: with its
+    // owner's, it would show rows past the reader's own policies.
+    for view in lines(
+        &mut client,
+        "SELECT c.relname::text,
+                CASE WHEN 'security_invoker=true' = ANY (coalesce(c.reloptions, '{}'))
+                     THEN 'as its reader' ELSE 'AS ITS OWNER' END
+           FROM pg_catalog.pg_class AS c
+           JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace
+          WHERE n.nspname = 'core_memory' AND c.relkind IN ('v', 'm')
+          ORDER BY c.relname",
+    ) {
+        let name = &view[0];
+        out.push(format!("view {name} (reads {})", view[1]));
+        for column in lines(
+            &mut client,
+            &format!(
+                "SELECT a.attname::text, pg_catalog.format_type(a.atttypid, a.atttypmod)
+                   FROM pg_catalog.pg_attribute AS a
+                  WHERE a.attrelid = 'core_memory.{name}'::regclass AND a.attnum > 0
+                    AND NOT a.attisdropped
+                  ORDER BY a.attnum"
+            ),
+        ) {
+            out.push(format!("  {} {}", column[0], column[1]));
+        }
+        out.push(format!(
+            "  may: {}",
+            rights(
+                &mut client,
+                "has_table_privilege",
+                &format!("core_memory.{name}"),
+                &["SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE"],
+            )
+        ));
+        out.push(String::new());
+    }
+
     for function in lines(
         &mut client,
         "SELECT p.oid::regprocedure::text, p.proname::text,
