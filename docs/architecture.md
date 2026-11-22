@@ -1065,12 +1065,19 @@ two are related, so the judge is shown them; how they relate is still the
 judge's to say. A source that names an event this way is how a document
 that was replaced, such as a report attached again under the same name,
 meets its earlier version once they are hours apart. A bead that is itself
-waiting to be judged is left out. Its pairs are read when its own turn
-comes, with these beads in its window, so a pair is read once, whichever of
-the two arrived first. So is a bead this judge has already read with every
-new bead: that happens when beads stored before there was a judge are
-queued after later ones were read beside them. A pair the limits kept out
-of every window was never shown, and nothing is recorded for it.
+waiting to be judged is left out, and so is a bead this judge has already
+read with every new bead: that happens when beads stored before there was a
+judge are queued after later ones were read beside them. When the waiting
+bead's own turn comes, its window is chosen by time and by what its own
+source names. A pair that lies in that window is read then, so it is read
+once, whichever of the two arrived first. One that does not is never shown: a
+new bead whose source names an earlier event still waiting is judged without
+it, and when the earlier bead's turn comes, its window holds the new bead
+only if it is near in time, for the earlier source names nothing of the later.
+This is one way: it happens only while the earlier bead's own read is
+outstanding, since work is handed out oldest first. A pair the limits or this
+kept out of every window was never shown, and nothing is recorded for it, so
+it is not a no.
 
 Each bead is decided on its own: it is shown only while its scope is active
 and has granted the judge's destination. The permit locks the workspace,
