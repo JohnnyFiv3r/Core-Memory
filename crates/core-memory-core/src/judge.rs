@@ -49,7 +49,9 @@ use crate::store::{
 pub const RUBRIC_REV: u32 = 5;
 /// Revision of the reply validator. Part of every binding revision.
 /// Revision 3 reads arrows, whatever their case.
-pub const JUDGE_VALIDATOR_REV: u32 = 3;
+/// Revision 4: a name is found loosely as a reader's quote is (reader
+/// validator revision 3): each typographic character whole.
+pub const JUDGE_VALIDATOR_REV: u32 = 4;
 
 const BINDING_REV_DOMAIN: &str = "core-memory/judge-binding-rev/v1";
 const MAX_REPORTED_ERRORS: usize = 20;
@@ -2401,6 +2403,72 @@ mod tests {
     }
 
     #[test]
+    fn a_name_beside_an_ellipsis_is_found_as_written_and_never_inside_one() {
+        // `B1` is the listed bead and `N1` the new one.
+        let shown = read_of(
+            vec![bead(1, 0, ".\u{2026}x")],
+            vec![bead(2, 5, "a\u{2026}b")],
+        );
+        let named = |names: Value, policy| {
+            let mut said = reply(&shown, vec![]);
+            said["names"] = names;
+            validate(&said.to_string(), &shown, policy).map_err(|rejected| rejected.problems)
+        };
+        // A dot is not in a chunk that holds only an ellipsis.
+        let inside = json!([{"a": "N1", "a_name": ".", "b": "B1", "b_name": "x"}]);
+        let told = named(inside.clone(), Names::MustBeFound)
+            .unwrap_err()
+            .join("; ");
+        assert!(
+            told.contains("names[0]: \".\" is not in N1 as written"),
+            "{told}"
+        );
+        let dropped = named(inside, Names::DropUnfound).unwrap();
+        assert_eq!((dropped.names.len(), dropped.names_rejected), (0, 1));
+
+        // An ellipsis is found whole, and a dot before one is not taken in.
+        let kept = named(
+            json!([{"a": "N1", "a_name": "...", "b": "B1", "b_name": "..."}]),
+            Names::MustBeFound,
+        );
+        // The two names are the same, so they are told apart by the text
+        // around them.
+        assert!(
+            kept.unwrap_err()
+                .join("; ")
+                .contains("the two names are the same")
+        );
+        let kept = named(
+            json!([{"a": "N1", "a_name": "a...b", "b": "B1", "b_name": "..."}]),
+            Names::MustBeFound,
+        )
+        .unwrap();
+        assert_eq!(
+            kept.names,
+            [NameSaid {
+                other: 0,
+                other_range: (1, 4),
+                new: 1,
+                new_range: (0, 5)
+            }]
+        );
+        let kept = named(
+            json!([{"a": "N1", "a_name": "...", "b": "B1", "b_name": "x"}]),
+            Names::MustBeFound,
+        )
+        .unwrap();
+        assert_eq!(
+            kept.names,
+            [NameSaid {
+                other: 0,
+                other_range: (4, 5),
+                new: 1,
+                new_range: (1, 4)
+            }]
+        );
+    }
+
+    #[test]
     fn a_name_link_is_two_ranges_of_the_beads_own_text() {
         let shown = four();
         let named = |names: Value, policy| {
@@ -3052,6 +3120,12 @@ mod tests {
         .unwrap();
         let rev = judge_binding_rev(&binding).unwrap();
         assert_eq!(rev, judge_binding_rev(&binding).unwrap());
+        // Changes with the rubric, the reply shape or the validator: bump the
+        // revision it belongs to.
+        assert_eq!(
+            rev.to_string(),
+            "92e77c718aa78dabd9fee78ae5daa8b3c42d7815fa133d07fdc2be0efb26b809"
+        );
         // A judge and a reader on one binding are different readers.
         assert_ne!(rev, crate::read::binding_rev(&binding).unwrap());
         assert_ne!(rev, crate::tool::tool_binding_rev(&binding).unwrap());
