@@ -23,7 +23,7 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::connect::{ConnectConfig, Connector};
-use crate::error::{READ_ONLY, backend, corrupt, governed};
+use crate::error::{READ_ONLY, backend, commit, corrupt, governed};
 use crate::migrate::{self, MigrationReport, SCHEMA_VERSION};
 
 /// How an erase request ended.
@@ -1881,7 +1881,7 @@ impl PostgresStore {
             .map_err(backend)?;
         let call_id = CallId(receipt.get::<_, Uuid>(0));
         // The receipt is durable before any text leaves this function.
-        tx.commit().map_err(backend)?;
+        tx.commit().map_err(commit)?;
         Ok(Permit::Granted { call_id, chunks })
     }
 

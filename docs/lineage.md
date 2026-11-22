@@ -2,15 +2,18 @@
 
 Core Memory 1.x was a Python library and service. Its last release, 1.1.2,
 is on the [`v1.x`](https://github.com/JohnnyFiv3r/Core-Memory/tree/v1.x)
-branch. Its package, `core_memory/`, was about 83,000 lines of Python in 18
-modules. Its tests, benchmarks, demos and plugins were more on top.
+branch. Its package, `core_memory/`, was about 83,000 lines of Python in 349 files. They are in 17
+packages and seven files at the top; an 18th directory, `data/`, holds three
+JSON files and no Python. Its tests, benchmarks, demos and plugins were more
+on top.
 
 2.0 is a different program. It is an engine of about 27,000 lines of Rust,
 with 14,000 lines of tests that run against PostgreSQL. It does less than 1.x
 did, on purpose: it turns a stream of events into memory that can be
 audited, and leaves to the host whatever a host does better.
 
-This document goes through each 1.x module and says what 2.0 did with it:
+This document goes through the whole package, every package and every file at
+its top, and says what 2.0 did with each:
 
 - **kept**: 2.0 does the same job, rebuilt;
 - **replaced**: 2.0 does the job another way;
@@ -94,6 +97,23 @@ Line counts are of the Python in `core_memory/` at 1.1.2. A file is counted in o
 | `cli`, `management` | 4,800 | **Replaced** by the `core-memory` command: `migrate`, `workspace`, `scope`, `token`, `ingest`, `read`, `erase`, `export`, `serve`, `check` and `schema`. |
 | `config`, `llm_client.py`, `provider_config.py` | 800 | **Replaced** by bindings. A binding pins a model and records the binding's revision with every read. It has a daily budget, and consent is per scope and per destination. There are transports for Anthropic, OpenAI and OpenAI-compatible servers. |
 | `persistence/promotion_service`, `persistence/calibration`, promotion in `schema` and `policy` | 1,500 | **Dropped.** Deciding what matters more is retrieval's job, in the host. |
+
+### The public surface, and what ships with it
+
+The files at the top of the package, and its data. Line counts are as
+above.
+
+| 1.x | Lines | In 2.0 |
+|---|---|---|
+| `memory.py`: `Memory`, `MemorySession`, `capture`, and the bead governance calls `confirm_bead`, `request_approval`, `approve_bead`, `reject_bead` and `list_pending_approvals` | 200 | **Replaced.** `capture` was the one write call for a conversation turn. In 2.0 a source gives the engine events (`core-memory ingest`, or the HTTP service), and there is no session object. Confirming and approving a bead set an authority and a confidence class on it. 2.0 has no authority or confidence class, and a stored row changes only when it is erased. A host that wants approvals keeps them in its own tables, beside the engine's, and governs scopes through the SQL functions. |
+| `__init__.py`: the package's root exports (`Memory`, `recall`, `write_turn_finalized`, `maintain`, `remove_bead`, the backends and the recall contracts) | 231 | **Replaced** by the `core-memory` facade crate and the command line. Each export has its row above: writing, recall, erasure (`remove_bead`, `remove_source` and `tombstone_bead` become `erase`) and the backends (dropped). |
+| `identifiers.py`: `validate_archive_id` | 19 | **Dropped.** It checked a session or turn ID, and refused one with a path separator, a traversal marker or an odd character, before 1.x's file archives used it in a filename. 2.0 has no files of that kind: an ID is a value in a row, and the chunk and event IDs are computed from the event key. |
+| `llm_client.py`, `provider_config.py` | (in the `config` row) | **Replaced** by bindings. |
+| `transcript_ingest.py` | (in the first table) | **Replaced** by ingest. |
+| `_version.py`, `py.typed` | 4 | **Dropped** with the Python package. The workspace's crates carry the version. |
+| `data/incidents.json` | — | **Dropped** with `policy/incidents`: named incidents of 1.x's own development, used to tag beads. |
+| `data/structural_relation_map.json` | — | **Replaced.** It listed the relation names 1.x's graph accepted (`caused_by`, `supports`, `supersedes` and so on). 2.0 has a fixed directory of arrows, `core_memory.arrows`, and a judge writes them. |
+| `data/topic_aliases.json` | — | **Moved to the host.** Aliases for a topic were part of 1.x's query normalisation. Recall in 2.0 matches words, and widening a query is the host's. |
 
 ## What 2.0 has that 1.x did not
 

@@ -138,7 +138,8 @@ impl PostgresStore {
 
         // What a judge related to them, up to `follow` steps away. A match
         // left out because it was ended is not brought back that way, and
-        // nothing is reached through it.
+        // nothing is reached through it. A group costs no
+        // step, so one next to a bead at the limit is reached too.
         let seeds: Vec<Uuid> = placed.iter().map(|p| p.bead).collect();
         let left_out: Vec<Uuid> = ended
             .iter()
@@ -164,7 +165,7 @@ impl PostgresStore {
                                 WHERE e.to_bead = r.bead
                            ) AS n
                            JOIN core_memory.beads AS b ON b.bead_id = n.bead
-                          WHERE r.steps < $2 AND r.onward AND b.state = 'live'
+                          WHERE (r.steps < $2 OR b.kind = 'group') AND r.onward AND b.state = 'live'
                             AND NOT (n.bead = ANY ($5))
                             AND (b.kind = 'group' OR $3::text[] IS NULL OR b.scope = ANY ($3))
                      )
@@ -248,6 +249,8 @@ fn to_i32_steps(follow: u32) -> i32 {
 
 /// For each ended bead, the current end of the chain that ended it, when
 /// that bead is live and in a scope the caller may recall from. A chain
+/// with a bead in a scope the caller may not recall from, anywhere along it,
+/// has no successor to show: recall does not pass through that scope. A chain
 /// never branches, so it has one end.
 fn successors(
     tx: &mut Transaction<'_>,
@@ -260,24 +263,27 @@ fn successors(
     let rows = tx
         .query(
             &format!(
-                "WITH RECURSIVE chain (start, bead, depth) AS (
-                     SELECT s, s, 0 FROM pg_catalog.unnest($1::uuid[]) AS s
+                "WITH RECURSIVE chain (start, bead, depth, granted) AS (
+                     SELECT s, s, 0, true FROM pg_catalog.unnest($1::uuid[]) AS s
                    UNION ALL
-                     SELECT chain.start, e.from_bead, chain.depth + 1
+                     SELECT chain.start, e.from_bead, chain.depth + 1,
+                            chain.granted
+                            AND (nb.kind = 'group' OR $2::text[] IS NULL OR nb.scope = ANY ($2))
                        FROM chain
                        JOIN core_memory.edges AS e
                          ON e.to_bead = chain.bead AND e.arrow IN {ENDING}
+                       JOIN core_memory.beads AS nb ON nb.bead_id = e.from_bead
                       WHERE chain.depth < 100000
                  ),
                  ends AS (
-                     SELECT DISTINCT ON (chain.start) chain.start, chain.bead
+                     SELECT DISTINCT ON (chain.start) chain.start, chain.bead, chain.granted
                        FROM chain
                       ORDER BY chain.start, chain.depth DESC
                  )
                  SELECT ends.start, ends.bead
                    FROM ends
                    JOIN core_memory.beads AS b ON b.bead_id = ends.bead
-                  WHERE b.state = 'live' AND ends.bead <> ends.start
+                  WHERE b.state = 'live' AND ends.bead <> ends.start AND ends.granted
                     AND ($2::text[] IS NULL OR b.scope = ANY ($2))"
             ),
             &[&ended, scopes],
