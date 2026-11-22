@@ -688,7 +688,14 @@ pub fn locate(text: &str, quote: &str, occurrence: usize) -> Option<Range<usize>
             .map(|(start, found)| start..start + found.len());
     }
     let loose = Loose::of(text);
-    let (start, found) = loose.text.match_indices(wanted).nth(occurrence - 1)?;
+    // A match that starts or ends inside what one character expanded to (an
+    // ellipsis read as three dots) is no match of that character: counting
+    // it would give several occurrences the same range.
+    let (start, found) = loose
+        .text
+        .match_indices(wanted)
+        .filter(|(start, found)| loose.whole(*start, start + found.len()))
+        .nth(occurrence - 1)?;
     // The quote starts and ends with something that is not a space, so
     // both ends map to characters of `text`.
     Some(loose.starts[start]..loose.ends[start + found.len() - 1])
@@ -700,6 +707,8 @@ struct Loose {
     text: String,
     starts: Vec<usize>,
     ends: Vec<usize>,
+    /// Whether each byte is the first of what its character became.
+    firsts: Vec<bool>,
 }
 
 impl Loose {
@@ -708,6 +717,7 @@ impl Loose {
             text: String::with_capacity(original.len()),
             starts: Vec::with_capacity(original.len()),
             ends: Vec::with_capacity(original.len()),
+            firsts: Vec::with_capacity(original.len()),
         };
         let mut in_space = false;
         for (at, c) in original.char_indices() {
@@ -745,10 +755,17 @@ impl Loose {
 
     fn push(&mut self, plain: &str, start: usize, end: usize) {
         self.text.push_str(plain);
-        for _ in 0..plain.len() {
+        for i in 0..plain.len() {
             self.starts.push(start);
             self.ends.push(end);
+            self.firsts.push(i == 0);
         }
+    }
+
+    /// Whether `from..to` of the loose text takes in every character it
+    /// touches whole.
+    fn whole(&self, from: usize, to: usize) -> bool {
+        self.firsts[from] && self.firsts.get(to).is_none_or(|first| *first)
     }
 }
 
@@ -1069,6 +1086,12 @@ mod tests {
             locate(text, "\u{2026}", 1).map(|r| &text[r]),
             Some("\u{2026}")
         );
+        // One ellipsis is one occurrence of an ellipsis, and none of a dot.
+        let dots = "a\u{2026}b";
+        assert_eq!(locate(dots, ".", 1), None);
+        assert_eq!(locate(dots, "..", 1), None);
+        assert_eq!(locate(dots, "...", 1), Some(1..4));
+        assert_eq!(locate(dots, "...", 2), None);
     }
 
     #[test]
