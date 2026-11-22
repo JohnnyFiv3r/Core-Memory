@@ -215,7 +215,8 @@ HEADER = (
     "score.py: cannot score this export: a case message was stored as more than one chunk. "
     "The judge's verdict on a pair is scored on each message's first chunk only, so a verdict on a "
     'later chunk would be reported as "no verdict". Every case message must fit in one chunk '
-    "(4096 bytes under run.sh's profile); shorten the message, or score an export where it does."
+    "(4096 bytes under run.sh's profile); shorten the message, or score an export where it does. "
+    "(--reader-only is not refused.)"
 )
 
 
@@ -280,6 +281,25 @@ class ACaseMessageStoredAsSeveralChunksIsRefused(unittest.TestCase):
         cases, records = split_threads(1, name="m" * 80)
         details = self.refused(records, cases)
         self.assertEqual(details, [f"  thread X00, message {'m' * 60}: 2 chunks"])
+
+    def test_a_line_break_in_an_id_never_starts_a_line_of_its_own(self):
+        cases, records = split_threads(11)
+        cases = cases.replace('id = "X00"', 'id = "X00\\nextra line"', 1)
+        code, out, err = score(records, cases)
+        self.assertEqual((code, out), (1, ""))
+        lines = err.splitlines()
+        self.assertLessEqual(len(lines), 12)
+        self.assertFalse([line for line in lines if line.startswith("extra line")], err)
+        self.assertEqual(lines[1], "  thread X00\\nextra line, message m00: 2 chunks")
+
+    def test_other_control_characters_in_an_id_are_escaped(self):
+        cases, records = split_threads(1)
+        cases = cases.replace('id = "X00"', 'id = "X\\t\\u2028Y"', 1)
+        code, out, err = score(records, cases)
+        self.assertEqual((code, out), (1, ""))
+        lines = err.splitlines()
+        self.assertEqual(len(lines), 2, err)
+        self.assertEqual(lines[1], "  thread X\\t\\u2028Y, message m00: 2 chunks")
 
     def test_a_message_split_in_one_run_of_several_is_listed_once_with_the_largest_count(self):
         records = run("adversarial-1", a_chunks=2) + run("adversarial-2", a_chunks=3)

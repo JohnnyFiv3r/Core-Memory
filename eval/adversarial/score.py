@@ -7,7 +7,7 @@ The reader is scored on each message's type. The judge is scored on the
 verdict of its first read of each pair the cases name. A pair with no
 verdict, because the judge was never shown it or every reply about it was
 rejected, is counted apart, never as a no. A case message stored as more
-than one chunk is refused, not scored.
+than one chunk is refused, not scored, unless --reader-only.
 
 Each scope in the export is one run of the cases (run.sh puts each repeat
 in a scope and workspace of its own). With one run the report goes case by
@@ -416,29 +416,48 @@ def reader_misses(runs, first, n):
     return w
 
 
+def one_line(text):
+    """`text` with every character that would not print as itself escaped,
+    so a line break in an ID never starts a new line, cut to ID characters."""
+    out = []
+    for ch in text:
+        if ch.isprintable():
+            out.append(ch)
+        elif ch in "\n\r\t":
+            out.append({"\n": "\\n", "\r": "\\r", "\t": "\\t"}[ch])
+        elif ord(ch) < 0x100:
+            out.append(f"\\x{ord(ch):02x}")
+        elif ord(ch) < 0x10000:
+            out.append(f"\\u{ord(ch):04x}")
+        else:
+            out.append(f"\\U{ord(ch):08x}")
+    return "".join(out)[:ID]
+
+
 def refuse_split_messages(cases, stored):
     """Exits, scoring nothing, if a case message was stored as more than one
     chunk in any run. The judge is scored on each message's first chunk, so a
     verdict on a later one would be reported as no verdict. What is printed
-    is IDs from cases.toml and counts, never text. A message that is both a
-    read case and in a thread is listed as the thread's, at the read case's
-    place."""
+    is IDs from cases.toml and counts, never text; IDs are printed on one
+    line, escaped, and cut. A message that is both a read case and in a
+    thread is listed as the thread's, at the read case's place."""
     labels = {m["id"]: "read case" for m in cases.get("read", [])}
     for thread in cases.get("thread", []):
         for m in thread["message"]:
-            labels[m["id"]] = f"thread {thread['id'][:ID]}, message"
+            labels[m["id"]] = f"thread {one_line(thread['id'])}, message"
     split = []
     for message, label in labels.items():
         chunks = max(len(run.by_message.get(message, [])) for run in stored.values())
         if chunks > 1:
-            split.append(f"  {label} {message[:ID]}: {chunks} chunks")
+            split.append(f"  {label} {one_line(message)}: {chunks} chunks")
     if not split:
         return
     w = [
         "score.py: cannot score this export: a case message was stored as more than one chunk. "
         "The judge's verdict on a pair is scored on each message's first chunk only, so a verdict "
         'on a later chunk would be reported as "no verdict". Every case message must fit in one '
-        "chunk (4096 bytes under run.sh's profile); shorten the message, or score an export where it does."
+        "chunk (4096 bytes under run.sh's profile); shorten the message, or score an export where it does. "
+        "(--reader-only is not refused.)"
     ]
     w.extend(split[:LISTED])
     if len(split) > LISTED:
