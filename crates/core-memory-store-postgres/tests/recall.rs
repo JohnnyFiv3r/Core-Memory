@@ -461,6 +461,75 @@ fn what_ended_a_statement_in_a_scope_not_named_is_not_shown() {
 }
 
 #[test]
+fn a_group_next_to_a_bead_at_the_hop_limit_is_reached_for_it_costs_no_step() {
+    let mut w = world();
+    bead(&mut w, &said("1", 0, "Quartz marker begins."));
+    bead(&mut w, &said("2", 5, "Rollout part one: staging."));
+    bead(&mut w, &said("3", 10, "Rollout part two: production."));
+    judge(
+        &mut w,
+        &[
+            ("part one", "Quartz", "see"),
+            ("part two", "part one", "same-memory"),
+        ],
+    );
+
+    let answer = w.store.recall(&ask("quartz")).unwrap();
+    let kinds: Vec<(BeadKind, String)> = answer
+        .beads
+        .iter()
+        .map(|b| {
+            let via = match &b.via {
+                RecallVia::Match { .. } => "match".to_string(),
+                RecallVia::Successor { .. } => "successor".to_string(),
+                RecallVia::Linked { steps } => format!("linked {steps}"),
+            };
+            (b.kind, via)
+        })
+        .collect();
+    assert_eq!(
+        kinds,
+        [
+            (BeadKind::Chunk, "match".to_string()),
+            (BeadKind::Chunk, "linked 1".to_string()),
+            (BeadKind::Group, "linked 1".to_string()),
+        ]
+    );
+    // Its other member is a second step away, past the limit of one.
+    assert!(answer.beads.iter().all(|b| !text(b).contains("part two")));
+
+    let mut asked = ask("quartz");
+    asked.follow = 2;
+    let answer = w.store.recall(&asked).unwrap();
+    assert!(answer.beads.iter().any(|b| text(b).contains("part two")));
+}
+
+#[test]
+fn a_chain_that_runs_through_a_scope_not_named_has_no_successor_to_show() {
+    let mut w = world();
+    let first = bead(&mut w, &said("1", 0, "The budget is ten thousand."));
+    bead(&mut w, &said_in("other", "2", 5, "Revised figure: twelve."));
+    judge(&mut w, &[("Revised figure", "budget", "repl")]);
+    bead(&mut w, &said("3", 10, "Final figure: fifteen."));
+    judge(&mut w, &[("Final figure", "Revised figure", "repl")]);
+
+    // Everything may be read: the first is answered by the last of the chain.
+    let answer = w.store.recall(&ask("budget")).unwrap();
+    assert_eq!(told(&answer), [pair("Final figure: fifteen.", "successor")]);
+
+    // The middle of the chain is in a scope the caller did not name, and the
+    // last is in one it did. Recall does not pass through the middle.
+    let mut asked = ask("budget");
+    asked.scopes = only(&["acme"]);
+    assert!(w.store.recall(&asked).unwrap().beads.is_empty());
+    asked.include_ended = true;
+    let answer = w.store.recall(&asked).unwrap();
+    assert_eq!(answer.beads.len(), 1);
+    assert_eq!(answer.beads[0].bead_id, first);
+    assert!(!answer.beads[0].current);
+}
+
+#[test]
 fn nothing_is_recalled_of_an_erased_message() {
     let mut w = world();
     let (gone, _) = w.accept(&said("1", 0, "The vault code is 4417."));
