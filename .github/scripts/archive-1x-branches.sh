@@ -55,7 +55,8 @@ fi
 {
   echo "Archive of Core Memory's old branches"
   echo
-  echo "Each line is a branch that was deleted, its tip, and the tip's date."
+  echo "Each line is a branch that was archived here, its tip, and the tip's date."
+  echo "They were deleted after this tag was pushed; a line does not show that one was."
   echo "To restore one: git fetch origin tag $tag && git branch <name> <tip>"
   echo
   cat "$work/index"
@@ -105,18 +106,24 @@ if [ "$pushed" != "$archive" ]; then
 fi
 echo "Pushed $tag."
 
-mapfile -t names < <(awk '{print $1}' "$work/index")
-for ((i = 0; i < ${#names[@]}; i += 50)); do
-  batch=("${names[@]:i:50}")
+# Each push names the branch by its full ref (a tag may share its name) and
+# deletes it only while it is still at the tip that was archived: a branch
+# that moved since is left, and the count below says so.
+mapfile -t lines < "$work/index"
+for ((i = 0; i < ${#lines[@]}; i += 50)); do
+  batch=()
+  for line in "${lines[@]:i:50}"; do
+    read -r name sha _ <<< "$line"
+    batch+=("--force-with-lease=refs/heads/$name:$sha" ":refs/heads/$name")
+  done
   # A batch is deleted whole or not at all; one that fails is tried a
   # branch at a time, so one protected branch does not keep the rest.
-  if ! git push --quiet --atomic "$remote" --delete "${batch[@]}"; then
-    for name in "${batch[@]}"; do
-      git push --quiet "$remote" --delete "$name" || echo "::warning::could not delete $name"
+  if ! git push --quiet --atomic "$remote" "${batch[@]}"; then
+    for ((j = 0; j < ${#batch[@]}; j += 2)); do
+      git push --quiet "$remote" "${batch[@]:j:2}" || echo "::warning::could not delete ${batch[j+1]#:refs/heads/}"
     done
   fi
 done
-
 # What the remote has now is the count, not what the pushes said.
 git ls-remote --heads "$remote" | awk '{sub("refs/heads/", "", $2); print $2}' | sort > "$work/remaining"
 awk '{print $1}' "$work/index" | sort > "$work/archived"
