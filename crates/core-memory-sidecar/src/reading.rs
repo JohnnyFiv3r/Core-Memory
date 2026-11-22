@@ -446,6 +446,10 @@ struct Idle {
 struct IdleState {
     /// Lanes that are working or about to look again.
     working: usize,
+    /// Lanes waiting for a round to be done. A round hands them back to
+    /// `working` itself, so that the lane that did it cannot find none
+    /// working before they have woken.
+    waiting: usize,
     /// Rounds done by all lanes so far.
     rounds: u64,
     /// Whether the drain is over.
@@ -457,6 +461,7 @@ impl Idle {
         Self {
             state: Mutex::new(IdleState {
                 working: lanes,
+                waiting: 0,
                 rounds: 0,
                 done: lanes == 0,
             }),
@@ -478,7 +483,11 @@ impl Idle {
     }
 
     fn did_a_round(&self) {
-        self.lock().rounds += 1;
+        let mut state = self.lock();
+        state.rounds += 1;
+        state.working += state.waiting;
+        state.waiting = 0;
+        drop(state);
         self.changed.notify_all();
     }
 
@@ -505,15 +514,13 @@ impl Idle {
             self.changed.notify_all();
             return false;
         }
-        let mut state = self
+        state.waiting += 1;
+        let state = self
             .changed
             .wait_while(state, |state| !state.done && state.rounds == seen)
             .unwrap_or_else(PoisonError::into_inner);
-        if state.done {
-            return false;
-        }
-        state.working += 1;
-        true
+        // Woken by a round, which has already counted this lane as working.
+        !state.done
     }
 }
 
@@ -636,6 +643,27 @@ mod tests {
         let failing = || Err("the store failed");
         let (_, ended) = drained(vec![Box::new(busy), Box::new(failing)]);
         assert_eq!(ended, Err("the store failed"));
+    }
+
+    #[test]
+    fn a_lane_already_waiting_looks_again_after_the_last_round_of_another() {
+        for _ in 0..200 {
+            let idle = Idle::new(2);
+            std::thread::scope(|scope| {
+                let waiter = scope.spawn(|| {
+                    let looks_again = idle.wait_for_more(idle.done_so_far().unwrap());
+                    // Its recheck finds nothing more.
+                    let ends = looks_again && !idle.wait_for_more(idle.done_so_far().unwrap());
+                    (looks_again, ends)
+                });
+                while idle.lock().working != 1 {
+                    std::thread::yield_now();
+                }
+                idle.did_a_round();
+                idle.wait_for_more(idle.done_so_far().unwrap());
+                assert_eq!(waiter.join().unwrap(), (true, true));
+            });
+        }
     }
 
     #[test]
