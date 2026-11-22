@@ -49,7 +49,7 @@ silicon), so no Rust toolchain is needed:
 
 ```bash
 uv tool install core-memory     # or: pipx install core-memory
-core-memory --version           # core-memory 2.0.0
+core-memory --version           # prints the version installed
 ```
 
 The engine needs PostgreSQL 15 or newer. The package holds only the command:
