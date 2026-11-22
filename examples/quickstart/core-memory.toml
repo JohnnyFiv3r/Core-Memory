@@ -34,16 +34,21 @@ types = [
 #
 # [judge]
 # binding = "small"
-# window_ms = 604800000      # how far apart in time two memories may be: 7 days
-# max_window_beads = 40      # memories shown beside the new ones, nearest in time first
-# max_window_bytes = 64000   # and at most this much of their text
+# window_ms = 604800000      # nearest others come from within this time of the new ones: 7 days
+# max_window_beads = 40      # most memories shown beside the new ones, in all
+# max_window_bytes = 64000   # most bytes of their text, in all
+# max_conflict_beads = 6     # most memories of open disputes, shown first
 # max_new_beads = 8          # new memories judged in one call
 # second_read = true         # read a replacement twice before it is written
 #
-# Each line above shows the default. In a store that fills quickly, the 40
-# nearest memories lie much closer than 7 days, and max_window_beads, not
-# window_ms, sets how far the judge looks. Raising it widens the reach and
-# costs tokens in proportion.
+# Each line above shows the default. Beside the new memories the judge is
+# shown, in this order: the memories of open disputes, at any age; the
+# memories their sources name, at any age; then the nearest others within
+# window_ms. The list stops at max_window_beads or max_window_bytes,
+# whichever comes first, so the nearest in time are the first to be left
+# out. Raising max_window_beads adds text only if there are more memories to
+# show and max_window_bytes leaves room; max_window_bytes bounds the text
+# of the window.
 #
 # [[binding]]
 # id = "small"
