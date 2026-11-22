@@ -760,9 +760,13 @@ fn a_login_the_store_refuses_is_a_failure_and_not_a_reason_to_wait() {
     serve_on(&q, "127.0.0.1:0", "");
     let wrong_password = url_with_password(&q.db.url, "not-the-password");
     let no_such_database = {
-        let (server, database) = q.db.url.rsplit_once('/').unwrap();
-        // Connection options such as `sslmode` follow the database name.
-        let options = database.find('?').map_or("", |at| &database[at..]);
+        // Connection options such as `sslmode` follow the database name, and
+        // a value in them may hold a `/`, so they are cut off before the
+        // database name is looked for.
+        let (base, options) =
+            q.db.url
+                .split_at(q.db.url.find('?').unwrap_or(q.db.url.len()));
+        let (server, _) = base.rsplit_once('/').unwrap();
         format!("{server}/cm_t_no_such_database{options}")
     };
     for (url, says) in [
