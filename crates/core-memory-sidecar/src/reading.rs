@@ -483,12 +483,16 @@ impl Idle {
     }
 
     fn did_a_round(&self) {
+        self.count_a_round();
+        self.changed.notify_all();
+    }
+
+    /// What a round changes, before the lanes waiting for one are woken.
+    fn count_a_round(&self) {
         let mut state = self.lock();
         state.rounds += 1;
         state.working += state.waiting;
         state.waiting = 0;
-        drop(state);
-        self.changed.notify_all();
     }
 
     /// Ends the drain, for a lane that failed.
@@ -664,6 +668,44 @@ mod tests {
                 assert_eq!(waiter.join().unwrap(), (true, true));
             });
         }
+    }
+
+    #[test]
+    fn a_lane_woken_after_another_has_looked_again_still_looks_again() {
+        let idle = Idle::new(2);
+        std::thread::scope(|scope| {
+            // The judge found nothing and waits for a round.
+            let judge = scope.spawn(|| {
+                let looks_again = idle.wait_for_more(0);
+                // Its recheck finds nothing more.
+                let ends = looks_again && !idle.wait_for_more(idle.done_so_far().unwrap());
+                (looks_again, ends)
+            });
+            while idle.lock().working != 1 {
+                std::thread::yield_now();
+            }
+            // The reader's round makes judge work due. It is counted, and
+            // the judge is not woken yet.
+            idle.count_a_round();
+            let before = {
+                let state = idle.lock();
+                (state.working, state.done)
+            };
+            // The reader looks again and finds nothing, before the judge
+            // wakes.
+            let reader = scope.spawn(|| idle.wait_for_more(1));
+            loop {
+                let state = idle.lock();
+                if (state.working, state.done) != before {
+                    break;
+                }
+                drop(state);
+                std::thread::yield_now();
+            }
+            idle.changed.notify_all();
+            assert_eq!(judge.join().unwrap(), (true, true));
+            assert!(!reader.join().unwrap());
+        });
     }
 
     #[test]
