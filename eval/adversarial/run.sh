@@ -126,7 +126,10 @@ if [ "$reader_only" = "1" ]; then
   only=(--reader-only)
 fi
 # ${only[@]+...}: an empty array is "unbound" to bash before 4.4 under set -u.
-python3 -I "$here/score.py" ${only[@]+"${only[@]}"} "$here/cases.toml" "$out/export.jsonl" >"$out/score.md"
+# A refusal (stderr) goes into score.md too, and set -e must not skip report.md.
+status=0
+python3 -I "$here/score.py" ${only[@]+"${only[@]}"} "$here/cases.toml" "$out/export.jsonl" >"$out/score.md" 2>&1 || status=$?
 cat "$out/score.md"
 echo
 cat "$out/report.md"
+exit "$status"
