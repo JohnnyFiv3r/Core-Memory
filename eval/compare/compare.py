@@ -62,7 +62,10 @@ class Run:
                 if a_msg is None or b_msg is None or a_msg == b_msg:
                     continue
                 a, b = sorted((a_msg, b_msg))
-                self.first[(a, b)] = score.token(v, stored.bead(a))
+                # Oriented by the chunk of message a that the verdict names, which
+                # is not always the message's first chunk.
+                a_bead = v["earlier_bead"] if a_msg == a else v["later_bead"]
+                self.first[(a, b)] = score.token(v, a_bead)
         # The arrows that end currency and were written: (source, ended).
         self.ended = set()
         for e in stored.chains:
