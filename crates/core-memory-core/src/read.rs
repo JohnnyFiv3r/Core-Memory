@@ -691,11 +691,13 @@ pub fn locate(text: &str, quote: &str, occurrence: usize) -> Option<Range<usize>
     // A match that starts or ends inside what one character expanded to (an
     // ellipsis read as three dots) is no match of that character: counting
     // it would give several occurrences the same range.
-    let (start, found) = loose
-        .text
-        .match_indices(wanted)
-        .filter(|(start, found)| loose.whole(*start, start + found.len()))
+    // Candidates are tried at every start, since one that is refused can
+    // overlap a whole one (a dot, then an ellipsis).
+    let start = (0..loose.text.len())
+        .filter(|at| loose.text.is_char_boundary(*at) && loose.text[*at..].starts_with(wanted))
+        .filter(|at| loose.whole(*at, at + wanted.len()))
         .nth(occurrence - 1)?;
+    let found = wanted;
     // The quote starts and ends with something that is not a space, so
     // both ends map to characters of `text`.
     Some(loose.starts[start]..loose.ends[start + found.len() - 1])
@@ -1092,6 +1094,10 @@ mod tests {
         assert_eq!(locate(dots, "..", 1), None);
         assert_eq!(locate(dots, "...", 1), Some(1..4));
         assert_eq!(locate(dots, "...", 2), None);
+        // A refused start does not hide a whole match that overlaps it.
+        assert_eq!(locate(".\u{2026}", "...", 1), Some(1..4));
+        assert_eq!(locate(".\u{2026}\u{2026}", "...", 1), Some(1..4));
+        assert_eq!(locate(".\u{2026}\u{2026}", "...", 2), Some(4..7));
     }
 
     #[test]
