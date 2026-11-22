@@ -1200,7 +1200,8 @@ answer.
 
 ### What an answer holds
 
-Each bead comes with its kind, its event's ID and key, its time, how it came
+Each bead comes with its kind, its event's ID and key (a group a judge made
+has no event, so none, and no text), its time, how it came
 into the answer (`match`, `successor` or `linked`), whether it is current
 and disputed, the type the latest read of its chunk gave, and its text
 verbatim, chunk by chunk: one chunk for a message's bead, every chunk of a

@@ -411,8 +411,9 @@ what holds it. It makes no model call. The answer says `matched`,
 `no_match`, or `no_terms` when the query held no word to look for: only
 words too common to search for, or only words to leave out.
 
-What comes back is what was stored, verbatim, chunk by chunk, with each
-bead's event key, and what a judge said of it:
+What comes back is what was stored, verbatim, chunk by chunk, with the event
+key of each bead that has an event, and what a judge said of it. A group a
+judge made has no event and no text; its members are the beads its arrows lead to:
 
 - **What is current.** A match that a later statement replaced or withdrew
   is answered by that later statement, marked as its successor. Ask with
