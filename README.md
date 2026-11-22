@@ -27,7 +27,7 @@ Most memory layers summarize what they are given and keep the summary. Core Memo
 
 **Read by the model you choose:** A model gives each chunk a type from your vocabulary and marks where its entities, actions and outcomes are, as ranges of the chunk's own text. Nothing the model writes is stored in place of the source.
 
-**Related by a judge:** A judge model says how each new memory relates to the ones near it in time: what caused what, what replaced what, and what cannot both hold. It answers in the arrows of Mark Burgess's Semantic Spacetime. A replacement is written only after a second read gives it again, and a contradiction keeps both sides.
+**Related by a judge:** A judge model says how each new memory relates to the ones near it in time: what caused what, what replaced what, and what cannot both hold. It answers in the arrows of Mark Burgess's Semantic Spacetime. By default a replacement is written only after a second read gives it again (`second_read = false` turns that off), and a contradiction keeps both sides.
 
 **Recall what still holds:** `recall` returns the stored text that holds your words, verbatim. With it comes what replaced that text, what disputes it and what the judge's arrows lead to. All of it comes from the same tables, with no second store.
 
