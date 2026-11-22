@@ -5,9 +5,7 @@
 set -euo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-out=${1:?usage: run.sh <output-folder>}
-mkdir -p "$out"
-out=$(cd "$out" && pwd)
+source "$here/../results.sh"
 
 : "${CORE_MEMORY_DATABASE_URL:?set it to an empty PostgreSQL database the test may fill}"
 if [ -z "${CORE_MEMORY_ANTHROPIC_KEY:-}" ]; then
@@ -28,6 +26,17 @@ left_in_day=$((86400 - $(date -u +%s) % 86400))
 if [ "$left_in_day" -lt $(((max_minutes + 30) * 60)) ]; then
   echo "run.sh: less than $((max_minutes + 30)) minutes are left in the UTC day; start after midnight UTC" >&2
   exit 2
+fi
+
+if [ -n "${1:-}" ]; then
+  out=$1
+  mkdir -p "$out"
+  out=$(cd "$out" && pwd)
+else
+  results_refuse_unsafe_settings
+  results_root
+  results_new_run locomo-smoke public
+  trap 'results_finish "$out"' EXIT
 fi
 
 data="$out/locomo10.json"
@@ -56,6 +65,14 @@ cm() { "$bin" --config "$config" "$@"; }
 
 cm check >"$out/check.jsonl"
 cm migrate
+# The test's guarantees (what it keeps, what it sends to a model) hold only
+# for a database that holds nothing else, so a used one is refused before any
+# scope is made or any model is called.
+scopes=$(cm scope list | wc -l)
+if [ "$scopes" -ne 0 ]; then
+  echo "run.sh: the database already holds $scopes scope(s); use an empty one, as CORE_MEMORY_DATABASE_URL says" >&2
+  exit 2
+fi
 cm scope add locomo --workspace smoke
 # One allowance covers both bindings: they send to the same destination.
 cm scope allow locomo --binding reader
@@ -117,6 +134,8 @@ set MODELS_CA_FILE to the certificate authority of the proxy or gateway that re-
 done
 
 cm read status >"$out/status.jsonl"
-cm export >"$out/export.jsonl"
+# Only the test's own scope: a workspace export would also write out
+# any other scope that shares the workspace.
+cm export --scope locomo >"$out/export.jsonl"
 python3 -I "$here/report.py" "$out" "$why" >"$out/report.md"
 cat "$out/report.md"
