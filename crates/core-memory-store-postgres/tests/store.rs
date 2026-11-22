@@ -1896,7 +1896,9 @@ fn a_login_the_server_refuses_is_not_a_store_to_wait_for() {
     let db = TestDb::create();
     let (scheme, rest) = db.url.split_once("://").unwrap();
     let (_, address) = rest.split_once('@').unwrap();
-    let (host, _) = address.split_once('/').unwrap();
+    let (host, database) = address.split_once('/').unwrap();
+    // Connection options such as `sslmode` follow the database name.
+    let options = database.find('?').map_or("", |at| &database[at..]);
     let role = Role::new(&db, "login");
     for (what, url, state) in [
         (
@@ -1912,7 +1914,7 @@ fn a_login_the_server_refuses_is_not_a_store_to_wait_for() {
         (
             "a database that does not exist",
             format!(
-                "{scheme}://{}:synthetic@{host}/cm_t_no_such_database",
+                "{scheme}://{}:synthetic@{host}/cm_t_no_such_database{options}",
                 role.name
             ),
             "3D000",
