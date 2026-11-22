@@ -846,12 +846,12 @@ goes. A call succeeded only if its stream reached `response.completed`.
 |---|---|---|
 | 401, from admission or `subscription_sharing_invalid_user`; no sign-in, no plan scope or no consent here; a refresh token OpenAI says is spent (`invalid_grant`, `invalid_refresh_token`, `token_expired`, `refresh_token_expired`, `refresh_token_invalidated`, `refresh_token_reused`), whose tokens are then cleared | `SignInRequired` | `signin_required` |
 | 429 `subscription_sharing_usage_limit_exceeded` | `LimitReached`, not started | `plan_limit_reached` |
-| `response.failed` with that code, after the reply began | `LimitReached`, started | `plan_limit_reached` |
+| `response.failed` or an `error` event with that code, after the reply began | `LimitReached`, started | `plan_limit_reached` |
 | 403 (admission, `subscription_sharing_user_not_eligible`, `subscription_sharing_route_not_supported`, `chatpass_v2_*`), 400 `subscription_sharing_unsupported_capability` (its `param` named), refresh `invalid_client` | `Permanent` | `binding_rejected` |
 | 503 (admission, `subscription_sharing_usage_unavailable`, `subscription_sharing_user_unavailable`), other 5xx, other 429, 408, a renewal that could not reach OpenAI | `Transient` | `provider_unavailable` |
-| 400 `context_length_exceeded`, 413, `response.incomplete` for `max_output_tokens` | `DidNotFit` | `did_not_fit` |
+| 400 `context_length_exceeded`, 413, `response.failed` or an `error` event with `context_length_exceeded`, `response.incomplete` for `max_output_tokens` | `DidNotFit` | `did_not_fit` |
 | `response.incomplete` for `content_filter`, a refusal in the reply | `Refused` | `model_refused` |
-| Any other `response.failed`, an `error` event, a stream that ended without `response.completed` | `InDoubt` | `call_in_doubt` |
+| Any other code in a `response.failed` or an `error` event, a stream that ended without `response.completed` | `InDoubt` | `call_in_doubt` |
 
 A 401 is not tried again by the call that got it: the next call renews the
 token first. An error names OpenAI's status, code, `param` and request ID, and
