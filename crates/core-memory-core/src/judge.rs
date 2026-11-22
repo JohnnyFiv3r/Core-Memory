@@ -79,7 +79,7 @@ The relationships. A and B stand for the two memories of a pair.
 
 CONTAINS: A and B are parts of one memory. They are pieces of one message or document, or one account that its author runs on across messages, so that a reader needs both to have the whole. Two messages about the same subject are not parts of one memory, and messages by different people never are: one may answer, add to or contradict the other, and that is another relationship or none.
 
-SUPERSEDES: A is a later statement on the very matter B states, and a reader should now go by A. Give the label that says how:
+SUPERSEDES: A is a later statement on the very matter B states. Give the label that says how a reader should treat the two:
 - "supersede": A replaces what B says: a changed date, a new owner, a corrected figure, a reversed decision.
 - "retract": A withdraws what B says and puts nothing in its place.
 - "reaffirm": A confirms what B says again, after time has passed or after it was put in doubt.
