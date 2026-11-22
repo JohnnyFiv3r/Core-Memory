@@ -545,7 +545,7 @@ A quote is looked up in the chunk and kept as the byte range where it was
 found. Nothing the model wrote is stored: a type is a key of the
 vocabulary, and a span is a range of text the source wrote. A quote that is
 not in the chunk is not a finding. A quote that is nowhere in the chunk
-exactly is looked for again loosely (validator revision 2):
+exactly is looked for again loosely (validator revision 3):
 
 - runs of whitespace are read as one space;
 - curly quotation marks and apostrophes, dashes and an ellipsis are read as
@@ -553,7 +553,9 @@ exactly is looked for again loosely (validator revision 2):
 - invisible characters are left out.
 
 Models write a straight apostrophe for a curly one, and a space for a line
-break. Either way the range kept is of what the source wrote.
+break. Either way the range kept is of what the source wrote. A loose
+match takes in each typographic character whole, so a dot never matches
+inside an ellipsis, and occurrences are numbered without overlap.
 
 A reply that breaks the shape is rejected whole and repaired once: the
 model gets its reply back with what was wrong. On that second attempt a
@@ -1148,8 +1150,10 @@ break a rule of the store:
 - a name link joins beads that were not compared, or a tool call, which
   has no text to copy a name from.
 
-A name that is not found word for word in its bead's text, or two names
-that are the same, fail the first reply. On the repair they are dropped and
+A name is looked for in its bead's text as a reader's quote is in a
+chunk's, loosely and by the same rules (judge validator revision 4), and
+its range is of the text as the source wrote it. A name that is not found,
+or two names that are the same, fail the first reply. On the repair they are dropped and
 counted (`names_rejected`), as an unfound quote of a chunk read is. If the
 repair is rejected too, nothing is written, the pairs stay unjudged, and
 the beads are tried again alone.
