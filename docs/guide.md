@@ -389,20 +389,28 @@ Consent, receipts, budgets and retries work as they do for chunks.
 
 ## Judging how memories relate
 
-A judge is a model that compares each new memory with the memories near it
-in time, from every scope of the workspace that allows it. Add a judge. It
-may use the same binding as the readers or one of its own: it reads more
-text in one call than they do, and a wrong relationship does more harm than
-a wrong type.
+A judge is a model that compares each new memory with the memories beside
+it, from every scope of the workspace that allows it: the memories of open
+disputes and those its source names, at any age, and then the nearest
+others in time. Add a judge. It may use the same binding as the readers or
+one of its own: it reads more text in one call than they do, and a wrong
+relationship does more harm than a wrong type.
 
 ```toml
 [judge]
 binding = "small"
-# window_ms = 604800000      # how far apart in time two memories may be: 7 days
+# window_ms = 604800000      # the nearest others are taken from within this time of the new ones: 7 days
+# max_window_beads = 40      # most memories shown beside the new ones, in all
+# max_window_bytes = 64000   # most bytes of their text, in all
+# max_conflict_beads = 6     # most memories of open disputes, shown first
 # max_new_beads = 8          # new memories in one read
-# max_window_beads = 40      # memories shown beside them
 # second_read = true         # read a replacement twice before it is written
 ```
+
+The list stops at `max_window_beads` or `max_window_bytes`, whichever is
+reached first, so the nearest in time are the first to be left out. Raising
+`max_window_beads` adds text only if there are more memories to show and
+`max_window_bytes` leaves room.
 
 The judge needs each scope's consent to its destination, as a reader does,
 and `core-memory read run`, `read status`, `read queue` and `serve` work for
