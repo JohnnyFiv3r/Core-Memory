@@ -3,8 +3,9 @@
 Core Memory 1.x was a Python library and service. Its last release, 1.1.2,
 is on the [`v1.x`](https://github.com/JohnnyFiv3r/Core-Memory/tree/v1.x)
 branch. Its package, `core_memory/`, was about 83,000 lines of Python in 349 files. They are in 17
-packages and eight files at the top; an 18th directory, `data/`, holds three
-JSON files and no Python. Its tests, benchmarks, demos and plugins were more
+packages and seven modules at the top. The top also holds a marker file,
+`py.typed`, so eight files in all, and an 18th directory, `data/`, which holds
+three JSON files and no Python. Its tests, benchmarks, demos and plugins were more
 on top.
 
 2.0 is a different program. It is an engine of about 27,000 lines of Rust,
