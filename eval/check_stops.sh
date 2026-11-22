@@ -45,6 +45,9 @@ export CORE_MEMORY_DATABASE_URL=postgresql://stand-in.invalid/none
 export CORE_MEMORY_ANTHROPIC_KEY=stand-in
 export MAX_MINUTES=0 PAUSE_SECONDS=0 QUIET_RUNS=1
 unset MODELS_CA_FILE READER_ONLY READER_EFFORT JUDGE_MODEL JUDGE_EFFORT REPEATS
+# The synthetic corpus holds conv-26 only, so a sample the caller set would
+# select nothing.
+export LOCOMO_SAMPLE=conv-26
 
 cert="the model server's TLS certificate was not trusted, so nothing was sent: set MODELS_CA_FILE to the certificate authority of the proxy or gateway that re-signs it"
 key="the API turned the key or a model down; see runs.log"
