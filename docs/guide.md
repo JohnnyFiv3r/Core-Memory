@@ -443,8 +443,8 @@ What it says is stored as IDs and fixed words, never as text:
   current until a later statement replaces or withdraws it, and it is
   replaced or withdrawn at most once, so a chain of statements has one
   current end and never branches. A contradiction ends nothing: both
-  statements stay current, and both are chosen for the judge first while they
-  do;
+  statements stay current, and while the dispute is open its memories are
+  taken first for the judge's list, up to `max_conflict_beads`;
 - a **group bead** for memories that are parts of one;
 - a **name link** when two memories use different names for one thing, kept
   as the place of each name in its own text.
