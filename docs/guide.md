@@ -402,15 +402,16 @@ binding = "small"
 # window_ms = 604800000      # the nearest others are taken from within this time of the new ones: 7 days
 # max_window_beads = 40      # most memories shown beside the new ones, in all
 # max_window_bytes = 64000   # most bytes of their text, in all
-# max_conflict_beads = 6     # most memories of open disputes, shown first
+# max_conflict_beads = 6     # most memories of open disputes, taken first
 # max_new_beads = 8          # new memories in one read
 # second_read = true         # read a replacement twice before it is written
 ```
 
 The list stops at `max_window_beads` or `max_window_bytes`, whichever is
-reached first, so the nearest in time are the first to be left out. Raising
-`max_window_beads` adds text only if there are more memories to show and
-`max_window_bytes` leaves room.
+reached first, so the nearest in time are the first to be left out. The
+memories are chosen in that order, and the judge sees the chosen ones in time
+order. Raising `max_window_beads` adds text only if there are more memories to
+show and `max_window_bytes` leaves room.
 
 The judge needs each scope's consent to its destination, as a reader does,
 and `core-memory read run`, `read status`, `read queue` and `serve` work for
@@ -442,7 +443,8 @@ What it says is stored as IDs and fixed words, never as text:
   current until a later statement replaces or withdraws it, and it is
   replaced or withdrawn at most once, so a chain of statements has one
   current end and never branches. A contradiction ends nothing: both
-  statements stay current, and the judge is shown both first while they do;
+  statements stay current, and both are chosen for the judge first while they
+  do;
 - a **group bead** for memories that are parts of one;
 - a **name link** when two memories use different names for one thing, kept
   as the place of each name in its own text.
