@@ -78,9 +78,16 @@ class Run:
         return sorted(f"{arrow} {s}>{d}" for arrow, s, d in self.ended if {s, d} == set(pair))
 
     def text(self, message):
+        """A message's text as this run stored it, or None if it has none."""
         bead = self.stored.bead(message)
         chunk = self.stored.chunks.get(bead)
-        return score.short(chunk["text"])[:TEXT] if chunk else "?"
+        return score.short(chunk["text"])[:TEXT] if chunk else None
+
+
+def text_of(runs, message):
+    """A message's text from the first run that has it: runs cover different
+    messages, so the first run may not."""
+    return next((t for t in (r.text(message) for r in runs) if t is not None), "?")
 
 
 def judge_cost(rounds_path, model):
@@ -129,7 +136,11 @@ def agreement(x, y):
     both_related = [i for i in range(len(shared)) if related(tx[i]) and related(ty[i])]
     # The arrow is part of what was written: a replacement and a withdrawal
     # of one statement are two things.
-    ended_x, ended_y = x.ended, y.ended
+    # Only over the pairs both read: an edge on a pair one run never read says
+    # nothing about whether the two agree.
+    shared_set = set(shared)
+    on_shared = lambda ended: {e for e in ended if tuple(sorted(e[1:])) in shared_set}
+    ended_x, ended_y = on_shared(x.ended), on_shared(y.ended)
     return {
         "shared": len(shared),
         "only_x": len(set(x.first) - set(y.first)),
@@ -248,12 +259,14 @@ def main(args):
         pairs = sorted(set().union(*(set(r.first) for r in runs)))
         currency, related = [], []
         for p in pairs:
-            said = {m: [r.first.get(p, "—") for r in first_of[m]] for m in models}
-            wrote = {m: [r.written(p) for r in first_of[m]] for m in models}
+            # A run that never read the pair has not said it ended nothing.
+            readers = {m: [r for r in first_of[m] if p in r.first] for m in models}
+            if not all(readers.values()):
+                continue
+            said = {m: [r.first[p] for r in readers[m]] for m in models}
+            wrote = {m: [r.written(p) for r in readers[m]] for m in models}
             ends = {m: any(wrote[m]) for m in models}
-            rel = {
-                m: [t not in ("none", "unsure") for t in said[m] if t != "—"] for m in models
-            }
+            rel = {m: [t not in ("none", "unsure") for t in said[m]] for m in models}
             x, y = rel[models[0]], rel[models[1]]
             if ends[models[0]] != ends[models[1]]:
                 currency.append((p, said, wrote))
@@ -261,15 +274,14 @@ def main(args):
                 # Every run of one model related the two; no run of the
                 # other did.
                 related.append((p, said, wrote))
-        source = runs[0]
         for title, found in (
             ("One model ended a statement and the other did not", currency),
             ("One model always related the two and the other never did", related),
         ):
             w.append(f"### {title} ({len(found)})\n")
             for (a, b), said, wrote in found[:LISTED]:
-                w.append(f"- **{a}** “{source.text(a)}”")
-                w.append(f"  **{b}** “{source.text(b)}”")
+                w.append(f"- **{a}** “{text_of(runs, a)}”")
+                w.append(f"  **{b}** “{text_of(runs, b)}”")
                 w.append("  first read: " + "; ".join(f"{m}: {', '.join(said[m])}" for m in models))
                 w.append(
                     "  written: "
