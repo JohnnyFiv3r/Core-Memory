@@ -38,6 +38,7 @@ if [ -n "${1:-}" ]; then
   out=$1
   mkdir -p "$out"
   out=$(cd "$out" && pwd)
+  confdir=
 else
   results_refuse_unsafe_settings
   results_root
@@ -45,7 +46,7 @@ else
   trap 'results_finish "$out"' EXIT
 fi
 
-config="$out/core-memory.toml"
+config="${confdir:-$out}/core-memory.toml"
 cp "$smoke/core-memory.toml" "$config"
 # READER_ONLY=1 reads the messages and judges nothing, for a few cents: to
 # compare readers. READER_EFFORT sets the reader's reasoning_effort;

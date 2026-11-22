@@ -39,10 +39,9 @@ results_holds_credential() {
 }
 
 # Refuses, before any folder is made, a setting that would put a credential or
-# a URL into the kept run: the settings reach core-memory.toml, and the pause
-# and quiet limit reach report.md, as typed, so
-# withholding them from meta.txt alone is not enough. Names the setting, never
-# its value.
+# a URL into the kept run: the pause and quiet limit reach report.md as typed,
+# so withholding them from meta.txt alone is not enough. Names the setting,
+# never its value.
 results_refuse_unsafe_settings() {
   local name
   for name in REPEATS READER_ONLY READER_EFFORT JUDGE_MODEL JUDGE_EFFORT MAX_MINUTES LOCOMO_SAMPLE MODELS_CA_FILE PAUSE_SECONDS QUIET_RUNS; do
@@ -76,6 +75,12 @@ results_new_run() {
     fi
     out="$base-$n"
   done
+  # The config holds the endpoint and every setting as typed: it is used during
+  # the run and never kept (meta.txt names what rebuilds it).
+  if ! confdir=$(umask 077; mktemp -d "${TMPDIR:-/tmp}/core-memory-run.XXXXXX"); then
+    echo "run.sh: cannot make a private folder for the run's config" >&2
+    exit 2
+  fi
   # Only these non-secret settings are named, so two runs can be told apart.
   settings=""
   for name in REPEATS READER_ONLY READER_EFFORT JUDGE_MODEL JUDGE_EFFORT MAX_MINUTES LOCOMO_SAMPLE; do
@@ -101,26 +106,38 @@ results_new_run() {
   echo "run.sh: results go to $out" >&2
 }
 
-# Stops with exit 3 when a credential's value appears in the folder. It matches
-# whole values only, so it is a backstop to the engine never writing them, not
-# a proof.
+# Deletes the run and stops with exit 3 when a credential's value appears in
+# it, or a URL appears in a file that is not corpus text. It matches whole
+# values only, so it is a backstop to the engine never writing them, not a
+# proof. Only ever called with the folder results_new_run made.
 results_check_clean() {
-  local vals=() v
+  local vals=() v found=""
+  [[ $1 == "$root/runs/"* ]] || { echo "run.sh: refusing to delete $1" >&2; exit 3; }
   # An empty value would be an empty pattern, which matches every line.
   for v in "${CORE_MEMORY_DATABASE_URL:-}" "${CORE_MEMORY_ANTHROPIC_KEY:-}" "${OPENAI_API_KEY:-}" "${CORE_MEMORY_OPENAI_KEY:-}"; do
     [ -n "$v" ] && vals+=("$v")
   done
-  [ "${#vals[@]}" -eq 0 ] && return 0
   # The values go in through a process substitution, never a command line.
-  if grep -rlF -f <(printf '%s\n' "${vals[@]}") -- "$1" >&2; then
-    echo "run.sh: a credential appears in $1; delete the folder and do not copy anything from it" >&2
+  if [ "${#vals[@]}" -gt 0 ] && grep -rlqF -f <(printf '%s\n' "${vals[@]}") -- "$1"; then
+    found="a credential"
+  # Corpus text may hold URLs (RESULTS.md allows it); nothing else a run
+  # writes should.
+  elif grep -rlq --exclude='events*.jsonl' --exclude=export.jsonl \
+      --exclude=locomo10.json --exclude=report.md --exclude=score.md \
+      -e '://' -- "$1"; then
+    found="a URL"
+  fi
+  if [ -n "$found" ]; then
+    rm -rf -- "$1"
+    echo "run.sh: $found appeared in the run's results, so the run folder was deleted" >&2
     exit 3
   fi
 }
 
-# The runner's EXIT trap for a default run: scans whatever the run wrote, even
-# when it stopped early, then says where it is.
+# The runner's EXIT trap for a default run: drops the private config, scans
+# whatever the run wrote, even when it stopped early, then says where it is.
 results_finish() {
+  [ -n "${confdir:-}" ] && rm -rf -- "$confdir"
   results_check_clean "$1"
   echo "run.sh: results kept in $1" >&2
 }

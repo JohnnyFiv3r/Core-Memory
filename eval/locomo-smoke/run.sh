@@ -32,6 +32,7 @@ if [ -n "${1:-}" ]; then
   out=$1
   mkdir -p "$out"
   out=$(cd "$out" && pwd)
+  confdir=
 else
   results_refuse_unsafe_settings
   results_root
@@ -49,7 +50,7 @@ echo "79fa87e90f04081343b8c8debecb80a9a6842b76a7aa537dc9fdf651ea698ff4  $data" |
   sha256sum -c --quiet -
 python3 -I "$here/locomo_to_events.py" "$data" "$sample" locomo "$out/events.jsonl"
 
-config="$out/core-memory.toml"
+config="${confdir:-$out}/core-memory.toml"
 cp "$here/core-memory.toml" "$config"
 # READER_EFFORT, JUDGE_MODEL and JUDGE_EFFORT change the bindings, to
 # compare models on the same conversation. See configure.py.

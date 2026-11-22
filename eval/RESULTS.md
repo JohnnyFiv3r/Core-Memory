@@ -49,5 +49,12 @@ LoCoMo).
 Chunk text, events.jsonl, export.jsonl or bead text from any real scope, and
 any URL, key or token. A runner that can read a real scope must write only the
 kinds listed above. The two runners here read only the hard cases and LoCoMo,
-so they keep their text files. Each refuses a database that already holds a scope, before any model call, and exports only its own scope (`adversarial-N`, `locomo`), even if the database holds another scope in the same workspace, and a setting that is not plain (such as a URL) or holds a credential is withheld from `meta.txt`. A run that would keep a credential in a setting, or a URL in `MODELS_CA_FILE`, is refused (exit 2) before any folder is made. Copying a file out of this folder (into an
-attachment, a message or a pull request) is publishing it: check it first.
+so they keep their text files. Each refuses a database that already holds a
+scope, before any model call, and exports only its own scope (`adversarial-N`,
+`locomo`). A setting that would carry a credential, or a URL in
+`MODELS_CA_FILE`, is refused (exit 2) before any folder is made. A run's
+`core-memory.toml` is not kept: `meta.txt` names the commit and settings that
+rebuild it. When a run ends, its folder is checked. If a credential's value
+appears anywhere in it, or a URL appears anywhere but the corpus text, the
+folder is deleted and the run exits 3. Copying a file out of this folder (into
+an attachment, a message or a pull request) is publishing it: check it first.
