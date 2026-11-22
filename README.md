@@ -27,7 +27,7 @@ Most memory layers summarize what they are given and keep the summary. Core Memo
 
 **Read by the model you choose:** A model gives each chunk a type from your vocabulary and marks where its entities, actions and outcomes are, as ranges of the chunk's own text. Nothing the model writes is stored in place of the source.
 
-**Related by a judge:** A judge model says how each new memory relates to the ones near it in time: what caused what, what replaced what, and what cannot both hold. It answers in the arrows of Mark Burgess's Semantic Spacetime. A replacement is written only after a second read gives it again, and a contradiction keeps both sides.
+**Related by a judge:** A judge model says how each new memory relates to the ones near it in time, and to the ones its source names: what caused what, what replaced what, and what cannot both hold. It answers in the arrows of Mark Burgess's Semantic Spacetime. A replacement is written only after a second read gives it again, and a contradiction keeps both sides.
 
 **Recall what still holds:** `recall` returns the stored text that holds your words, verbatim. With it comes what replaced that text, what disputes it and what the judge's arrows lead to. All of it comes from the same tables, with no second store.
 
@@ -93,7 +93,7 @@ See the [full guide](https://github.com/JohnnyFiv3r/Core-Memory/blob/main/docs/g
 
 **Tool calls as memory:** An agent's tool call is stored whole. Before a model reads it, fixed rules shorten it. The model writes two short lines about it: what the call did and what came of it.
 
-**Judged, never inferred:** No relationship is made from similarity, chronology or shared keys alone. Code only chooses what the judge is shown, and it chooses by time. Every pair the judge sees gets a verdict, and "cannot tell" is never a no.
+**Judged, never inferred:** No relationship is made from similarity, chronology or shared keys alone. Code only chooses what the judge is shown, and it chooses by time and by what a source names. Every pair the judge sees gets a verdict, and "cannot tell" is never a no.
 
 **Recall with provenance:** Every match comes back with its event key and its time, and says where that time came from. It also says whether the match is still current and whether another statement disputes it.
 
@@ -151,7 +151,7 @@ Core Memory keeps its writes deterministic and puts every model call behind a ga
 
 **Read:** With a reader configured, each chunk is queued for a model. The model picks one type from your vocabulary, or abstains and says why. It also quotes the chunk's entities, actions and outcomes. Each quote is kept only as the byte range where it was found, so a quote that is not in the chunk is dropped. With a tool reader configured, each tool call goes to a model that writes what the call did and what came of it.
 
-**Judge:** With a judge configured, each new memory is shown beside the memories near it in time, from every scope of the workspace that allows it. The judge answers each pair with an arrow, with none, or with "cannot tell". A memory stays current until a later statement replaces or withdraws it. Such a chain never branches, and a contradiction ends neither side. Finding related pairs across the whole store, beyond what the judge reads in time order, is a host's work and not the engine's: memoriesQL does it.
+**Judge:** With a judge configured, each new memory is shown beside the memories near it in time, from every scope of the workspace that allows it, and beside the ones its source names as what it replies to, belongs under or is a revision of, however long ago they were. The judge answers each pair with an arrow, with none, or with "cannot tell". A memory stays current until a later statement replaces or withdraws it. Such a chain never branches, and a contradiction ends neither side. Finding related pairs across the whole store, beyond what the judge reads in time order, is a host's work and not the engine's: memoriesQL does it.
 
 **Recall:** Recall uses PostgreSQL's full-text search over the stored text and makes no model call. A match that was replaced is answered by its successor. Disputed statements are marked, and the judge's arrows are followed up to two steps.
 

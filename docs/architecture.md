@@ -904,8 +904,9 @@ A judge model reads each new bead against the beads near it in time, from
 every scope of its workspace, and says how they relate. It runs once a
 `[judge]` section names a `[[binding]]`. Code computes what the judge is
 shown and records what it says. Code never proposes an edge and never picks
-a pair: a bead is shown because of when it happened and for no other
-reason, and a score is never evidence.
+a pair: a bead is shown because of when it happened, or because a new
+bead's source names its event, and for no other reason, and a score is
+never evidence.
 
 ### The arrows
 
@@ -1050,11 +1051,20 @@ beads were handed to another, stores and settles nothing for them when its
 reply comes at last.
 
 **What it is shown beside them.** The window is chosen inside the permit,
-under the workspace's lock, by time alone: the live beads of source content
-whose time lies between the new beads, or within `window_ms` before the
-earliest or after the latest, nearest first, up to `max_window_beads` beads
-and `max_window_bytes` of content. The beads of open disputes come before
-them, most recent first, up to `max_conflict_beads`. A bead that is itself
+under the workspace's lock, by time and by what the sources name: the live
+beads of source content whose time lies between the new beads, or within
+`window_ms` before the earliest or after the latest, nearest first, up to
+`max_window_beads` beads and `max_window_bytes` of content. The beads of
+open disputes come before them, most recent first, up to
+`max_conflict_beads`. Between the two come the beads of the events a new
+bead's source names in its own scope, as what it is a revision of
+(`revision_of`), replies to (`reply_to`) or belongs under (`parent`),
+however far apart in time they are: the latest revision of each first, in
+the order of its chunks, up to four for each new bead. The source said the
+two are related, so the judge is shown them; how they relate is still the
+judge's to say. A source that names an event this way is how a document
+that was replaced, such as a report attached again under the same name,
+meets its earlier version once they are hours apart. A bead that is itself
 waiting to be judged is left out. Its pairs are read when its own turn
 comes, with these beads in its window, so a pair is read once, whichever of
 the two arrived first. So is a bead this judge has already read with every
@@ -1075,8 +1085,9 @@ and the work waits.
 window and `N1`, `N2`, ... for the new beads, each list in time order.
 With it come its time and how precise that is, the kind of source, opaque
 handles for its scope, its author, its message, its thread and its
-session, where it stands in its message, what it replies to if that is in
-the lists, its type if a model read one, whether it is still current, the
+session, where it stands in its message, what it replies to, belongs
+under or is a revision of if that is in the lists, its type if a model
+read one, whether it is still current, the
 arrow by which it already replaced or withdrew another (`chain`), and its
 group. A message's bead is shown with its chunk's text. A tool call's bead
 is shown with its tool, and the action, outcome and status a model wrote of
@@ -1107,7 +1118,8 @@ when it changes or corrects the earlier, and `!contradicts` when either
 could still be right: both then stay current. Under revisions 2 and 3, a
 contradiction was a label on the chain, which made the later statement
 current by recency; in six runs of `eval/adversarial` the judge called such
-a pair `express` five times.
+a pair `express` five times. Revision 5 shows `revision_of`: the earlier
+version of a document or record that its source replaced with this one.
 
 A pair gets one arrow: one that ends currency if one holds, else
 `same-memory`, else another of `leadsto`, else one of `contains`, else one
@@ -1244,7 +1256,8 @@ link about the erased bead, whoever writes it.
 
 ### Pairs beyond the window
 
-The engine's judge reads a bead only against the beads near it in time.
+The engine's judge reads a bead only against the beads near it in time
+and those of the events its source names.
 Finding pairs across the whole store, ranking them and judging them is a
 host's work: memoriesQL does it over the tables it reads, with judges and
 tables of its own. The engine keeps nothing for it but what any host may

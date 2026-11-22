@@ -44,7 +44,9 @@ use crate::store::{
 /// Revision 4: the judge answers in Burgess's arrows. A contradiction keeps
 /// both statements current, dependency leads to what it enables, and a
 /// statement can be part of a whole of which it is not a piece.
-pub const RUBRIC_REV: u32 = 4;
+/// Revision 5: a memory shows `revision_of`, the earlier version of it that
+/// its source replaced, when that is in the lists.
+pub const RUBRIC_REV: u32 = 5;
 /// Revision of the reply validator. Part of every binding revision.
 /// Revision 3 reads arrows, whatever their case.
 pub const JUDGE_VALIDATOR_REV: u32 = 3;
@@ -98,7 +100,7 @@ You are given two lists. "listed" memories (B1, B2, ...) are already stored. "ne
 What a memory shows:
 - "at": when it was written or took place. "at_precision" is "approximate" when the source gave only a date or a coarser time, and "arrival" when the time is only when the memory was stored. Memories do not always arrive in the order things happened, and the lists are not a timeline: go by the times and the words.
 - "from": the connection it came through. "source": the kind of source. "by": who wrote it, and "role": their part in a conversation, where the source says.
-- "message" and "part": memories with the same "message" are pieces of one message, and "part" is the piece's place in it. "thread" and "session": memories that share one belong to one conversation or one working session. "reply_to" and "parent": the memories it answers or belongs under, when they are in the lists.
+- "message" and "part": memories with the same "message" are pieces of one message, and "part" is the piece's place in it. "thread" and "session": memories that share one belong to one conversation or one working session. "reply_to" and "parent": the memories it answers or belongs under, when they are in the lists. "revision_of": the earlier version of the same document or record, which its source replaced with this one, when it is in the lists. Relate the two for what they say.
 - "type": the kind of statement an earlier reading found in it, if any.
 - "current": false means a later memory has already replaced or withdrawn it. "chain": the arrow by which it has already replaced or withdrawn another memory. "group": memories with the same group are already recorded as parts of one memory.
 - "text": its exact words. A call of a tool by an AI agent is shown as "tool", "action", "outcome" and "status" instead: a short record of what the call did.
@@ -448,6 +450,7 @@ pub fn render(shown: &Shown, max_output_tokens: u32) -> ModelRequest {
         for (name, reference) in [
             ("reply_to", &structure.reply_to),
             ("parent", &structure.parent),
+            ("revision_of", &structure.revision_of),
         ] {
             let Some(reference) = reference else { continue };
             let named: Vec<String> = (0..beads.len())
@@ -1786,6 +1789,43 @@ mod tests {
         }
         // What is sent is counted as the content shown, not its framing.
         assert_eq!(content_bytes(&shown), (39 + 32 + 26 + 4 + 29 + 22) as u64);
+    }
+
+    #[test]
+    fn a_judge_is_shown_the_earlier_version_a_memory_replaced() {
+        let earlier = bead(
+            1,
+            0,
+            "QA report: Verdict: fail. Expired coupons are accepted.",
+        );
+        let other = bead(2, 5, "Lunch is at noon.");
+        let mut later = bead(
+            3,
+            9_000,
+            "QA report: Verdict: pass. Expired coupons are refused.",
+        );
+        later.details.structure.revision_of = Some(ObjectRef {
+            source_ns: None,
+            external_id: "C042/1".into(),
+            revision: None,
+        });
+        // Named, but not in the lists: nothing is said of it.
+        let mut stray = bead(4, 9_001, "QA report for another page.");
+        stray.details.structure.revision_of = Some(ObjectRef {
+            source_ns: None,
+            external_id: "C042/77".into(),
+            revision: None,
+        });
+        let request = render(&read_of(vec![earlier, other], vec![later, stray]), 2_000);
+        assert!(
+            request
+                .system
+                .contains("\"revision_of\": the earlier version")
+        );
+        let user: Value = serde_json::from_str(&request.user).unwrap();
+        assert_eq!(user["new"][0]["revision_of"], json!(["B1"]));
+        assert!(user["new"][1].get("revision_of").is_none());
+        assert!(user["listed"][1].get("revision_of").is_none());
     }
 
     #[test]

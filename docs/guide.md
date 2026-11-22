@@ -440,7 +440,9 @@ What it says is stored as IDs and fixed words, never as text:
   as the place of each name in its own text.
 
 Code decides nothing here but what the judge is shown, and it goes by time
-alone. It never proposes a pair or an edge.
+and by what a source names: an event's `revision_of`, `reply_to` or
+`parent` brings the beads of the event it names into the judge's view,
+however long ago it was. It never proposes a pair or an edge.
 
 A replacement or a withdrawal changes what a reader takes as current, so it
 is not written on one reading. The two statements are read a second time,

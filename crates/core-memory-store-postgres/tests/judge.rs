@@ -10,7 +10,7 @@ mod common;
 use std::sync::Mutex;
 
 use common::{CONFIG, World, behind_a_migration, kind_of};
-use core_memory_contract::{BeadId, EventId, SourceEvent};
+use core_memory_contract::{BeadId, EventId, ObjectRef, SourceEvent};
 use core_memory_core::judge::Fault;
 use core_memory_core::model::{
     FnTransport, ModelRequest, ModelResponse, ModelTransport, ScriptedTransport, TransportError,
@@ -1779,6 +1779,144 @@ fn the_window_is_the_nearest_beads_up_to_its_limits_and_open_disputes_come_first
     assert_eq!(
         w.count("SELECT bytes_sent FROM core_memory.outbound_calls ORDER BY seq DESC LIMIT 1"),
         ("Other business 4.".len() + "One more.".len() + "And another.".len()) as i64
+    );
+}
+
+/// `event` with its source naming the event `of` as what it is a revision
+/// of, replies to or belongs under.
+fn naming(mut event: SourceEvent, how: &str, of: &str) -> SourceEvent {
+    let named = Some(ObjectRef {
+        source_ns: None,
+        external_id: of.into(),
+        revision: None,
+    });
+    match how {
+        "revision_of" => event.structure.revision_of = named,
+        "reply_to" => event.structure.reply_to = named,
+        _ => event.structure.parent = named,
+    }
+    event
+}
+
+#[test]
+fn what_a_source_names_is_shown_however_far_back_and_ahead_of_the_nearest() {
+    let mut w = judging(
+        "max_new_beads = 1\nmax_window_beads = 3\nmax_conflict_beads = 0\nwindow_ms = 3600000",
+    );
+    let requests: Mutex<Vec<ModelRequest>> = Mutex::new(Vec::new());
+    let transport = FnTransport(|request: &ModelRequest| {
+        requests.lock().unwrap().push(request.clone());
+        nothing(request)
+    });
+    let last = |requests: &Mutex<Vec<ModelRequest>>| -> (Vec<Value>, Vec<Value>) {
+        shown(requests.lock().unwrap().last().unwrap())
+    };
+    let texts = |memories: &[Value]| -> Vec<String> {
+        memories
+            .iter()
+            .map(|m| m["text"].as_str().unwrap().to_string())
+            .collect()
+    };
+    // A report and a question in the morning, then other business hours
+    // later: more than the window holds, and far outside its hour.
+    bead(&mut w, &said("report", 0, "QA report: Verdict: fail."));
+    handled(round(&mut w, &transport));
+    let (question, _) = message(
+        &mut w,
+        &said("question", 1, "Which region for the database?"),
+    );
+    handled(round(&mut w, &transport));
+    for n in 0..4u32 {
+        bead(
+            &mut w,
+            &said(
+                &format!("later-{n}"),
+                300 + n,
+                &format!("Other business {n}."),
+            ),
+        );
+        handled(round(&mut w, &transport));
+    }
+
+    // A new version of the report names the first. It is shown, and ahead
+    // of the beads nearest in time: the window holds it and the two
+    // nearest.
+    bead(
+        &mut w,
+        &naming(
+            said("report-2", 305, "QA report: Verdict: pass."),
+            "revision_of",
+            "report",
+        ),
+    );
+    handled(round(&mut w, &transport));
+    let (listed, new) = last(&requests);
+    assert_eq!(
+        texts(&listed),
+        [
+            "QA report: Verdict: fail.",
+            "Other business 2.",
+            "Other business 3."
+        ]
+    );
+    assert_eq!(
+        new[0]["revision_of"],
+        json!([handle(&listed, "Verdict: fail").unwrap()])
+    );
+
+    // A reply to the question is shown it the same way.
+    bead(
+        &mut w,
+        &naming(
+            said("answer", 306, "Go with eu-west-1."),
+            "reply_to",
+            "question",
+        ),
+    );
+    handled(round(&mut w, &transport));
+    let (listed, new) = last(&requests);
+    assert!(texts(&listed).contains(&"Which region for the database?".to_string()));
+    assert_eq!(
+        new[0]["reply_to"],
+        json!([handle(&listed, "Which region").unwrap()])
+    );
+
+    // A bead named that lies in the window by time is shown once.
+    bead(
+        &mut w,
+        &naming(said("aside", 307, "About business 3."), "parent", "later-3"),
+    );
+    handled(round(&mut w, &transport));
+    let (listed, _) = last(&requests);
+    let listed = texts(&listed);
+    assert_eq!(
+        listed.iter().filter(|t| *t == "Other business 3.").count(),
+        1
+    );
+    assert_eq!(listed.len(), 3);
+
+    // An erased event is not shown, however it is named.
+    erase(&w, question);
+    bead(
+        &mut w,
+        &naming(
+            said("answer-2", 308, "Or eu-central-1."),
+            "reply_to",
+            "question",
+        ),
+    );
+    handled(round(&mut w, &transport));
+    let (listed, new) = last(&requests);
+    assert!(!texts(&listed).iter().any(|t| t.contains("region")));
+    assert!(new[0].get("reply_to").is_none());
+
+    // What the judge was shown is recorded with its read, as by time.
+    assert_eq!(
+        w.count(
+            "SELECT cardinality(window_beads)::bigint FROM core_memory.judge_reads
+              ORDER BY seq DESC LIMIT 1"
+        ),
+        listed.len() as i64
     );
 }
 
