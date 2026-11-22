@@ -681,13 +681,23 @@ pub fn locate(text: &str, quote: &str, occurrence: usize) -> Option<Range<usize>
     let loose = Loose::of(text);
     // A match that starts or ends inside what one character expanded to (an
     // ellipsis read as three dots) is no match of that character: counting
-    // it would give several occurrences the same range.
-    // Candidates are tried at every start, since one that is refused can
-    // overlap a whole one (a dot, then an ellipsis).
-    let start = (0..loose.text.len())
-        .filter(|at| loose.text.is_char_boundary(*at) && loose.text[*at..].starts_with(wanted))
-        .filter(|at| loose.whole(*at, at + wanted.len()))
-        .nth(occurrence - 1)?;
+    // it would give several occurrences the same range. After one that is
+    // refused the search goes on one character later, since it can overlap
+    // a whole one (a dot, then an ellipsis); after one that is counted it
+    // goes on past it, so occurrences do not overlap.
+    let (mut from, mut seen) = (0, 0);
+    let start = loop {
+        let at = from + loose.text[from..].find(wanted)?;
+        if loose.whole(at, at + wanted.len()) {
+            seen += 1;
+            if seen == occurrence {
+                break at;
+            }
+            from = at + wanted.len();
+        } else {
+            from = at + loose.text[at..].chars().next().map_or(1, char::len_utf8);
+        }
+    };
     let found = wanted;
     // The quote starts and ends with something that is not a space, so
     // both ends map to characters of `text`.
@@ -1089,6 +1099,12 @@ mod tests {
         assert_eq!(locate(".\u{2026}", "...", 1), Some(1..4));
         assert_eq!(locate(".\u{2026}\u{2026}", "...", 1), Some(1..4));
         assert_eq!(locate(".\u{2026}\u{2026}", "...", 2), Some(4..7));
+        // Occurrences do not overlap, as in an exact search.
+        let tabs = "go\tgo\tgo\tgo";
+        assert_eq!(locate(tabs, "go go", 1), Some(0..5));
+        assert_eq!(locate(tabs, "go go", 2), Some(6..11));
+        assert_eq!(locate(tabs, "go go", 3), None);
+        assert_eq!(locate("go\tgo\tgo", "go go", 2), None);
     }
 
     #[test]
