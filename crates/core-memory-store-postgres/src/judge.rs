@@ -265,8 +265,13 @@ fn unread_with(new: &str, rev: &str) -> String {
     )
 }
 
+/// How many beads of the events a new bead's source names are shown with
+/// it, at most.
+const NAMED_PER_BEAD: usize = 4;
+
 /// The beads near the new ones that a judge may be shown, most wanted
-/// first: the beads of open disputes, then by distance in time.
+/// first: the beads of open disputes, then the beads of the events the new
+/// beads' sources name, then by distance in time.
 fn near<C: GenericClient>(
     tx: &mut C,
     request: &JudgePermitRequest<'_>,
@@ -339,6 +344,82 @@ fn near<C: GenericClient>(
         for id in candidates {
             if wanted.len() < conflict_beads as usize && unread.contains(&id) {
                 want(&mut wanted, id);
+            }
+        }
+    }
+
+    // What each new bead's source names: the event it is a revision of,
+    // replies to or belongs under, in its own scope. The source says the
+    // two are related, so they are shown however far apart in time they
+    // are: the latest revision first, each in the order of its chunks, up
+    // to NAMED_PER_BEAD for each new bead. Only beads that may be shown and
+    // are not waiting to be judged themselves, as by time.
+    for bead in new {
+        let structure = &bead.details.structure;
+        let mut taken = 0;
+        for reference in [
+            &structure.revision_of,
+            &structure.reply_to,
+            &structure.parent,
+        ]
+        .into_iter()
+        .flatten()
+        {
+            if taken >= NAMED_PER_BEAD {
+                break;
+            }
+            let source_ns = reference
+                .source_ns
+                .as_deref()
+                .unwrap_or(&bead.key.source_ns);
+            let rows = tx
+                .query(
+                    &format!(
+                        "SELECT b.bead_id
+                           FROM core_memory.events AS e
+                           JOIN core_memory.beads AS b ON b.event_id = e.event_id
+                           JOIN core_memory.scopes AS s ON s.scope = b.scope
+                          WHERE e.scope = $1 AND e.source_ns = $2 AND e.external_id = $3
+                            AND ($4::text IS NULL OR e.revision = $4)
+                            AND e.state = 'live' AND b.workspace_id = $5
+                            AND b.state = 'live' AND b.kind IN ('chunk', 'tool')
+                            AND b.bead_id <> ALL ($6)
+                            AND s.state = 'active'
+                            AND EXISTS (
+                                SELECT 1 FROM core_memory.scope_destinations AS d
+                                 WHERE d.scope = b.scope AND d.destination = $7
+                                   AND d.state = 'granted')
+                            AND NOT EXISTS (
+                                SELECT 1 FROM core_memory.work AS w
+                                 WHERE w.kind = 'judge' AND w.item_id = b.bead_id)
+                            AND (b.kind = 'chunk' OR EXISTS (
+                                SELECT 1 FROM core_memory.tool_outcomes AS o
+                                 WHERE o.event_id = b.event_id))
+                            AND {unread}
+                          ORDER BY e.seq DESC, b.seq
+                          LIMIT $10",
+                        unread = unread_with("$8", "$9")
+                    ),
+                    &[
+                        &bead.key.scope,
+                        &source_ns,
+                        &reference.external_id,
+                        &reference.revision,
+                        &request.workspace,
+                        &asked,
+                        &request.destination,
+                        &new_ids,
+                        &rev,
+                        &i64::try_from(NAMED_PER_BEAD - taken).unwrap_or(i64::MAX),
+                    ],
+                )
+                .map_err(backend)?;
+            for row in &rows {
+                let id: Uuid = row.get(0);
+                if !asked.contains(&id) && !wanted.contains(&id) {
+                    wanted.push(id);
+                    taken += 1;
+                }
             }
         }
     }

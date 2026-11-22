@@ -38,7 +38,7 @@ sometimes the case is what needs changing.
 | not English | Spanish and German |
 | shape | a log line, a bare link |
 
-**16 threads for the judge**, 41 messages and 29 scored pairs: a goal
+**18 threads for the judge**, 45 messages and 31 scored pairs: a goal
 withdrawn, a correction, a fact confirmed after doubt, two statements that
 cannot both be right, a question and its answer, one name for two people,
 the same words about unrelated matters, a problem with its fix and result, a
@@ -46,17 +46,21 @@ message that tells the judge to retract everything before it, a decision
 reversed, more about a thing that replaces nothing, one list split over two
 messages, a move nobody calls a correction, a hypothesis and its result,
 small talk, and two accounts that neither side can settle until a third
-message does. Some of their messages carry an expected type too. The runs
-recorded below had the first 15 threads and 26 pairs, until J16 was added
-for the second run of revision 4.
+message does, then a report its source replaced nine days later and an
+answer nine days after its question. Those two, J17 and J18, lie outside the
+judge's seven-day window: only the `revision_of` and `reply_to` their
+sources name bring the two messages together (rubric revision 5). Some of
+the messages carry an expected type too. The runs recorded below had the
+first 15 threads and 26 pairs, until J16 was added for the second run of
+revision 4; none has J17 or J18 yet.
 
 Each case for the reader stands ten days from the next, and each thread
 twenty days from the next, farther apart than the judge's seven-day window:
 the reader's cases are compared with nothing, and each thread is judged on
 its own.
 
-**It spends real money, very little:** the reader reads 104 messages, eight
-to a call, and the judge reads 16 threads, with a second read of each
+**It spends real money, very little:** the reader reads 108 messages, eight
+to a call, and the judge reads 18 threads, with a second read of each
 replacement or withdrawal it gives. Expect about $1.
 
 ## Running it

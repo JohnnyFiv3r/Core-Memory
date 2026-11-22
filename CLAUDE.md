@@ -25,8 +25,9 @@ auditable memory in PostgreSQL. For each SourceEvent it:
    did and what came of it, when a tool reader is configured and the call's
    scope allows the model's destination;
 6. asks a judge model how each new bead relates to the beads near it in
-   time, across the scopes of its workspace, when a judge is configured and
-   each bead's scope allows the model's destination.
+   time, across the scopes of its workspace, and to those of the events its
+   source names, when a judge is configured and each bead's scope allows
+   the model's destination.
 
 It also answers recall: the stored text that holds some words, verbatim,
 with what a judge said of it. Recall is a read of the same tables. It keeps
@@ -108,10 +109,12 @@ core-memory-contract -> core-memory-chunker -> core-memory-core
 ### 4. Relationships are judged, never inferred
 
 A relationship is never created from similarity, chronology or shared keys
-alone. Code computes what a judge is shown, by time alone, and writes what
-the judge said. It never proposes an edge and never picks a pair; a score
-is never evidence. Structural links (reply-to, parent, revision-of) are
-facets and candidate seeds, not relationships.
+alone. Code computes what a judge is shown, by time and by what a source
+names, and writes what the judge said. It never proposes an edge and never
+picks a pair; a score is never evidence. Structural links (reply-to,
+parent, revision-of) are facets and candidate seeds, not relationships: the
+beads of an event a source names are shown however far apart in time they
+are, and the judge decides how they relate.
 
 - A relationship is an arrow of Mark Burgess's Semantic Spacetime, from the
   fixed directory `core_memory.arrows`, and of one of his four types:
