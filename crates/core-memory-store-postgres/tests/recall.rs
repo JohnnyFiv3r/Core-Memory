@@ -513,9 +513,16 @@ fn a_chain_that_runs_through_a_scope_not_named_has_no_successor_to_show() {
     bead(&mut w, &said("3", 10, "Final figure: fifteen."));
     judge(&mut w, &[("Final figure", "Revised figure", "repl")]);
 
-    // Everything may be read: the first is answered by the last of the chain.
+    // Everything may be read: the first is answered by the last of the
+    // chain, and the middle is one step along the way.
     let answer = w.store.recall(&ask("budget")).unwrap();
-    assert_eq!(told(&answer), [pair("Final figure: fifteen.", "successor")]);
+    assert_eq!(
+        told(&answer),
+        [
+            pair("Final figure: fifteen.", "successor"),
+            pair("Revised figure: twelve.", "linked 1"),
+        ]
+    );
 
     // The middle of the chain is in a scope the caller did not name, and the
     // last is in one it did. Recall does not pass through the middle.
