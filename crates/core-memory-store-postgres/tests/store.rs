@@ -1146,14 +1146,16 @@ fn a_pause_is_not_starved_by_a_busy_scope() {
         // machine is: a fixed wait left a slow runner short of that.
         let mut busy = db.connect();
         let deadline = Instant::now() + Duration::from_secs(30);
-        while busy
-            .query_one("SELECT count(*) FROM core_memory.events", &[])
-            .unwrap()
-            .get::<_, i64>(0)
-            <= 20
-        {
-            assert!(Instant::now() < deadline, "the writers never got busy");
-            std::thread::sleep(Duration::from_millis(20));
+        let mut ready = false;
+        while !ready && Instant::now() < deadline {
+            ready = busy
+                .query_one("SELECT count(*) FROM core_memory.events", &[])
+                .unwrap()
+                .get::<_, i64>(0)
+                > 20;
+            if !ready {
+                std::thread::sleep(Duration::from_millis(20));
+            }
         }
         let mut governor = db.store();
         let started = Instant::now();
@@ -1168,6 +1170,9 @@ fn a_pause_is_not_starved_by_a_busy_scope() {
             .get(0);
         stop.store(true, Ordering::SeqCst);
         let accepted: u32 = writers.into_iter().map(|w| w.join().unwrap()).sum();
+        // Reported only now: the writers stop once the scope is paused, so a
+        // panic before the pause would leave them running for good.
+        assert!(ready, "the writers never got busy");
         assert!(accepted > 20, "the writers were busy: {accepted}");
         assert!(
             waited < Duration::from_secs(3),
