@@ -62,7 +62,8 @@ pub(crate) fn finish_call(
 /// Asks a store that is busy again, up to [`FINISH_TRIES`] times in all.
 /// Only for a call the store answers the same way however often it is
 /// made, or that leaves nothing behind when it fails: a permit whose
-/// transaction failed wrote no receipt.
+/// transaction failed wrote no receipt. The store reports a commit whose
+/// outcome is unknown as another error, so that one is not asked for again.
 pub(crate) fn asked_again<T>(
     mut ask: impl FnMut() -> Result<T, StoreError>,
 ) -> Result<T, StoreError> {
@@ -768,6 +769,42 @@ mod tests {
 
     use crate::model::TransportError;
     use crate::store::CallResult;
+
+    #[test]
+    fn only_a_store_that_is_unavailable_is_asked_again_and_not_for_ever() {
+        use crate::error::StoreError;
+        let mut asked = 0;
+        let answer = super::asked_again(|| {
+            asked += 1;
+            if asked < 3 {
+                Err(StoreError::Unavailable("busy".into()))
+            } else {
+                Ok(asked)
+            }
+        });
+        assert_eq!(answer.unwrap(), 3);
+
+        // A store that stays busy is asked three times in all.
+        let mut asked = 0;
+        let answer: Result<(), _> = super::asked_again(|| {
+            asked += 1;
+            Err(StoreError::Unavailable("busy".into()))
+        });
+        assert!(matches!(answer, Err(StoreError::Unavailable(_))));
+        assert_eq!(asked, 3);
+
+        // Any other failure is reported at once: a commit whose outcome is
+        // unknown must not be made again, or it writes a second receipt.
+        let mut asked = 0;
+        let answer: Result<(), _> = super::asked_again(|| {
+            asked += 1;
+            Err(StoreError::Backend(
+                "the commit's outcome is unknown".into(),
+            ))
+        });
+        assert!(matches!(answer, Err(StoreError::Backend(_))));
+        assert_eq!(asked, 1);
+    }
 
     #[test]
     fn a_reply_cut_off_is_told_from_one_declined() {

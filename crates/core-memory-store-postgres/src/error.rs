@@ -110,6 +110,19 @@ pub(crate) fn backend(e: postgres::Error) -> StoreError {
     }
 }
 
+/// Classifies an error from the commit of a receipt's transaction. The
+/// server's own answer, an SQLSTATE, means the transaction was rolled back,
+/// and a request that is asked for again writes the receipt once. Without
+/// one, the connection failed during the commit, and the receipt may have
+/// been written: that is not `Unavailable`, which a caller asks again, or
+/// the call would have two receipts.
+pub(crate) fn commit(e: postgres::Error) -> StoreError {
+    if e.as_db_error().is_some() {
+        return backend(e);
+    }
+    StoreError::Backend(format!("the commit's outcome is unknown: {}", describe(&e)))
+}
+
 /// An error a governance function raised on purpose is a refusal, not a
 /// failure of the store.
 pub(crate) fn governed(e: postgres::Error) -> StoreError {

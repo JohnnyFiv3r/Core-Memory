@@ -25,7 +25,7 @@ use postgres::types::Json;
 use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
 
-use crate::error::{backend, corrupt};
+use crate::error::{backend, commit, corrupt};
 use crate::migrate::SCHEMA_VERSION;
 use crate::store::{
     PostgresStore, QueuedReads, begin_write, digest, hold_schema, set_aside_spent, to_i32, to_i64,
@@ -927,7 +927,7 @@ impl PostgresStore {
             .map_err(backend)?;
         let call_id = CallId(receipt.get::<_, Uuid>(0));
         // The receipt is durable before any text leaves this function.
-        tx.commit().map_err(backend)?;
+        tx.commit().map_err(commit)?;
         Ok(JudgePermit::Granted {
             call_id,
             shown,
