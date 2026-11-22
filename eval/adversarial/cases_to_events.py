@@ -19,7 +19,13 @@ THREAD_GAP = datetime.timedelta(days=20)
 LONGEST_THREAD = datetime.timedelta(days=12)
 
 
-def event(scope, case_id, at, speaker, kind, role, text, thread):
+def event(scope, case_id, at, speaker, kind, role, text, thread, names=None):
+    structure = {"thread": thread}
+    # A message may name another as what it replies to or is a revision
+    # of, the way a source does, so the judge is shown the two however far
+    # apart they are.
+    for field, target in (names or {}).items():
+        structure[field] = {"external_id": target}
     return {
         "scope": scope,
         "source_ns": "adversarial/v1",
@@ -29,7 +35,7 @@ def event(scope, case_id, at, speaker, kind, role, text, thread):
         "actor": {"id": speaker, "kind": kind, "role": role},
         "media_type": "text/plain",
         "content": {"text": text},
-        "structure": {"thread": thread},
+        "structure": structure,
         "parser_contract_version": "adversarial/1",
     }
 
@@ -66,6 +72,7 @@ def events(cases, scope):
                     message.get("role", "user"),
                     message["text"],
                     message.get("conversation", thread["id"]),
+                    {f: message[f] for f in ("reply_to", "revision_of") if f in message},
                 )
             )
     return out

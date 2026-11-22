@@ -28,6 +28,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "recall",
         sql: include_str!("../sql/0002_recall.sql"),
     },
+    Migration {
+        version: 3,
+        name: "read_views",
+        sql: include_str!("../sql/0003_read_views.sql"),
+    },
 ];
 
 /// The schema version this build reads and writes.

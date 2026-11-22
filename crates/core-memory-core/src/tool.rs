@@ -448,6 +448,8 @@ mod tests {
             budget: None,
             timeout_ms: 60_000,
             api_key_env: None,
+            credentials_file: None,
+            signed_in: false,
         };
         let rev = tool_binding_rev(&binding).unwrap();
         assert_eq!(rev, tool_binding_rev(&binding).unwrap());

@@ -373,6 +373,32 @@ may read it: a role that reads one scope reads what was judged inside it.
 Edges and the beads a judge made hold IDs and one of a fixed set of words,
 and carry no scope.
 
+### Reading in place
+
+A host that shares the database reads the engine's rows where they are and
+keeps no copy. A correction or an erasure reaches it as the engine commits
+it, with nothing to deliver or reconcile, which is why the engine has no
+delivery step. Migration 3 adds two views so that a host does not repeat
+rules the engine owns:
+
+- `bead_state`: every live bead, whether it is current, the bead and arrow
+  that ended it, whether it is in dispute, and the type its chunk was last
+  read as. These are recall's rules: a bead is current while no `repl` or
+  `withdraws` edge points at it, whatever has become of the bead that ended
+  it, and a current bead is disputed while a `!contradicts` edge joins it to
+  another live, current bead.
+- `bead_text`: the stored text of every live bead of source content, chunk
+  by chunk; a tool call's bead has every chunk of its event.
+
+Both are `security_invoker` views: they run with the rights of the role that
+reads them, so that role's own grants and policies on `beads`, `edges`,
+`chunk_reads`, `chunks` and `chunk_text` decide every row it sees, and a
+view shows nothing its tables would not. Nothing is granted on them. A
+policy that hides an edge hides what it says about currency and disputes
+too. The views name the arrows that end and dispute, as the engine's
+indexes do; a test checks them against the directory's flags, and the
+migration that changes the directory replaces the views.
+
 The two roles belong to the database cluster, not to one database. A login
 that holds one of them holds it in every Core Memory database of the
 cluster it can connect to. Where one cluster holds databases that should
@@ -475,9 +501,12 @@ would run as the migrating role.
 A migration never changes once released. The runner records a checksum of
 each one it applies and refuses a database whose history differs.
 
-Until 2.0.0 is released, the first migration still changes as the engine is
-built. A database created by a pre-release build must be recreated, not
-migrated.
+2.0.0 released migrations 1 and 2, and they no longer change. A database
+created by a build from before 2.0.0 must be recreated, not migrated.
+
+Migration 3 adds two views for a host that reads the engine's tables in
+place, `bead_state` and `bead_text`; [Reading in place](#reading-in-place)
+says what they hold. It changes no table.
 
 Migration 2 builds the [recall](#recall) index over the text of every
 chunk stored. Admissions wait while it is built, as they wait for any
@@ -618,7 +647,9 @@ permitted, no receipt is written, and the work is set aside.
    retry or fallback. The adapters send over HTTPS, through the proxy that
    `HTTPS_PROXY` names unless `NO_PROXY` lists the host, and check the
    server against the public web roots plus an optional private CA
-   (`[models] ca_file`).
+   (`[models] ca_file`). An adapter signed in to rather than given a key
+   may first renew its access token, which sends OpenAI's sign-in service
+   no source text (see [Paying with a ChatGPT plan](#paying-with-a-chatgpt-plan)).
 
    A request's instructions are the same for every call of a reader, a
    tool reader or a judge, and come first. The Anthropic adapter marks
@@ -660,7 +691,14 @@ from it.
 
 A **destination** is the host of a binding's endpoint, in lower case, with
 its port if it names one. It is derived from the endpoint and never written
-by hand, so a binding pointed somewhere else needs consent again.
+by hand, so a binding pointed somewhere else needs consent again. A binding
+whose calls are made as one person's signed-in account, paid by their own
+plan, is a destination of its own: `signed-in@` and the host. Whatever
+builds the binding marks it so from its provider (the command does it for
+`openai-chatgpt`); a config cannot, and that provider's transport refuses a
+binding that is not marked. A plan's terms can limit whose activity it may
+serve, so a scope allowed to send text to a host with a key is not thereby
+allowed to send it on someone's plan.
 `core_memory.grant_destination(scope, destination)` and
 `revoke_destination` are governance functions; `core-memory scope allow`
 and `scope disallow` call them. The engine's role cannot.
@@ -706,12 +744,15 @@ read's identity.
 | A chunk of the batch was erased before the repair | Nothing more is sent. The rest is tried again after `retry_backoff_ms`. | `batch_changed` |
 | The provider turned the request itself down | Tried again after ten minutes. An operator has to fix the binding. No lane of that kind (chunks, tool calls or judging) starts another call for those ten minutes: a wrong key or model fails every call alike. Lanes that were already calling may each be turned down too. | `binding_rejected` |
 | The server's certificate is not trusted | Nothing was sent: the receipt says `not_sent`. Tried again after ten minutes, and no lane of that kind starts another call meanwhile, as for a binding turned down. An operator has to trust the certificate's authority with `[models] ca_file`, as behind a proxy or gateway that re-signs TLS. | `endpoint_untrusted` |
+| A binding signed in to cannot use its sign-in: there is none, it has ended, it lacks the plan's permission, or its owner has not agreed on this machine to calls in the background | Nothing reached the model: the receipt says `not_sent`. Tried again after ten minutes, and no lane of that kind starts another call meanwhile. The owner has to sign in again (`core-memory login chatgpt`). | `signin_required` |
+| The plan behind a binding has used what it may for now | Tried again after ten minutes, and no lane of that kind starts another call meanwhile. The receipt says `not_sent` if the provider turned the call away, and `in_doubt` if it stopped a reply it had begun. A call turned away costs the work no attempt, unless another call was made for it that round: the allowance comes back by itself, so the work waits for it instead of being set aside. | `plan_limit_reached` |
 | A tool call's stored text does not hold what its event says | Set aside at once. Nothing is sent. | `text_unreadable` |
 | The work was handed out `max_attempts` times and never settled | Set aside, when it would have been handed out again. | `attempts_spent` |
 
 Work that was put off before any call was made does not count as an
-attempt. Once a call was made for it, the attempt counts whatever comes
-next: a repair that is not permitted leaves the work put off and one attempt
+attempt, and neither does a call a plan turned away at the door because its
+allowance is spent for now. Once a call was made for it, the attempt counts
+whatever comes next: a repair that is not permitted leaves the work put off and one attempt
 poorer. After `max_attempts` calls an item's work is set aside as `failed`,
 until `core-memory read retry` puts it back.
 
@@ -738,14 +779,134 @@ wrote, nothing is kept as text at all: a verdict is one of a fixed set of
 words, an arrow is a key of a fixed directory, and a name is a range of a
 chunk.
 
+### Paying with a ChatGPT plan
+
+A binding with `provider = "openai-chatgpt"` pays for its calls with its
+owner's ChatGPT Plus or Pro plan instead of API credits, through OpenAI's Sign
+in with ChatGPT for open-source apps. It is built from OpenAI's documentation
+of that flow and bound by its terms (effective 2026-11-04). The adapter is
+`core-memory-model-chatgpt`. Core knows nothing of it beyond two transport
+errors any signed-in provider could give.
+
+**Signing in.** `core-memory login chatgpt` asks the owner first whether Core
+Memory may use the plan in the background, and stops, saving nothing, without
+a `yes`. It then makes and saves this machine's host ID if it has none
+(`urn:uuid:` and a random UUID, in `chatgpt-host-id` beside the credentials
+file), listens on `127.0.0.1` (port 1455 if it is free), and opens the
+system browser at OpenAI's authorize endpoint with a fresh `state`, `nonce` and
+PKCE (`S256`) verifier, the scopes `openid profile email offline_access
+resource.invoke chatgpt.tokens.use.direct`, and `resource =
+https://api.openai.com/v1`. A first sign-in registers the app as "Core Memory"
+(`client_id = dynamic_agent_client`, `agent_name_hint`); a later one reuses the
+client issued then and hints the account by its email. It never sends the ID
+token as a hint: the URL is printed and passed to the browser on a command line
+other users of the machine can see.
+
+The callback must carry the attempt's `state`; one that does not is turned
+away and the wait goes on. A first sign-in must return an issued client, and a
+later one may not name a different client. The code is exchanged with the
+verifier and no secret. The ID token must be signed RS256 by a key in OpenAI's
+published key set, issued by `https://auth.openai.com`, to the issued client,
+unexpired, and carry the attempt's nonce. Its `sub` is the account, and a later
+sign-in must be the same account. A sign-in without the plan scope is kept but
+says so, and the transport makes no call with it; `login chatgpt --consent`
+asks again (`prompt=consent`).
+
+**The credentials file** holds the record OpenAI's guide lists (email, issuer,
+subject, issued client, host ID, ID, access and refresh tokens, expiry, granted
+scopes, `saved_at`) and one field of Core Memory's own: `background_use`, when
+the owner agreed, on which host, to which revision of the question. It is the
+binding's `credentials_file`, relative to the config file, or
+`~/.config/core-memory/chatgpt.json`. It is written whole: to a new file made
+owner-only (`0600`) beside it, then renamed over it, in a folder made `0700`. A
+file other users can read is refused. It is not in the database: tokens are
+not source text, and the terms keep their storage local and under the user's
+control.
+
+**A call** reads the file each time. It sends nothing unless the file holds
+the plan scope and the owner's consent recorded for this machine's host ID.
+When the access token has less than five minutes left, or the API turned it
+down on the last call, the call renews it first: it takes an exclusive lock on
+`<file>.lock`, reads the file again, uses the token another process renewed
+meanwhile if there is one, and otherwise renews with the saved client and
+refresh token and no scope, then saves the new tokens together. Refresh
+tokens rotate, so two processes renewing one sign-in would spend the same
+token twice; the lock prevents it. The call itself is one `POST
+https://api.openai.com/v1/responses` with `store: false`, `stream: true`,
+the system prompt as `instructions`, the request as one `input` item, the
+reply's JSON Schema as `text.format` where the engine asks for it, and the
+binding's `reasoning_effort`. None of the fields the plan's route refuses is
+sent: not `max_output_tokens`, which the engine still reserves against a
+budget, and not `temperature` or `seed`, which a binding may not set. The
+endpoint is fixed: a binding that names another is refused before anything is
+read, and nothing in the config or the environment changes where a token
+goes. A call succeeded only if its stream reached `response.completed`.
+
+| What came back | Transport error | `problem` |
+|---|---|---|
+| 401, from admission or `subscription_sharing_invalid_user`; no sign-in, no plan scope or no consent here; a refresh token OpenAI says is spent (`invalid_grant`, `invalid_refresh_token`, `token_expired`, `refresh_token_expired`, `refresh_token_invalidated`, `refresh_token_reused`), whose tokens are then cleared | `SignInRequired` | `signin_required` |
+| 429 `subscription_sharing_usage_limit_exceeded` | `LimitReached`, not started | `plan_limit_reached` |
+| `response.failed` with that code, after the reply began | `LimitReached`, started | `plan_limit_reached` |
+| 403 (admission, `subscription_sharing_user_not_eligible`, `subscription_sharing_route_not_supported`, `chatpass_v2_*`), 400 `subscription_sharing_unsupported_capability` (its `param` named), refresh `invalid_client` | `Permanent` | `binding_rejected` |
+| 503 (admission, `subscription_sharing_usage_unavailable`, `subscription_sharing_user_unavailable`), other 5xx, other 429, 408, a renewal that could not reach OpenAI | `Transient` | `provider_unavailable` |
+| 400 `context_length_exceeded`, 413, `response.incomplete` for `max_output_tokens` | `DidNotFit` | `did_not_fit` |
+| `response.incomplete` for `content_filter`, a refusal in the reply | `Refused` | `model_refused` |
+| Any other `response.failed`, an `error` event, a stream that ended without `response.completed` | `InDoubt` | `call_in_doubt` |
+
+A 401 is not tried again by the call that got it: the next call renews the
+token first. An error names OpenAI's status, code, `param` and request ID, and
+holds no token: one a server repeated is taken out.
+
+**Signing out.** `core-memory logout chatgpt` ends the renewable session at the
+revocation endpoint OpenAI's configuration names, which must be on OpenAI's
+sign-in host, trying twice more after a network failure or a server error.
+It then clears the
+tokens and the consent, keeping the account, its issued client and the host ID
+for the next sign-in, and says if OpenAI did not confirm the session ended.
+
+**A server without a browser.** A loopback callback reaches the machine with
+the browser, so the owner signs in there and copies the file to the server
+over SSH. `login chatgpt --import FILE` on the server makes the server's own
+host ID if it has none, puts it in the record in place of the other machine's,
+asks for and records the owner's consent there, and refuses a different
+account than one already signed in. The server renews the tokens from then on.
+
+**The terms, as built.**
+
+- *Tokens through the supported flow, stored locally under the user's
+  control.* Only the flow above obtains them; they are kept in the owner-only
+  file and nowhere else, never in a URL, a log, an error, a receipt or the
+  work queue. A token's `Debug` form is a placeholder.
+- *Requests from a runtime only that user controls, for their own activity.*
+  The engine runs where its owner runs it. A scope's text goes to the binding
+  only after `scope allow` grants `signed-in@api.openai.com`, and the
+  question at sign-in, the guide and the example config tell the owner to
+  grant it only to scopes that hold their own activity. The grant is the
+  plan's own: a scope allowed for an `openai` API-key binding
+  (`api.openai.com`) is not allowed for this, so switching a reader to the
+  plan sends nothing until each scope is allowed for it.
+- *Express consent before background use.* Asked before signing in, recorded
+  with its time, host and revision; without it no call is made.
+- *The connected application only.* The token serves this engine's own
+  calls. No command prints it, nothing hands it to another program, and the
+  engine offers no API through it.
+- *No charge, no pooling, the app's own name.* Core Memory charges nothing,
+  keeps one account per credentials file, and registers as "Core Memory".
+
+Sign-in, renewal, the stream and every mapped error are tested against a
+stand-in for OpenAI's servers with a test signing key. The flow has not yet
+been run against OpenAI's own servers: `auth.openai.com` was not reachable
+from where it was built.
+
 ## Relationships
 
 A judge model reads each new bead against the beads near it in time, from
 every scope of its workspace, and says how they relate. It runs once a
 `[judge]` section names a `[[binding]]`. Code computes what the judge is
 shown and records what it says. Code never proposes an edge and never picks
-a pair: a bead is shown because of when it happened and for no other
-reason, and a score is never evidence.
+a pair: a bead is shown because of when it happened, or because a new
+bead's source names its event, and for no other reason, and a score is
+never evidence.
 
 ### The arrows
 
@@ -890,11 +1051,20 @@ beads were handed to another, stores and settles nothing for them when its
 reply comes at last.
 
 **What it is shown beside them.** The window is chosen inside the permit,
-under the workspace's lock, by time alone: the live beads of source content
-whose time lies between the new beads, or within `window_ms` before the
-earliest or after the latest, nearest first, up to `max_window_beads` beads
-and `max_window_bytes` of content. The beads of open disputes come before
-them, most recent first, up to `max_conflict_beads`. A bead that is itself
+under the workspace's lock, by time and by what the sources name: the live
+beads of source content whose time lies between the new beads, or within
+`window_ms` before the earliest or after the latest, nearest first, up to
+`max_window_beads` beads and `max_window_bytes` of content. The beads of
+open disputes come before them, most recent first, up to
+`max_conflict_beads`. Between the two come the beads of the events a new
+bead's source names in its own scope, as what it is a revision of
+(`revision_of`), replies to (`reply_to`) or belongs under (`parent`),
+however far apart in time they are: the latest revision of each first, in
+the order of its chunks, up to four for each new bead. The source said the
+two are related, so the judge is shown them; how they relate is still the
+judge's to say. A source that names an event this way is how a document
+that was replaced, such as a report attached again under the same name,
+meets its earlier version once they are hours apart. A bead that is itself
 waiting to be judged is left out. Its pairs are read when its own turn
 comes, with these beads in its window, so a pair is read once, whichever of
 the two arrived first. So is a bead this judge has already read with every
@@ -915,8 +1085,9 @@ and the work waits.
 window and `N1`, `N2`, ... for the new beads, each list in time order.
 With it come its time and how precise that is, the kind of source, opaque
 handles for its scope, its author, its message, its thread and its
-session, where it stands in its message, what it replies to if that is in
-the lists, its type if a model read one, whether it is still current, the
+session, where it stands in its message, what it replies to, belongs
+under or is a revision of if that is in the lists, its type if a model
+read one, whether it is still current, the
 arrow by which it already replaced or withdrew another (`chain`), and its
 group. A message's bead is shown with its chunk's text. A tool call's bead
 is shown with its tool, and the action, outcome and status a model wrote of
@@ -947,7 +1118,8 @@ when it changes or corrects the earlier, and `!contradicts` when either
 could still be right: both then stay current. Under revisions 2 and 3, a
 contradiction was a label on the chain, which made the later statement
 current by recency; in six runs of `eval/adversarial` the judge called such
-a pair `express` five times.
+a pair `express` five times. Revision 5 shows `revision_of`: the earlier
+version of a document or record that its source replaced with this one.
 
 A pair gets one arrow: one that ends currency if one holds, else
 `same-memory`, else another of `leadsto`, else one of `contains`, else one
@@ -1084,7 +1256,8 @@ link about the erased bead, whoever writes it.
 
 ### Pairs beyond the window
 
-The engine's judge reads a bead only against the beads near it in time.
+The engine's judge reads a bead only against the beads near it in time
+and those of the events its source names.
 Finding pairs across the whole store, ranking them and judging them is a
 host's work: memoriesQL does it over the tables it reads, with judges and
 tables of its own. The engine keeps nothing for it but what any host may

@@ -6,7 +6,9 @@
 # that are wrong, when anything else may be right.
 #
 # [[thread]]: a short conversation the judge reads. `at` is minutes after the
-# thread starts. A message may also carry `expect` for its type. Each
+# thread starts. A message may also carry `expect` for its type, and
+# `revision_of` or `reply_to` naming an earlier message of its thread, as a
+# source would. Each
 # [[thread.pair]] names two messages, a and b, and the answers that are
 # right for them, each one of:
 #   an arrow, named so that "a <arrow> b" is true: `repl` (a replaces b),
@@ -1006,3 +1008,53 @@ a = "J16.3"
 b = "J16.2"
 expect = ["repl"]
 why = "It settles the dispute against the Thai place: a reader should now go by Luigi's."
+
+[[thread]]
+id = "J17"
+probe = "a report attached again, nine days later"
+
+[[thread.message]]
+id = "J17.1"
+speaker = "qa-bot"
+kind = "agent"
+role = "assistant"
+at = 0
+text = "QA report for the checkout page. Verdict: fail. Expired coupon codes are accepted, and the total does not update after an item is removed."
+
+[[thread.message]]
+id = "J17.2"
+speaker = "qa-bot"
+kind = "agent"
+role = "assistant"
+at = 12960
+revision_of = "J17.1"
+text = "QA report for the checkout page. Verdict: pass. Expired coupon codes are refused, and the total updates when an item is removed."
+
+[[thread.pair]]
+a = "J17.2"
+b = "J17.1"
+expect = ["repl"]
+why = "The source replaced the report with this one, and its verdict changed: a reader should now go by the pass. Nine days apart, outside the judge's seven-day window; only revision_of shows them together."
+
+[[thread]]
+id = "J18"
+probe = "an answer nine days after the question"
+
+[[thread.message]]
+id = "J18.1"
+speaker = "Ravi"
+at = 0
+text = "Which region should the new reporting database live in?"
+
+[[thread.message]]
+id = "J18.2"
+speaker = "Mei"
+at = 12960
+reply_to = "J18.1"
+text = "Sorry for the slow reply: put it in eu-west-1, most of the customers are in Europe."
+
+[[thread.pair]]
+a = "J18.2"
+b = "J18.1"
+expect = ["answers"]
+why = "It answers the question. Nine days apart, outside the judge's window; only reply_to shows them together."

@@ -38,7 +38,7 @@ sometimes the case is what needs changing.
 | not English | Spanish and German |
 | shape | a log line, a bare link |
 
-**16 threads for the judge**, 41 messages and 29 scored pairs: a goal
+**18 threads for the judge**, 45 messages and 31 scored pairs: a goal
 withdrawn, a correction, a fact confirmed after doubt, two statements that
 cannot both be right, a question and its answer, one name for two people,
 the same words about unrelated matters, a problem with its fix and result, a
@@ -46,17 +46,21 @@ message that tells the judge to retract everything before it, a decision
 reversed, more about a thing that replaces nothing, one list split over two
 messages, a move nobody calls a correction, a hypothesis and its result,
 small talk, and two accounts that neither side can settle until a third
-message does. Some of their messages carry an expected type too. The runs
-recorded below had the first 15 threads and 26 pairs, until J16 was added
-for the second run of revision 4.
+message does, then a report its source replaced nine days later and an
+answer nine days after its question. Those two, J17 and J18, lie outside the
+judge's seven-day window: only the `revision_of` and `reply_to` their
+sources name bring the two messages together (rubric revision 5). Some of
+the messages carry an expected type too. The runs recorded below had the
+first 15 threads and 26 pairs, until J16 was added for the second run of
+revision 4; none has J17 or J18 yet.
 
 Each case for the reader stands ten days from the next, and each thread
 twenty days from the next, farther apart than the judge's seven-day window:
 the reader's cases are compared with nothing, and each thread is judged on
 its own.
 
-**It spends real money, very little:** the reader reads 104 messages, eight
-to a call, and the judge reads 16 threads, with a second read of each
+**It spends real money, very little:** the reader reads 108 messages, eight
+to a call, and the judge reads 18 threads, with a second read of each
 replacement or withdrawal it gives. Expect about $1.
 
 ## Running it
@@ -243,3 +247,52 @@ judge calls):
 - The reader, unchanged, was right on 196 of 201: the sarcastic "ship it
   on Friday at 5pm" was `decision` in every run, and once "Can you send me
   the Q3 numbers" was left untyped (`no_fit`).
+
+**2026-11-20, the reader changes of #468** ($0.45, three runs each). These
+were lanes, prompt caching, prompt revision 5 and loose quote matching.
+
+| | Before #468 | Reader alone | Thinking off | Reader and judge |
+|---|---|---|---|---|
+| Reader right | 196 of 201 | 190 | 158 | 193 |
+| Judge right | 87 of 87 | — | — | 86 |
+| Judge cost | $1.37 | — | — | $0.38 |
+| Wall time | 7m 48s | 55s | 31s | 3m 30s |
+
+- **The reader is as good as before.** 190 and 193 against 196 is within
+  what one reader does from run to run. It writes 18% fewer output tokens.
+- **Its thinking stays on.** With `READER_EFFORT=none` it lost 32 cases: the
+  sarcasm, the hyperbole, habits and past states, and both injection cases,
+  where it abstained instead of typing what the message said. It saved one
+  cent.
+- **The judge costs about a quarter of what it did.** 93% of its input
+  tokens were read from the prompt cache: its instructions are most of
+  what it sends on these short threads.
+- **Wall time halved.** Reading no longer waits behind judging.
+- **Rejected replies.** The reader's were rejected for leaving a chunk out
+  (`missing_chunk`), for a type not listed (`unknown_type`), for their
+  shape, and for quotes, a few times each. Prompt revision 6 (#471) names
+  the handles to answer, to bring the first two down.
+- **The judge's one miss**, J06.3 against J06.2, was `unsure` once where
+  `none` was expected. Nothing the judge reads changed, so this is the
+  judge's own variation from run to run.
+
+**2026-11-20, Claude Sonnet 5.5 as the judge** ($0.73 for these cases, three
+runs each; see [`eval/compare`](../compare/) for LoCoMo):
+
+| Judge | Right | Cost | Wall time |
+|---|---|---|---|
+| Opus 5.5, effort medium | 87 of 87 | $0.37 | 3m 34s |
+| Sonnet 5.5, effort medium | 80 of 87 | $0.11 | 2m 09s |
+| Sonnet 5.5, effort high | 79 of 87 | $0.16 | 2m 49s |
+
+- **What Sonnet missed in every run:**
+  - J16.3 against J16.2. The call that settles the dispute: Sonnet left it
+    open with `!contradicts`, where `repl` closes it.
+  - J11. More about a thing, which Sonnet called `none`.
+- **What it missed in some runs:**
+  - J08.1 against J08.2, 2 of 3;
+  - J01.2, 1 of 3 at effort high.
+- **Agreement on arrows that end a statement:** Opus runs agreed with each
+  other on 21 of 21. Opus and Sonnet agreed on 87 of 126.
+- **Opus stays the judge.** What Sonnet saves is small next to what a wrong
+  answer about what is current costs.

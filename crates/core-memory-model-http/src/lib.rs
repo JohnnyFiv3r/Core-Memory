@@ -82,6 +82,9 @@ pub struct HttpReply {
     pub status: u16,
     pub retry_after_ms: Option<u64>,
     pub body: String,
+    /// The provider's ID for the request (`x-request-id`), which its
+    /// support asks for. Kept only if it is short and plain.
+    pub request_id: Option<String>,
 }
 
 impl HttpClient {
@@ -121,28 +124,73 @@ impl HttpClient {
         for (name, value) in headers {
             request = request.header(*name, *value);
         }
-        let mut response = request.send(body.to_string()).map_err(classify_error)?;
-        let status = response.status().as_u16();
-        let retry_after_ms = response
-            .headers()
-            .get("retry-after")
-            .and_then(|v| v.to_str().ok())
-            .and_then(|v| v.trim().parse::<u64>().ok())
-            .map(|seconds| seconds.saturating_mul(1000));
-        // The provider has the request now; failing to read the reply means
-        // the outcome is unknown.
-        let body = response
-            .body_mut()
-            .read_to_string()
-            .map_err(|e| TransportError::InDoubt {
-                message: format!("reading the reply: {e}"),
-            })?;
-        Ok(HttpReply {
-            status,
-            retry_after_ms,
-            body,
-        })
+        reply(request.send(body.to_string()))
     }
+
+    /// Sends one form-encoded POST, as OAuth token and revocation endpoints
+    /// take.
+    pub fn post_form(
+        &self,
+        url: &str,
+        headers: &[(&str, &str)],
+        fields: &[(&str, &str)],
+    ) -> Result<HttpReply, TransportError> {
+        let mut request = self.agent.post(url);
+        for (name, value) in headers {
+            request = request.header(*name, *value);
+        }
+        reply(request.send_form(fields.iter().copied()))
+    }
+
+    /// Sends one GET.
+    pub fn get(&self, url: &str, headers: &[(&str, &str)]) -> Result<HttpReply, TransportError> {
+        let mut request = self.agent.get(url);
+        for (name, value) in headers {
+            request = request.header(*name, *value);
+        }
+        reply(request.call())
+    }
+}
+
+/// The reply to a request that was sent, read in full.
+fn reply(
+    sent: Result<ureq::http::Response<ureq::Body>, ureq::Error>,
+) -> Result<HttpReply, TransportError> {
+    let mut response = sent.map_err(classify_error)?;
+    let status = response.status().as_u16();
+    let header = |name: &str| {
+        response
+            .headers()
+            .get(name)
+            .and_then(|v| v.to_str().ok())
+            .map(str::trim)
+    };
+    let retry_after_ms = header("retry-after")
+        .and_then(|v| v.parse::<u64>().ok())
+        .map(|seconds| seconds.saturating_mul(1000));
+    let request_id = header("x-request-id")
+        .filter(|id| {
+            !id.is_empty()
+                && id.len() <= 128
+                && id
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
+        })
+        .map(str::to_string);
+    // The provider has the request now; failing to read the reply means
+    // the outcome is unknown.
+    let body = response
+        .body_mut()
+        .read_to_string()
+        .map_err(|e| TransportError::InDoubt {
+            message: format!("reading the reply: {e}"),
+        })?;
+    Ok(HttpReply {
+        status,
+        retry_after_ms,
+        body,
+        request_id,
+    })
 }
 
 /// Errors before a response. Failures to resolve or connect mean nothing
@@ -406,6 +454,7 @@ mod tests {
             status,
             retry_after_ms: retry,
             body: "{\"error\": \"x\"}".into(),
+            request_id: None,
         }
     }
 
@@ -684,6 +733,44 @@ VE3NNKg/a24FtW/3ctKv91mXYRyGT1W63Z0vvs0m2iRt5QrQFcP/ZCPa\n\
             .unwrap_err();
         assert!(matches!(err, TransportError::InDoubt { .. }), "{err:?}");
         server.join().unwrap();
+    }
+
+    // The mock server is built with the feature, as a workspace test is.
+    #[cfg(feature = "testing")]
+    #[test]
+    fn forms_and_gets_are_sent_and_the_request_id_kept() {
+        let (url, server) = testing::serve(2, |r| {
+            let mut reply = testing::Reply::json(200, "{}");
+            let id = if r.request_line.starts_with("GET") {
+                "req_abc-1.2"
+            } else {
+                "not plain!"
+            };
+            reply.headers.push(("x-request-id".into(), id.into()));
+            reply
+        });
+        let client = HttpClient::new(Duration::from_secs(5));
+        let got = client
+            .get(&format!("{url}/models"), &[("authorization", "Bearer t")])
+            .unwrap();
+        assert_eq!(got.request_id.as_deref(), Some("req_abc-1.2"));
+        let posted = client
+            .post_form(
+                &format!("{url}/token"),
+                &[],
+                &[("grant_type", "refresh_token"), ("x", "a b&c")],
+            )
+            .unwrap();
+        // An ID that is not short and plain is not kept.
+        assert_eq!(posted.request_id, None);
+        let received = server.join().unwrap();
+        assert_eq!(received[0].request_line, "GET /models HTTP/1.1");
+        assert_eq!(received[0].header("authorization"), Some("Bearer t"));
+        assert_eq!(
+            received[1].header("content-type"),
+            Some("application/x-www-form-urlencoded")
+        );
+        assert_eq!(received[1].body, "grant_type=refresh_token&x=a+b%26c");
     }
 
     #[test]

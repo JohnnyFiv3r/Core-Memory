@@ -48,3 +48,36 @@ What we run, each in a fresh database, with the reader unchanged:
 
 Sonnet 5.5's effort levels are its own, recalibrated: `medium` on Sonnet is
 not `medium` on Opus, so it is tried at two.
+
+## What it has found
+
+**2026-11-20, Sonnet 5.5 against Opus 5.5** ($5.04 for all seven runs,
+with the hard cases' results in [`eval/adversarial`](../adversarial/)):
+LoCoMo `conv-26`, judged twice by each, with Sonnet at effort `medium`, its
+better setting on the hard cases.
+
+| | Opus 5.5 | Sonnet 5.5 |
+|---|---|---|
+| Cost per conversation, reader included | $1.37, $1.35 | $0.76, $0.83 |
+| Judge calls | 43, 42 | 67, 83 |
+| Wall time | 6m 15s, 6m 06s | 3m 11s, 3m 43s |
+| Group beads (memories joined) | 0, 3 | 4, 11 |
+| Name links | 35, 29 | 8, 9 |
+
+| Agreement | Opus ×2 | Opus · Sonnet | Sonnet ×2 |
+|---|---|---|---|
+| Type, beyond chance (κ) | 0.79 | 0.58–0.61 | 0.76 |
+| The same arrow, of pairs both related | 91% | 78% | 86% |
+
+- **The models differ by more than a model differs from itself.** Each agrees
+  with its own other run better than with the other model. Sonnet relates
+  pairs as `answers` and `sim` more often, and as `see` much less.
+- **Sonnet's groups disagree from run to run.** It made 4 in one run and 11
+  in the other.
+- **Sonnet's name links mostly fail.** Many of its replies about names were
+  rejected (`name`, 10 and 17), and that is most of why it needed more calls
+  than Opus.
+- **Neither judge ended a statement** on this friendly conversation. That
+  is where the hard cases show the difference.
+- Both judged every bead. Sonnet costs about 42% less per conversation, and
+  about $8 less over all of LoCoMo.

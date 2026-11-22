@@ -236,7 +236,7 @@ impl Engine {
         let response = match transport.send(&reader.binding, &repair_request) {
             Ok(response) => response,
             Err(e) => {
-                let failed = failure(&e, reader.settings.retry_backoff_ms);
+                let failed = failure(&e, reader.settings.retry_backoff_ms).after_a_call();
                 return self.fail_tool(store, reader, &call, repair_call, failed, report);
             }
         };
@@ -364,7 +364,17 @@ impl Engine {
         failed: Failure,
         report: ReadReport,
     ) -> Result<ReadRound, EngineError> {
-        let next = if failed.result == CallResult::Refused {
+        let next = if !failed.counts {
+            // Turned away before anything was read, for a reason that
+            // passes by itself: put off, its attempt given back.
+            WorkNext::Defer {
+                not_before: self
+                    .clock
+                    .now()
+                    .truncated_to_micros()
+                    .plus_millis(failed.wait_ms),
+            }
+        } else if failed.result == CallResult::Refused {
             // The model declined this call, or it does not fit. A tool
             // call is always sent alone, so the same request would get the
             // same answer. It is not made again until an operator has

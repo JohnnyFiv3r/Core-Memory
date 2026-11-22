@@ -323,8 +323,14 @@ pub struct Loaded {
 impl Loaded {
     pub fn read(path: &Path) -> Result<Self, String> {
         let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
-        let config: SidecarConfig = toml::from_str(&text)
+        let mut config: SidecarConfig = toml::from_str(&text)
             .map_err(|e| format!("{}: {}", path.display(), describe_toml(&text, &e)))?;
+        // A binding paid by its owner's own plan is a destination of its
+        // own, so that a scope's consent to a host with a key does not
+        // carry over to it. The provider says which; a config cannot.
+        for binding in &mut config.bindings {
+            binding.signed_in = binding.provider == core_memory_model_chatgpt::PROVIDER;
+        }
         let base = path
             .parent()
             .map(Path::to_path_buf)
@@ -364,6 +370,17 @@ impl Loaded {
                 return Err(format!(
                     "binding number {}: api_key_env must be the name of an environment \
                      variable that holds the key, such as ANTHROPIC_API_KEY",
+                    n + 1
+                ));
+            }
+            if binding
+                .credentials_file
+                .as_deref()
+                .is_some_and(|file| file.trim().is_empty())
+            {
+                return Err(format!(
+                    "binding number {}: credentials_file must name a file, or be left out for \
+                     the default one",
                     n + 1
                 ));
             }

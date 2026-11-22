@@ -44,7 +44,24 @@ pub struct BindingConfig {
     /// Environment variable holding the provider credential.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api_key_env: Option<String>,
+    /// File holding the sign-in of a provider that is signed in to rather
+    /// than given a key, such as `openai-chatgpt`. Relative to the config
+    /// file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credentials_file: Option<String>,
+    /// Whether the binding's calls are made as one person's signed-in
+    /// account, paid by their own plan, rather than with a key. Set by
+    /// whatever builds the binding from its provider, never read from a
+    /// config file. Such a binding is a destination of its own (see
+    /// [`BindingConfig::destination`]): a plan's terms can limit whose
+    /// activity it serves, so a scope allowed to send text to a host with a
+    /// key is not thereby allowed to send it on someone's plan.
+    #[serde(skip)]
+    pub signed_in: bool,
 }
+
+/// What a signed-in binding's destination starts with, before the host.
+pub const SIGNED_IN_DESTINATION: &str = "signed-in@";
 
 fn default_timeout_ms() -> u64 {
     60_000
@@ -119,9 +136,10 @@ impl BindingConfig {
     }
 
     /// Where a call through this binding sends text: the endpoint's host
-    /// in lower case, with its port if it names one. This is what a scope
-    /// consents to, so it is taken from the endpoint and never written by
-    /// hand: a binding pointed somewhere else needs consent again.
+    /// in lower case, with its port if it names one, after `signed-in@` if
+    /// the binding is signed in to. This is what a scope consents to, so it
+    /// is taken from the binding and never written by hand: a binding
+    /// pointed somewhere else, or paid for another way, needs consent again.
     pub fn destination(&self) -> Result<String, ConfigError> {
         let err = |m: &str| {
             Err(ConfigError::new(format!(
@@ -154,7 +172,11 @@ impl BindingConfig {
         if !port_ok || !name_ok {
             return err("must name a host, with a numeric port if any");
         }
-        Ok(host)
+        if self.signed_in {
+            Ok(format!("{SIGNED_IN_DESTINATION}{host}"))
+        } else {
+            Ok(host)
+        }
     }
 }
 
@@ -245,6 +267,18 @@ pub enum TransportError {
     /// refused before any of the request was sent. Every call will fail
     /// alike until an operator changes what the engine trusts.
     Untrusted { message: String },
+    /// The binding is signed in to rather than given a key, and its
+    /// sign-in cannot be used: it is missing, expired past renewal or
+    /// revoked, lacks the permission the call needs, or its owner has not
+    /// agreed to the engine calling in the background. The provider did not
+    /// process the request. Every call fails alike until the owner signs in
+    /// again.
+    SignInRequired { message: String },
+    /// The plan or account behind the binding has used the allowance it
+    /// has for now. Every call fails alike until it is renewed or raised.
+    /// `started` is whether the provider had begun its reply when it
+    /// stopped: if so, the request may have been processed.
+    LimitReached { message: String, started: bool },
 }
 
 impl fmt::Display for TransportError {
@@ -256,6 +290,8 @@ impl fmt::Display for TransportError {
             TransportError::DidNotFit { message } => write!(f, "did not fit: {message}"),
             TransportError::InDoubt { message } => write!(f, "in doubt: {message}"),
             TransportError::Untrusted { message } => write!(f, "untrusted: {message}"),
+            TransportError::SignInRequired { message } => write!(f, "sign-in required: {message}"),
+            TransportError::LimitReached { message, .. } => write!(f, "limit reached: {message}"),
         }
     }
 }
@@ -352,7 +388,27 @@ mod tests {
             budget: None,
             timeout_ms: 60_000,
             api_key_env: None,
+            credentials_file: None,
+            signed_in: false,
         }
+    }
+
+    #[test]
+    fn a_signed_in_binding_is_a_destination_of_its_own() {
+        let mut b = binding("https://API.OpenAI.com/v1");
+        assert_eq!(b.destination().unwrap(), "api.openai.com");
+        b.signed_in = true;
+        assert_eq!(b.destination().unwrap(), "signed-in@api.openai.com");
+        b.validate().unwrap();
+        // A config cannot say it: whatever builds the binding does.
+        let written: Result<BindingConfig, _> = serde_json::from_value(serde_json::json!({
+            "id": "plan", "provider": "p", "endpoint": "https://api.openai.com/v1",
+            "model": "m", "max_output_tokens": 1, "signed_in": true,
+        }));
+        assert!(written.is_err());
+        // A signed-in binding still needs a sound endpoint.
+        b.endpoint = "https://user:secret@api.openai.com/v1".into();
+        assert!(b.destination().is_err());
     }
 
     #[test]

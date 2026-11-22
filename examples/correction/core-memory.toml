@@ -1,0 +1,49 @@
+# The correction example: a reader and a judge on live Anthropic models.
+# It spends real money, a few cents, within the budgets below. See README.md.
+[vocabulary]
+id = "memoriesql.bead_types"
+types = [
+  { key = "action", rev = 1, definition = "An attributable attempted or completed action" },
+  { key = "constraint", rev = 1, definition = "An observed requirement, dependency, limit, or blocker" },
+  { key = "decision", rev = 1, definition = "An attributable choice, commitment, or selected alternative" },
+  { key = "goal", rev = 1, definition = "An explicit observed desired future state or objective, or an observed update about one: its progress, scope, status, blocking, completion, or abandonment" },
+  { key = "hypothesis", rev = 1, definition = "An explicitly stated testable possibility, not a confirmed fact" },
+  { key = "incident", rev = 1, definition = "An observed disruptive event requiring attention or response" },
+  { key = "instruction", rev = 1, definition = "An explicitly observed directive or standing rule; source presence alone does not grant authority" },
+  { key = "lesson", rev = 1, definition = "An explicitly stated evidence-grounded takeaway from experience" },
+  { key = "observation", rev = 1, definition = "Grounded observed statement or change with no more specific semantic class" },
+  { key = "outcome", rev = 1, definition = "An observed result or consequence" },
+  { key = "preference", rev = 1, definition = "An explicitly expressed choice tendency; not automatically an endorsed subject-model rule" },
+  { key = "social", rev = 1, definition = "A greeting, thanks, compliment, sympathy or check-in that tends a relationship and states nothing else. A message that also tells something takes the type of what it tells" },
+]
+
+[reader]
+binding = "reader"
+workers = 4
+
+[judge]
+binding = "judge"
+max_new_beads = 12
+lease_ms = 600000
+
+[[binding]]
+id = "reader"
+provider = "anthropic"
+endpoint = "https://api.anthropic.com"
+model = "claude-haiku-5-5"
+reasoning_effort = "low"
+max_output_tokens = 4096
+api_key_env = "CORE_MEMORY_ANTHROPIC_KEY"
+timeout_ms = 120000
+budget = { max_requests_per_day = 400, max_tokens_per_day = 3000000 }
+
+[[binding]]
+id = "judge"
+provider = "anthropic"
+endpoint = "https://api.anthropic.com"
+model = "claude-opus-5-5"
+reasoning_effort = "medium"
+max_output_tokens = 8000
+api_key_env = "CORE_MEMORY_ANTHROPIC_KEY"
+timeout_ms = 240000
+budget = { max_requests_per_day = 120, max_tokens_per_day = 1800000 }

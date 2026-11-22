@@ -20,6 +20,7 @@ types = [
 #
 # [reader]
 # binding = "small"
+# workers = 1                # batches read at once; raise it to clear a backlog faster
 #
 # To have a model say of each tool call what it did and what came of it:
 #
@@ -33,6 +34,16 @@ types = [
 #
 # [judge]
 # binding = "small"
+# window_ms = 604800000      # how far apart in time two memories may be: 7 days
+# max_window_beads = 40      # memories shown beside the new ones, nearest in time first
+# max_window_bytes = 64000   # and at most this much of their text
+# max_new_beads = 8          # new memories judged in one call
+# second_read = true         # read a replacement twice before it is written
+#
+# Each line above shows the default. In a store that fills quickly, the 40
+# nearest memories lie much closer than 7 days, and max_window_beads, not
+# window_ms, sets how far the judge looks. Raising it widens the reach and
+# costs tokens in proportion.
 #
 # [[binding]]
 # id = "small"
@@ -42,6 +53,20 @@ types = [
 # max_output_tokens = 4096
 # api_key_env = "ANTHROPIC_API_KEY"
 # budget = { max_requests_per_day = 2000, max_tokens_per_day = 5000000 }
+#
+# Or pay with your ChatGPT Plus or Pro plan instead of API credits: sign in
+# once with `core-memory login chatgpt`, then name the binding where `small`
+# is named above. Allow it only for scopes that hold your own activity: it
+# is a destination of its own (`signed-in@api.openai.com`), so a scope
+# allowed for an API key is not allowed for it until you allow it here.
+#
+# [[binding]]
+# id = "plan"
+# provider = "openai-chatgpt"
+# endpoint = "https://api.openai.com/v1"     # the only endpoint it takes
+# model = "<a model `core-memory login chatgpt --models` lists>"
+# max_output_tokens = 4096                   # reserved against a budget, never sent
+# credentials_file = "chatgpt.json"          # optional; default ~/.config/core-memory/chatgpt.json
 
 # A source profile for CRM change events. A profile says how a source is
 # admitted, chunked and faceted. It never assigns a type; it may only narrow
