@@ -79,6 +79,9 @@ def main(argv):
 
     with open(path, encoding="utf-8") as f:
         parts = blocks(f.read())
+    judged = any(header == "[judge]" for header, _ in parts)
+    if not judged and ("--judge-model" in options or "--judge-effort" in options):
+        sys.exit("configure.py: the config has no [judge] section, so there is no judge to set")
     if options["--reader-only"]:
         parts = [p for p in parts if p[0] != "[judge]"]
     if "--reader-effort" in options:

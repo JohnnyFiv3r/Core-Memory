@@ -54,7 +54,7 @@ memoriesQL.
 
 Settings: `LOCOMO_SAMPLE` for another conversation, `MAX_MINUTES` for another
 time limit, and `JUDGE_MODEL`, `JUDGE_EFFORT` and `READER_EFFORT` to run the
-same conversation with other models (see `configure.py`, and
+same conversation with other models, and `READER_ONLY=1` to read it and judge nothing (see `configure.py`, and
 [`eval/compare`](../compare/) to compare two runs). The test refuses to start with less than the time limit and half
 an hour left in the UTC day, since a run past midnight would get a second
 day's budget.

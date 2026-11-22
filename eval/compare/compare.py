@@ -72,6 +72,11 @@ class Run:
                 self.ended.add((e["arrow"], src, dst))
         self.groups = len(stored.groups)
 
+    def written(self, pair):
+        """The arrows that end currency between a pair's two messages and
+        were written, as `arrow source>ended`."""
+        return sorted(f"{arrow} {s}>{d}" for arrow, s, d in self.ended if {s, d} == set(pair))
+
     def text(self, message):
         bead = self.stored.bead(message)
         chunk = self.stored.chunks.get(bead)
@@ -122,8 +127,9 @@ def agreement(x, y):
     ty = [y.first[p] for p in shared]
     related = lambda t: t not in ("none", "unsure")
     both_related = [i for i in range(len(shared)) if related(tx[i]) and related(ty[i])]
-    ended_x = {(s, d) for _, s, d in x.ended}
-    ended_y = {(s, d) for _, s, d in y.ended}
+    # The arrow is part of what was written: a replacement and a withdrawal
+    # of one statement are two things.
+    ended_x, ended_y = x.ended, y.ended
     return {
         "shared": len(shared),
         "only_x": len(set(x.first) - set(y.first)),
@@ -243,27 +249,34 @@ def main(args):
         currency, related = [], []
         for p in pairs:
             said = {m: [r.first.get(p, "—") for r in first_of[m]] for m in models}
-            ends = {m: any(t in score.ENDS for t in said[m]) for m in models}
+            wrote = {m: [r.written(p) for r in first_of[m]] for m in models}
+            ends = {m: any(wrote[m]) for m in models}
             rel = {
                 m: [t not in ("none", "unsure") for t in said[m] if t != "—"] for m in models
             }
             x, y = rel[models[0]], rel[models[1]]
             if ends[models[0]] != ends[models[1]]:
-                currency.append((p, said))
+                currency.append((p, said, wrote))
             elif x and y and ((all(x) and not any(y)) or (all(y) and not any(x))):
                 # Every run of one model related the two; no run of the
                 # other did.
-                related.append((p, said))
+                related.append((p, said, wrote))
         source = runs[0]
         for title, found in (
             ("One model ended a statement and the other did not", currency),
             ("One model always related the two and the other never did", related),
         ):
             w.append(f"### {title} ({len(found)})\n")
-            for (a, b), said in found[:LISTED]:
+            for (a, b), said, wrote in found[:LISTED]:
                 w.append(f"- **{a}** “{source.text(a)}”")
                 w.append(f"  **{b}** “{source.text(b)}”")
-                w.append("  " + "; ".join(f"{m}: {', '.join(said[m])}" for m in models))
+                w.append("  first read: " + "; ".join(f"{m}: {', '.join(said[m])}" for m in models))
+                w.append(
+                    "  written: "
+                    + "; ".join(
+                        f"{m}: {', '.join(', '.join(r) or 'nothing' for r in wrote[m])}" for m in models
+                    )
+                )
             if len(found) > LISTED:
                 w.append(f"- and {len(found) - LISTED} more")
             w.append("")

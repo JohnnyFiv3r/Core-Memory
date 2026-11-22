@@ -46,6 +46,7 @@ cp "$here/core-memory.toml" "$config"
 # compare models on the same conversation. See configure.py.
 settings=()
 [ -n "${READER_EFFORT:-}" ] && settings+=(--reader-effort "$READER_EFFORT")
+[ "${READER_ONLY:-0}" = "1" ] && settings+=(--reader-only)
 [ -n "${JUDGE_MODEL:-}" ] && settings+=(--judge-model "$JUDGE_MODEL")
 [ -n "${JUDGE_EFFORT:-}" ] && settings+=(--judge-effort "$JUDGE_EFFORT")
 python3 -I "$here/configure.py" "$config" ${settings[@]+"${settings[@]}"}
