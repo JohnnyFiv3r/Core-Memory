@@ -211,5 +211,95 @@ class OneChunkExportsScoreAsTheyAlwaysDid(unittest.TestCase):
         self.assertEqual(out, golden("two_runs.md"))
 
 
+HEADER = (
+    "score.py: cannot score this export: a case message was stored as more than one chunk. "
+    "The judge's verdict on a pair is scored on each message's first chunk only, so a verdict on a "
+    'later chunk would be reported as "no verdict". Every case message must fit in one chunk '
+    "(4096 bytes under run.sh's profile); shorten the message, or score an export where it does."
+)
+
+
+def split_threads(count, chunks=2, name="m"):
+    """`count` extra threads of one message each, stored as `chunks` chunks,
+    and the cases and records for them."""
+    cases, records = CASES, run("adversarial-1")
+    for i in range(count):
+        message = f"{name}{i:02}"
+        cases += THREAD.format(id=f"X{i:02}", message=message)
+        records.append(event("adversarial-1", message))
+        for ordinal in range(chunks):
+            records.append(chunk("adversarial-1", message, ordinal, f"SECRET-TEXT-{message}"))
+    return cases, records
+
+
+class ACaseMessageStoredAsSeveralChunksIsRefused(unittest.TestCase):
+    def refused(self, records, cases=CASES, flags=()):
+        code, out, err = score(records, cases, flags)
+        self.assertEqual((code, out), (1, ""))
+        self.assertTrue(err.startswith(HEADER + "\n"), err)
+        return err.splitlines()[1:]
+
+    def test_a_verdict_on_a_later_chunk_is_refused_not_scored_as_no_verdict(self):
+        details = self.refused(run("adversarial-1", a_chunks=2, verdict_from="a2"))
+        self.assertEqual(details, ["  thread T1, message a: 2 chunks"])
+
+    def test_a_split_message_is_refused_wherever_the_verdict_is(self):
+        details = self.refused(run("adversarial-1", a_chunks=2, verdict_from="a1"))
+        self.assertEqual(details, ["  thread T1, message a: 2 chunks"])
+
+    def test_a_split_message_in_a_thread_with_no_pair_is_refused(self):
+        cases, records = split_threads(1)
+        self.assertEqual(self.refused(records, cases), ["  thread X00, message m00: 2 chunks"])
+
+    def test_a_split_read_case_is_named_as_a_read_case(self):
+        records = run("adversarial-1") + [chunk("adversarial-1", "R1", 1, "more")]
+        self.assertEqual(self.refused(records), ["  read case R1: 2 chunks"])
+
+    def test_the_refusal_lists_ten_and_counts_the_rest(self):
+        cases, records = split_threads(11)
+        details = self.refused(records, cases)
+        self.assertEqual(len(details), 11)
+        self.assertEqual(details[0], "  thread X00, message m00: 2 chunks")
+        self.assertEqual(details[9], "  thread X09, message m09: 2 chunks")
+        self.assertEqual(details[10], "  ... and 1 more")
+
+    def test_ten_split_messages_are_all_listed_and_nothing_is_counted_after(self):
+        cases, records = split_threads(10)
+        details = self.refused(records, cases)
+        self.assertEqual(len(details), 10)
+        self.assertNotIn("more", "".join(details))
+
+    def test_the_refusal_holds_no_message_text(self):
+        cases, records = split_threads(1)
+        self.refused(records, cases)
+        _, _, err = score(records, cases)
+        self.assertNotIn("SECRET-TEXT", err)
+        self.assertNotIn("Alice", err)
+
+    def test_a_long_message_id_is_cut(self):
+        cases, records = split_threads(1, name="m" * 80)
+        details = self.refused(records, cases)
+        self.assertEqual(details, [f"  thread X00, message {'m' * 60}: 2 chunks"])
+
+    def test_a_message_split_in_one_run_of_several_is_listed_once_with_the_largest_count(self):
+        records = run("adversarial-1", a_chunks=2) + run("adversarial-2", a_chunks=3)
+        self.assertEqual(self.refused(records), ["  thread T1, message a: 3 chunks"])
+
+    def test_a_message_that_was_not_stored_is_not_refused(self):
+        records = [r for r in run("adversarial-1") if r.get("chunk_id") != "adversarial-1:c1"]
+        code, out, err = score(records)
+        self.assertEqual((code, err), (0, ""))
+        self.assertIn("c Cy", out)
+
+    def test_reader_only_scores_a_split_message(self):
+        code, out, err = score(run("adversarial-1", a_chunks=2, verdict_from="a2"), flags=("--reader-only",))
+        self.assertEqual((code, err), (0, ""))
+        self.assertTrue(out.startswith("# Adversarial cases"))
+
+    def test_an_empty_export_still_says_it_holds_no_events(self):
+        code, out, err = score([])
+        self.assertEqual((code, out, err.strip()), (1, "", "score.py: the export holds no events"))
+
+
 if __name__ == "__main__":
     unittest.main()

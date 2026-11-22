@@ -6,7 +6,8 @@ person to read.
 The reader is scored on each message's type. The judge is scored on the
 verdict of its first read of each pair the cases name. A pair with no
 verdict, because the judge was never shown it or every reply about it was
-rejected, is counted apart, never as a no.
+rejected, is counted apart, never as a no. A case message stored as more
+than one chunk is refused, not scored.
 
 Each scope in the export is one run of the cases (run.sh puts each repeat
 in a scope and workspace of its own). With one run the report goes case by
@@ -23,6 +24,9 @@ import sys
 import tomllib
 
 TEXT = 160
+# How many split messages a refusal lists, and how much of an ID it prints.
+LISTED = 10
+ID = 60
 
 # The judge's arrows, as core_memory.arrows holds them: each arrow's inverse,
 # and its type. A symmetric arrow has no inverse.
@@ -412,12 +416,45 @@ def reader_misses(runs, first, n):
     return w
 
 
+def refuse_split_messages(cases, stored):
+    """Exits, scoring nothing, if a case message was stored as more than one
+    chunk in any run. The judge is scored on each message's first chunk, so a
+    verdict on a later one would be reported as no verdict. What is printed
+    is IDs from cases.toml and counts, never text. A message that is both a
+    read case and in a thread is listed as the thread's, at the read case's
+    place."""
+    labels = {m["id"]: "read case" for m in cases.get("read", [])}
+    for thread in cases.get("thread", []):
+        for m in thread["message"]:
+            labels[m["id"]] = f"thread {thread['id'][:ID]}, message"
+    split = []
+    for message, label in labels.items():
+        chunks = max(len(run.by_message.get(message, [])) for run in stored.values())
+        if chunks > 1:
+            split.append(f"  {label} {message[:ID]}: {chunks} chunks")
+    if not split:
+        return
+    w = [
+        "score.py: cannot score this export: a case message was stored as more than one chunk. "
+        "The judge's verdict on a pair is scored on each message's first chunk only, so a verdict "
+        'on a later chunk would be reported as "no verdict". Every case message must fit in one '
+        "chunk (4096 bytes under run.sh's profile); shorten the message, or score an export where it does."
+    ]
+    w.extend(split[:LISTED])
+    if len(split) > LISTED:
+        w.append(f"  ... and {len(split) - LISTED} more")
+    sys.exit("\n".join(w))
+
+
 def main(cases_path, export, reader_only=False):
     with open(cases_path, "rb") as f:
         cases = tomllib.load(f)
-    runs = {name: Scored(cases, Stored(records)) for name, records in by_scope(lines(export)).items()}
-    if not runs:
+    stored = {name: Stored(records) for name, records in by_scope(lines(export)).items()}
+    if not stored:
         sys.exit("score.py: the export holds no events")
+    if not reader_only:
+        refuse_split_messages(cases, stored)
+    runs = {name: Scored(cases, s) for name, s in stored.items()}
     if len(runs) == 1:
         w = one_run(cases, next(iter(runs.values())), reader_only)
     else:
