@@ -47,7 +47,10 @@ const TYPES_FOLLOW: &str = "\n\nThe listed types:\n";
 ///
 /// 2: a quote is also found when only its quotation marks, apostrophes,
 /// dashes, ellipses or invisible characters differ from the chunk's.
-pub const VALIDATOR_REV: u32 = 2;
+///
+/// 3: a loose match takes in each typographic character whole, and
+/// occurrences are numbered without overlap.
+pub const VALIDATOR_REV: u32 = 3;
 
 const BINDING_REV_DOMAIN: &str = "core-memory/binding-rev/v2";
 const MAX_REPORTED_ERRORS: usize = 20;
@@ -688,7 +691,26 @@ pub fn locate(text: &str, quote: &str, occurrence: usize) -> Option<Range<usize>
             .map(|(start, found)| start..start + found.len());
     }
     let loose = Loose::of(text);
-    let (start, found) = loose.text.match_indices(wanted).nth(occurrence - 1)?;
+    // A match that starts or ends inside what one character expanded to (an
+    // ellipsis read as three dots) is no match of that character: counting
+    // it would give several occurrences the same range. After one that is
+    // refused the search goes on one character later, since it can overlap
+    // a whole one (a dot, then an ellipsis); after one that is counted it
+    // goes on past it, so occurrences do not overlap.
+    let (mut from, mut seen) = (0, 0);
+    let start = loop {
+        let at = from + loose.text[from..].find(wanted)?;
+        if loose.whole(at, at + wanted.len()) {
+            seen += 1;
+            if seen == occurrence {
+                break at;
+            }
+            from = at + wanted.len();
+        } else {
+            from = at + loose.text[at..].chars().next().map_or(1, char::len_utf8);
+        }
+    };
+    let found = wanted;
     // The quote starts and ends with something that is not a space, so
     // both ends map to characters of `text`.
     Some(loose.starts[start]..loose.ends[start + found.len() - 1])
@@ -700,6 +722,8 @@ struct Loose {
     text: String,
     starts: Vec<usize>,
     ends: Vec<usize>,
+    /// Whether each byte is the first of what its character became.
+    firsts: Vec<bool>,
 }
 
 impl Loose {
@@ -708,6 +732,7 @@ impl Loose {
             text: String::with_capacity(original.len()),
             starts: Vec::with_capacity(original.len()),
             ends: Vec::with_capacity(original.len()),
+            firsts: Vec::with_capacity(original.len()),
         };
         let mut in_space = false;
         for (at, c) in original.char_indices() {
@@ -745,10 +770,17 @@ impl Loose {
 
     fn push(&mut self, plain: &str, start: usize, end: usize) {
         self.text.push_str(plain);
-        for _ in 0..plain.len() {
+        for i in 0..plain.len() {
             self.starts.push(start);
             self.ends.push(end);
+            self.firsts.push(i == 0);
         }
+    }
+
+    /// Whether `from..to` of the loose text takes in every character it
+    /// touches whole.
+    fn whole(&self, from: usize, to: usize) -> bool {
+        self.firsts[from] && self.firsts.get(to).is_none_or(|first| *first)
     }
 }
 
@@ -1069,6 +1101,49 @@ mod tests {
             locate(text, "\u{2026}", 1).map(|r| &text[r]),
             Some("\u{2026}")
         );
+        // One ellipsis is one occurrence of an ellipsis, and none of a dot.
+        let dots = "a\u{2026}b";
+        assert_eq!(locate(dots, ".", 1), None);
+        assert_eq!(locate(dots, "..", 1), None);
+        assert_eq!(locate(dots, "...", 1), Some(1..4));
+        assert_eq!(locate(dots, "...", 2), None);
+        // A refused start does not hide a whole match that overlaps it.
+        assert_eq!(locate(".\u{2026}", "...", 1), Some(1..4));
+        assert_eq!(locate(".\u{2026}\u{2026}", "...", 1), Some(1..4));
+        assert_eq!(locate(".\u{2026}\u{2026}", "...", 2), Some(4..7));
+        // Occurrences do not overlap, as in an exact search.
+        let tabs = "go\tgo\tgo\tgo";
+        assert_eq!(locate(tabs, "go go", 1), Some(0..5));
+        assert_eq!(locate(tabs, "go go", 2), Some(6..11));
+        assert_eq!(locate(tabs, "go go", 3), None);
+        assert_eq!(locate("go\tgo\tgo", "go go", 2), None);
+        assert_eq!(locate("\u{2026}.", "...", 1), Some(0..3));
+        assert_eq!(locate("go go go", "go go", 2), None);
+    }
+
+    #[test]
+    fn a_loose_match_covers_whole_characters_and_reads_as_the_quote() {
+        let cases = [
+            ("a\u{2026}b", "...", 1),
+            (".\u{2026}", "...", 1),
+            (".\u{2026}\u{2026}", "...", 1),
+            (".\u{2026}\u{2026}", "...", 2),
+            ("\u{2026}.", "...", 1),
+            ("go\tgo\tgo\tgo", "go go", 1),
+            ("go\tgo\tgo\tgo", "go go", 2),
+        ];
+        for (text, quote, n) in cases {
+            let found = locate(text, quote, n).unwrap_or_else(|| panic!("{text:?} {quote:?} {n}"));
+            assert!(
+                text.is_char_boundary(found.start) && text.is_char_boundary(found.end),
+                "{text:?} {quote:?} {n}: {found:?}"
+            );
+            assert_eq!(
+                Loose::of(&text[found.clone()]).text.trim(),
+                Loose::of(quote).text.trim(),
+                "{text:?} {quote:?} {n}: {found:?}"
+            );
+        }
     }
 
     #[test]
@@ -1161,6 +1236,12 @@ mod tests {
             max_tokens_per_day: 1,
         });
         assert_eq!(binding_rev(&a).unwrap(), binding_rev(&b).unwrap());
+        // Changes with the prompt, the reply shape or the validator: bump the
+        // revision it belongs to.
+        assert_eq!(
+            binding_rev(&a).unwrap().to_string(),
+            "56077b82cb54933592f2e751de6b237cf7500d410f1c930ed06f7191cbe86d8a"
+        );
         let mut c = binding();
         c.model = "another-model".into();
         assert_ne!(binding_rev(&a).unwrap(), binding_rev(&c).unwrap());
