@@ -79,17 +79,19 @@ while :; do
   cat "$out/last-run.log" >>"$out/runs.log"
   read -r calls owed rejected < <(python3 -I "$smoke/report.py" --left \
     "$out/last-run.log" "$out/last-rounds.jsonl")
+  # A queue that ran out of attempts is empty too, so the certificate is
+  # reported before an empty queue is taken for success.
+  if [ "$rejected" -eq 2 ]; then
+    why="the model server's TLS certificate was not trusted, so nothing was sent: \
+set MODELS_CA_FILE to the certificate authority of the proxy or gateway that re-signs it"
+    break
+  fi
   if [ "$owed" -eq 0 ]; then
     why="everything was read and judged"
     break
   fi
   if [ "$rejected" -eq 1 ]; then
     why="the API turned the key or a model down; see runs.log"
-    break
-  fi
-  if [ "$rejected" -eq 2 ]; then
-    why="the model server's TLS certificate was not trusted, so nothing was sent: \
-set MODELS_CA_FILE to the certificate authority of the proxy or gateway that re-signs it"
     break
   fi
   if [ "$calls" -eq 0 ]; then
