@@ -250,7 +250,8 @@ fn to_i32_steps(follow: u32) -> i32 {
 /// For each ended bead, the current end of the chain that ended it, when
 /// that bead is live and in a scope the caller may recall from. A chain
 /// with a bead in a scope the caller may not recall from, anywhere along it,
-/// has no successor to show: recall does not pass through that scope. A chain
+/// has no successor to show: the walk stops at that bead, and goes no further
+/// through that scope. A chain
 /// never branches, so it has one end.
 fn successors(
     tx: &mut Transaction<'_>,
@@ -273,7 +274,7 @@ fn successors(
                        JOIN core_memory.edges AS e
                          ON e.to_bead = chain.bead AND e.arrow IN {ENDING}
                        JOIN core_memory.beads AS nb ON nb.bead_id = e.from_bead
-                      WHERE chain.depth < 100000
+                      WHERE chain.granted AND chain.depth < 100000
                  ),
                  ends AS (
                      SELECT DISTINCT ON (chain.start) chain.start, chain.bead, chain.granted
