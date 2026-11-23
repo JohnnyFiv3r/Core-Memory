@@ -6,10 +6,8 @@
 set -euo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+source "$here/../results.sh"
 smoke="$here/../locomo-smoke"
-out=${1:?usage: run.sh <output-folder>}
-mkdir -p "$out"
-out=$(cd "$out" && pwd)
 
 : "${CORE_MEMORY_DATABASE_URL:?set it to an empty PostgreSQL database the test may fill}"
 if [ -z "${CORE_MEMORY_ANTHROPIC_KEY:-}" ]; then
@@ -36,7 +34,20 @@ if [ "$left_in_day" -lt $(((max_minutes + 30) * 60)) ]; then
   exit 2
 fi
 
-config="$out/core-memory.toml"
+if [ -n "${1:-}" ]; then
+  out=$1
+  mkdir -p "$out"
+  out=$(cd "$out" && pwd)
+  stage=
+  confdir=
+else
+  results_refuse_unsafe_settings
+  results_root
+  results_new_run adversarial synthetic
+  trap results_finish EXIT
+fi
+
+config="${confdir:-$out}/core-memory.toml"
 cp "$smoke/core-memory.toml" "$config"
 # READER_ONLY=1 reads the messages and judges nothing, for a few cents: to
 # compare readers. READER_EFFORT sets the reader's reasoning_effort;
@@ -56,6 +67,14 @@ cm() { "$bin" --config "$config" "$@"; }
 
 cm check >"$out/check.jsonl"
 cm migrate
+# The test's guarantees (what it keeps, what it sends to a model) hold only
+# for a database that holds nothing else, so a used one is refused before any
+# scope is made or any model is called.
+scopes=$(cm scope list | wc -l)
+if [ "$scopes" -ne 0 ]; then
+  echo "run.sh: the database already holds $scopes scope(s); use an empty one, as CORE_MEMORY_DATABASE_URL says" >&2
+  exit 2
+fi
 : >"$out/ingest.jsonl"
 for i in $(seq 1 "$repeats"); do
   scope="adversarial-$i"
@@ -73,7 +92,7 @@ quiet=0
 why=""
 while :; do
   if ! cm read run >"$out/last-rounds.jsonl" 2>"$out/last-run.log"; then
-    echo "run.sh: read run failed; see $out/last-run.log" >&2
+    echo "run.sh: read run failed; see last-run.log in the run's results" >&2
   fi
   cat "$out/last-rounds.jsonl" >>"$out/rounds.jsonl"
   cat "$out/last-run.log" >>"$out/runs.log"
@@ -119,7 +138,10 @@ set MODELS_CA_FILE to the certificate authority of the proxy or gateway that re-
 done
 
 cm read status >"$out/status.jsonl"
-cm export >"$out/export.jsonl"
+: >"$out/export.jsonl"
+for i in $(seq 1 "$repeats"); do
+  cm export --scope "adversarial-$i" >>"$out/export.jsonl"
+done
 python3 -I "$smoke/report.py" "$out" "$why" >"$out/report.md"
 only=()
 if [ "$reader_only" = "1" ]; then
@@ -129,6 +151,11 @@ fi
 # A refusal (stderr) goes into score.md too, and set -e must not skip report.md.
 status=0
 python3 -I "$here/score.py" ${only[@]+"${only[@]}"} "$here/cases.toml" "$out/export.jsonl" >"$out/score.md" 2>&1 || status=$?
+# A default run is checked and kept before any of its files is printed.
+if [ -n "$stage" ]; then
+  rm -rf -- "$confdir"
+  results_publish
+fi
 cat "$out/score.md"
 echo
 cat "$out/report.md"

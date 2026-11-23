@@ -33,8 +33,13 @@ left in the queue, and the report says so.
 ## Running it
 
 ```bash
-eval/locomo-smoke/run.sh /some/output/folder
+eval/locomo-smoke/run.sh
 ```
+
+With no folder, the run is kept in
+`/factory/work/core-memory-results/runs/<time>-locomo-smoke` (see
+[../RESULTS.md](../RESULTS.md), which also says how to compare two runs). Give
+a folder to write there instead.
 
 It downloads LoCoMo and checks the file against the checksum it was written
 for, turns the conversation `conv-26` (419 turns over 19 sessions) into
@@ -45,7 +50,8 @@ cost from the token counts the API reported, the work left, and samples of
 what the judge said, with the text of both beads, for a person to read.
 
 The output folder holds the conversation's text (`events.jsonl`,
-`export.jsonl`). Keep it out of this repository.
+`export.jsonl`). Keep it out of this repository. The default location is
+outside it.
 
 The reader types chunks with memoriesQL's current bead types at its schema
 60: the keys, revisions, definitions and order its `engine_vocabulary_v1()`

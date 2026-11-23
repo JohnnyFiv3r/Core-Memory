@@ -5,9 +5,7 @@
 set -euo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-out=${1:?usage: run.sh <output-folder>}
-mkdir -p "$out"
-out=$(cd "$out" && pwd)
+source "$here/../results.sh"
 
 : "${CORE_MEMORY_DATABASE_URL:?set it to an empty PostgreSQL database the test may fill}"
 if [ -z "${CORE_MEMORY_ANTHROPIC_KEY:-}" ]; then
@@ -30,17 +28,50 @@ if [ "$left_in_day" -lt $(((max_minutes + 30) * 60)) ]; then
   exit 2
 fi
 
-data="$out/locomo10.json"
-if [ ! -f "$data" ]; then
-  curl -fsSL --retry 3 -o "$data" \
-    https://raw.githubusercontent.com/snap-research/locomo/main/data/locomo10.json
+if [ -n "${1:-}" ]; then
+  out=$1
+  mkdir -p "$out"
+  out=$(cd "$out" && pwd)
+  stage=
+  confdir=
+else
+  results_refuse_unsafe_settings
+  results_root
+  results_new_run locomo-smoke public
+  trap results_finish EXIT
 fi
+
+data="$out/locomo10.json"
 # The file this test was written against. A changed upstream file stops it.
-echo "79fa87e90f04081343b8c8debecb80a9a6842b76a7aa537dc9fdf651ea698ff4  $data" |
-  sha256sum -c --quiet -
+want=79fa87e90f04081343b8c8debecb80a9a6842b76a7aa537dc9fdf651ea698ff4
+if [ ! -f "$data" ]; then
+  # Downloaded outside the run and checked first, so a response that is not the
+  # corpus is never among the files a default run keeps.
+  download=$(mktemp "${TMPDIR:-/tmp}/core-memory-locomo.XXXXXX")
+  rc=0
+  curl -fsSL --retry 3 -o "$download" \
+    https://raw.githubusercontent.com/snap-research/locomo/main/data/locomo10.json || rc=$?
+  # curl's own status stays the runner's, as it was before the download moved.
+  if [ "$rc" -ne 0 ]; then
+    rm -f -- "$download"
+    exit "$rc"
+  fi
+  if ! echo "$want  $download" | sha256sum -c --quiet -; then
+    rm -f -- "$download"
+    exit 1
+  fi
+  # A copy cut short must not leave part of the corpus in the run.
+  if ! cp -- "$download" "$data"; then
+    rm -f -- "$download" "$data"
+    exit 1
+  fi
+  rm -f -- "$download"
+else
+  echo "$want  $data" | sha256sum -c --quiet -
+fi
 python3 -I "$here/locomo_to_events.py" "$data" "$sample" locomo "$out/events.jsonl"
 
-config="$out/core-memory.toml"
+config="${confdir:-$out}/core-memory.toml"
 cp "$here/core-memory.toml" "$config"
 # READER_EFFORT, JUDGE_MODEL and JUDGE_EFFORT change the bindings, to
 # compare models on the same conversation. See configure.py.
@@ -56,6 +87,14 @@ cm() { "$bin" --config "$config" "$@"; }
 
 cm check >"$out/check.jsonl"
 cm migrate
+# The test's guarantees (what it keeps, what it sends to a model) hold only
+# for a database that holds nothing else, so a used one is refused before any
+# scope is made or any model is called.
+scopes=$(cm scope list | wc -l)
+if [ "$scopes" -ne 0 ]; then
+  echo "run.sh: the database already holds $scopes scope(s); use an empty one, as CORE_MEMORY_DATABASE_URL says" >&2
+  exit 2
+fi
 cm scope add locomo --workspace smoke
 # One allowance covers both bindings: they send to the same destination.
 cm scope allow locomo --binding reader
@@ -68,7 +107,7 @@ quiet=0
 why=""
 while :; do
   if ! cm read run >"$out/last-rounds.jsonl" 2>"$out/last-run.log"; then
-    echo "run.sh: read run failed; see $out/last-run.log" >&2
+    echo "run.sh: read run failed; see last-run.log in the run's results" >&2
   fi
   cat "$out/last-rounds.jsonl" >>"$out/rounds.jsonl"
   cat "$out/last-run.log" >>"$out/runs.log"
@@ -117,6 +156,13 @@ set MODELS_CA_FILE to the certificate authority of the proxy or gateway that re-
 done
 
 cm read status >"$out/status.jsonl"
-cm export >"$out/export.jsonl"
+# Only the test's own scope: a workspace export would also write out
+# any other scope that shares the workspace.
+cm export --scope locomo >"$out/export.jsonl"
 python3 -I "$here/report.py" "$out" "$why" >"$out/report.md"
+# A default run is checked and kept before any of its files is printed.
+if [ -n "$stage" ]; then
+  rm -rf -- "$confdir"
+  results_publish
+fi
 cat "$out/report.md"

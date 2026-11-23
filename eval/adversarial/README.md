@@ -74,8 +74,13 @@ replacement or withdrawal it gives. Expect about $1.
 What it needs is what the smoke test needs, but no download. Then:
 
 ```bash
-eval/adversarial/run.sh /some/output/folder
+eval/adversarial/run.sh
 ```
+
+With no folder, the run is kept in
+`/factory/work/core-memory-results/runs/<time>-adversarial` (see
+[../RESULTS.md](../RESULTS.md), which also says how to compare two runs). Give
+a folder to write there instead.
 
 It writes `score.md`, what was right and wrong, case by case, and the smoke
 test's `report.md`, with the cost. `MAX_MINUTES` sets the time limit, an

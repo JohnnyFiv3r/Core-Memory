@@ -3,3 +3,4 @@
 /.env
 .DS_Store
 __pycache__/
+/results/
