@@ -108,27 +108,46 @@ results_new_run() {
 # matches whole values only, so it is a backstop to the engine never writing
 # them, not a proof. Only ever called with the staged run results_new_run made.
 results_check_clean() {
-  local vals=() v found=""
+  local vals=() v found="" rc
   [[ $1 == "$stage/run" ]] || { echo "run.sh: refusing to delete $1" >&2; exit 3; }
   # An empty value would be an empty pattern, which matches every line.
   for v in "${CORE_MEMORY_DATABASE_URL:-}" "${CORE_MEMORY_ANTHROPIC_KEY:-}" "${OPENAI_API_KEY:-}" "${CORE_MEMORY_OPENAI_KEY:-}"; do
     [ -n "$v" ] && vals+=("$v")
   done
+  # grep says 0 for a match, 1 for a verified miss and 2 or more when it could
+  # not read everything, so only 1 means the run was checked and is clean.
   # The values go in through a process substitution, never a command line.
-  if [ "${#vals[@]}" -gt 0 ] && grep -rlqF -f <(printf '%s\n' "${vals[@]}") -- "$1"; then
-    found="a credential"
+  if [ "${#vals[@]}" -gt 0 ]; then
+    rc=0
+    grep -rlqF -f <(printf '%s\n' "${vals[@]}") -- "$1" || rc=$?
+    case $rc in
+      0) found="a credential" ;;
+      1) ;;
+      *) found="a scan error" ;;
+    esac
+  fi
   # Corpus text may hold URLs (RESULTS.md allows it); nothing else a run
   # writes should.
-  elif grep -rlq --exclude='events*.jsonl' --exclude=export.jsonl \
+  if [ -z "$found" ]; then
+    rc=0
+    grep -rlq --exclude='events*.jsonl' --exclude=export.jsonl \
       --exclude=locomo10.json --exclude=report.md --exclude=score.md \
-      -e '://' -- "$1"; then
-    found="a URL"
+      -e '://' -- "$1" || rc=$?
+    case $rc in
+      0) found="a URL" ;;
+      1) ;;
+      *) found="a scan error" ;;
+    esac
   fi
   if [ -n "$found" ]; then
     rm -rf -- "$stage"
     # So the EXIT trap has nothing left to keep.
     stage=""
-    echo "run.sh: $found appeared in the run's results, so the run was deleted before it was kept" >&2
+    if [ "$found" = "a scan error" ]; then
+      echo "run.sh: the run's results could not be checked for credentials, so the run was deleted before it was kept" >&2
+    else
+      echo "run.sh: $found appeared in the run's results, so the run was deleted before it was kept" >&2
+    fi
     exit 3
   fi
 }
