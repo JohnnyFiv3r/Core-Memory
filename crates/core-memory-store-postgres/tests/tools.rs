@@ -17,6 +17,7 @@ use core_memory_core::store::{
     ToolOutcomeWrite, WorkItem, WorkNext, WorkUpdate,
 };
 use core_memory_core::{Clock, ReadReport, ReadRound};
+use core_memory_store_postgres::testing::unique_name;
 use core_memory_store_postgres::{ConnectConfig, PostgresStore, QueuedReads, Reread};
 use serde_json::{Value, json};
 
@@ -1228,17 +1229,17 @@ fn an_outcome_is_stored_only_for_the_call_its_receipt_names() {
 fn the_engine_role_reads_tool_calls_and_cannot_rewrite_what_was_read() {
     let mut w = reading("");
     let (event_id, _) = w.accept(&test_run("toolu_01"));
+    let role = unique_name("cm_t_tool_engine");
     let mut admin = w.db.connect();
     admin
-        .batch_execute(
-            "DROP ROLE IF EXISTS cm_t_tool_engine;
-             CREATE ROLE cm_t_tool_engine LOGIN PASSWORD 'synthetic';
-             GRANT core_memory_engine TO cm_t_tool_engine;",
-        )
+        .batch_execute(&format!(
+            "CREATE ROLE {role} LOGIN PASSWORD 'synthetic';
+             GRANT core_memory_engine TO {role};"
+        ))
         .unwrap();
     let (scheme, rest) = w.db.url.split_once("://").unwrap();
     let (_, host) = rest.split_once('@').unwrap();
-    let url = format!("{scheme}://cm_t_tool_engine:synthetic@{host}");
+    let url = format!("{scheme}://{role}:synthetic@{host}");
     // The whole round with the engine's privileges and nothing more: it
     // admits a call, reads it, and stores what was read.
     let mut store = PostgresStore::new(&ConnectConfig::new(url.clone())).unwrap();
@@ -1329,6 +1330,6 @@ fn the_engine_role_reads_tool_calls_and_cannot_rewrite_what_was_read() {
     drop(raw);
     drop(store);
     admin
-        .batch_execute("DROP OWNED BY cm_t_tool_engine; DROP ROLE cm_t_tool_engine")
+        .batch_execute(&format!("DROP OWNED BY {role}; DROP ROLE {role}"))
         .unwrap();
 }

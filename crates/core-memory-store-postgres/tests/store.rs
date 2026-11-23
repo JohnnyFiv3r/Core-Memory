@@ -6,13 +6,13 @@
 
 mod common;
 
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::Ordering;
 
 use common::{World, behind_a_migration, chat, chat_in, checkpoint, crm, note};
 use core_memory_contract::{AdmissionOutcome, CheckpointReceipt, EventId, RefusalReason};
 use core_memory_core::store::{ScopeState, Store};
 use core_memory_core::{Clock, ScopeGrants, StoreError};
-use core_memory_store_postgres::testing::TestDb;
+use core_memory_store_postgres::testing::{TestDb, unique_name};
 use core_memory_store_postgres::{
     ConnectConfig, Enrollment, EraseOutcome, PostgresStore, SCHEMA_VERSION,
 };
@@ -510,8 +510,6 @@ fn stored_rows_cannot_be_changed_or_deleted() {
 
 // ---- privileges and row security ----
 
-static ROLE: AtomicU32 = AtomicU32::new(0);
-
 /// A fresh cluster role for one test, dropped with its grants at the end.
 struct Role {
     name: String,
@@ -520,11 +518,7 @@ struct Role {
 
 impl Role {
     fn new(db: &TestDb, kind: &str) -> Self {
-        let name = format!(
-            "cm_t_{kind}_{}_{}",
-            std::process::id(),
-            ROLE.fetch_add(1, Ordering::SeqCst)
-        );
+        let name = unique_name(&format!("cm_t_{kind}"));
         let mut admin = db.connect();
         admin
             .batch_execute(&format!("CREATE ROLE {name} LOGIN PASSWORD 'synthetic'"))

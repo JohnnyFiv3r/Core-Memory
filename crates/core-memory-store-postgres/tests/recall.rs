@@ -17,6 +17,7 @@ use core_memory_contract::{
 use core_memory_core::model::{FnTransport, ModelRequest, ModelResponse, TransportError, Usage};
 use core_memory_core::store::Store;
 use core_memory_core::{JudgeRound, RecallQuery, ScopeGrants};
+use core_memory_store_postgres::testing::unique_name;
 use core_memory_store_postgres::{ConnectConfig, PostgresStore};
 use serde_json::{Value, json};
 use uuid::Uuid;
@@ -592,17 +593,17 @@ fn the_planner_keeps_no_sample_of_the_words_of_the_text() {
 fn the_engine_role_recalls_and_the_search_uses_the_index() {
     let mut w = world();
     bead(&mut w, &said("1", 0, "Codename hyacinth is ready."));
+    let role = unique_name("cm_t_recall_engine");
     let mut admin = w.db.connect();
     admin
-        .batch_execute(
-            "DROP ROLE IF EXISTS cm_t_recall_engine;
-             CREATE ROLE cm_t_recall_engine LOGIN PASSWORD 'synthetic';
-             GRANT core_memory_engine TO cm_t_recall_engine;",
-        )
+        .batch_execute(&format!(
+            "CREATE ROLE {role} LOGIN PASSWORD 'synthetic';
+             GRANT core_memory_engine TO {role};"
+        ))
         .unwrap();
     let (scheme, rest) = w.db.url.split_once("://").unwrap();
     let (_, host) = rest.split_once('@').unwrap();
-    let url = format!("{scheme}://cm_t_recall_engine:synthetic@{host}");
+    let url = format!("{scheme}://{role}:synthetic@{host}");
     let mut store = PostgresStore::new(&ConnectConfig::new(url)).unwrap();
     let answer = store.recall(&ask("hyacinth")).unwrap();
     assert_eq!(answer.beads.len(), 1);
@@ -631,7 +632,7 @@ fn the_engine_role_recalls_and_the_search_uses_the_index() {
     );
     drop(store);
     admin
-        .batch_execute("DROP OWNED BY cm_t_recall_engine; DROP ROLE cm_t_recall_engine;")
+        .batch_execute(&format!("DROP OWNED BY {role}; DROP ROLE {role};"))
         .unwrap();
 }
 
@@ -781,21 +782,21 @@ fn a_reader_of_the_views_sees_only_what_its_own_policies_let_it() {
     judge(&mut w, &[("4pm", "3pm", "!contradicts")]);
     assert!(states(&w)[&mine].3, "the owner sees the dispute");
 
+    let role = unique_name("cm_t_view_reader");
     let mut admin = w.db.connect();
     admin
-        .batch_execute(
-            "DROP ROLE IF EXISTS cm_t_view_reader;
-             CREATE ROLE cm_t_view_reader NOLOGIN;
-             GRANT USAGE ON SCHEMA core_memory TO cm_t_view_reader;
+        .batch_execute(&format!(
+            "CREATE ROLE {role} NOLOGIN;
+             GRANT USAGE ON SCHEMA core_memory TO {role};
              GRANT SELECT ON core_memory.bead_state, core_memory.bead_text,
                              core_memory.beads, core_memory.edges, core_memory.chunk_reads,
                              core_memory.chunks, core_memory.chunk_text
-                TO cm_t_view_reader;",
-        )
+                TO {role};"
+        ))
         .unwrap();
     let seen = |admin: &mut postgres::Client| -> (Vec<(Uuid, bool)>, i64) {
         let mut tx = admin.transaction().unwrap();
-        tx.batch_execute("SET LOCAL ROLE cm_t_view_reader").unwrap();
+        tx.batch_execute(&format!("SET LOCAL ROLE {role}")).unwrap();
         let state = tx
             .query("SELECT bead_id, disputed FROM core_memory.bead_state", &[])
             .unwrap()
@@ -816,18 +817,18 @@ fn a_reader_of_the_views_sees_only_what_its_own_policies_let_it() {
 
     // Its own policies let it read one scope.
     admin
-        .batch_execute(
-            "CREATE POLICY t_reader ON core_memory.beads FOR SELECT TO cm_t_view_reader
+        .batch_execute(&format!(
+            "CREATE POLICY t_reader ON core_memory.beads FOR SELECT TO {role}
                  USING (scope = 'acme');
-             CREATE POLICY t_reader ON core_memory.edges FOR SELECT TO cm_t_view_reader
+             CREATE POLICY t_reader ON core_memory.edges FOR SELECT TO {role}
                  USING (true);
-             CREATE POLICY t_reader ON core_memory.chunk_reads FOR SELECT TO cm_t_view_reader
+             CREATE POLICY t_reader ON core_memory.chunk_reads FOR SELECT TO {role}
                  USING (scope = 'acme');
-             CREATE POLICY t_reader ON core_memory.chunks FOR SELECT TO cm_t_view_reader
+             CREATE POLICY t_reader ON core_memory.chunks FOR SELECT TO {role}
                  USING (true);
-             CREATE POLICY t_reader ON core_memory.chunk_text FOR SELECT TO cm_t_view_reader
-                 USING (scope = 'acme');",
-        )
+             CREATE POLICY t_reader ON core_memory.chunk_text FOR SELECT TO {role}
+                 USING (scope = 'acme');"
+        ))
         .unwrap();
     // It sees its scope's bead and text only. The other side of the dispute
     // is in a scope it may not read, so the view does not show it as
@@ -836,15 +837,15 @@ fn a_reader_of_the_views_sees_only_what_its_own_policies_let_it() {
     assert!(!seen(&mut admin).0.iter().any(|(b, _)| *b == theirs.0));
 
     admin
-        .batch_execute(
+        .batch_execute(&format!(
             "DROP POLICY t_reader ON core_memory.beads;
              DROP POLICY t_reader ON core_memory.edges;
              DROP POLICY t_reader ON core_memory.chunk_reads;
              DROP POLICY t_reader ON core_memory.chunks;
              DROP POLICY t_reader ON core_memory.chunk_text;
-             DROP OWNED BY cm_t_view_reader;
-             DROP ROLE cm_t_view_reader;",
-        )
+             DROP OWNED BY {role};
+             DROP ROLE {role};"
+        ))
         .unwrap();
 }
 

@@ -4,8 +4,10 @@
 // A test helper that cannot set up its database should stop the test.
 #![allow(clippy::unwrap_used)]
 
+use std::hash::{BuildHasher, RandomState};
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use postgres::{Client, NoTls};
 
@@ -19,6 +21,40 @@ pub const TEST_DATABASE_URL: &str = "CORE_MEMORY_TEST_DATABASE_URL";
 
 static COUNTER: AtomicU64 = AtomicU64::new(0);
 static TEMPLATE: OnceLock<String> = OnceLock::new();
+static RUN: OnceLock<String> = OnceLock::new();
+
+/// PostgreSQL's longest identifier, in bytes.
+const MAX_IDENTIFIER: usize = 63;
+
+/// This process's run ID: 16 hex digits that no other test run on the server
+/// shares, even one with the same process ID in another PID namespace.
+/// `RandomState` is seeded from the operating system's random source.
+fn run_id() -> &'static str {
+    RUN.get_or_init(|| {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |d| d.as_nanos());
+        let id = RandomState::new().hash_one((std::process::id(), nanos));
+        format!("{id:016x}")
+    })
+}
+
+/// `{prefix}_{run}_{n}`, checked to fit PostgreSQL's identifier limit.
+fn name_for(prefix: &str, run: &str, n: u64) -> String {
+    let name = format!("{prefix}_{run}_{n}");
+    assert!(
+        name.len() <= MAX_IDENTIFIER,
+        "test object name {name} is longer than PostgreSQL's {MAX_IDENTIFIER} bytes"
+    );
+    name
+}
+
+/// A database or role name that no other test, in this run or in any other run
+/// on the same server, uses. `prefix` must be a lower-case SQL identifier, such
+/// as `cm_test` or `cm_t_reader_engine`, so the name needs no quoting.
+pub fn unique_name(prefix: &str) -> String {
+    name_for(prefix, run_id(), COUNTER.fetch_add(1, Ordering::SeqCst))
+}
 
 /// A database that exists for one test.
 #[derive(Debug)]
@@ -104,24 +140,22 @@ fn template(admin_url: &str) -> &'static str {
     })
 }
 
+/// Creates `name`, and panics if it exists. A database that is already there
+/// is another run's, so it is never dropped to make room.
+fn create_database(admin_url: &str, name: &str, options: &str) {
+    admin(admin_url)
+        .batch_execute(&format!("CREATE DATABASE {name} {options}"))
+        .unwrap();
+}
+
 impl TestDb {
     /// A migrated, empty database. Panics with instructions if
     /// [`TEST_DATABASE_URL`] is not set.
     pub fn create() -> Self {
         let admin_url = admin_url();
         let template = template(&admin_url);
-        let name = format!(
-            "cm_test_{}_{}",
-            std::process::id(),
-            COUNTER.fetch_add(1, Ordering::SeqCst)
-        );
-        let mut client = admin(&admin_url);
-        client
-            .batch_execute(&format!("DROP DATABASE IF EXISTS {name} WITH (FORCE)"))
-            .unwrap();
-        client
-            .batch_execute(&format!("CREATE DATABASE {name} TEMPLATE {template}"))
-            .unwrap();
+        let name = unique_name("cm_test");
+        create_database(&admin_url, &name, &format!("TEMPLATE {template}"));
         Self {
             url: with_database(&admin_url, &name),
             admin_url,
@@ -132,18 +166,8 @@ impl TestDb {
     /// A database with no Core Memory schema.
     pub fn create_empty() -> Self {
         let admin_url = admin_url();
-        let name = format!(
-            "cm_test_{}_{}",
-            std::process::id(),
-            COUNTER.fetch_add(1, Ordering::SeqCst)
-        );
-        let mut client = admin(&admin_url);
-        client
-            .batch_execute(&format!("DROP DATABASE IF EXISTS {name} WITH (FORCE)"))
-            .unwrap();
-        client
-            .batch_execute(&format!("CREATE DATABASE {name}"))
-            .unwrap();
+        let name = unique_name("cm_test");
+        create_database(&admin_url, &name, "");
         Self {
             url: with_database(&admin_url, &name),
             admin_url,
@@ -179,7 +203,7 @@ impl Drop for TestDb {
 
 #[cfg(test)]
 mod tests {
-    use super::with_database;
+    use super::{MAX_IDENTIFIER, name_for, unique_name, with_database};
 
     #[test]
     fn the_database_name_is_replaced_and_the_rest_kept() {
@@ -195,5 +219,62 @@ mod tests {
             with_database("postgresql://host", "t1"),
             "postgresql://host/t1"
         );
+    }
+
+    #[test]
+    fn test_names_in_one_run_never_repeat() {
+        let (first, second) = (unique_name("cm_test"), unique_name("cm_test"));
+        assert_ne!(first, second);
+        for name in [first, second] {
+            let rest = name.strip_prefix("cm_test_").unwrap();
+            let (run, _) = rest.split_once('_').unwrap();
+            assert_eq!(run.len(), 16);
+            assert!(
+                run.bytes()
+                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+            );
+        }
+    }
+
+    #[test]
+    fn the_longest_test_object_name_fits_postgres_identifiers() {
+        // `cm_t_verdict_reader` is the longest prefix the suite uses.
+        let name = name_for("cm_t_verdict_reader", &"f".repeat(16), u64::MAX);
+        assert!(name.len() <= MAX_IDENTIFIER, "{} bytes", name.len());
+    }
+
+    #[test]
+    fn a_name_of_exactly_the_limit_is_accepted() {
+        let prefix = "p".repeat(MAX_IDENTIFIER - 16 - 2 - 1);
+        assert_eq!(name_for(&prefix, &"0".repeat(16), 7).len(), MAX_IDENTIFIER);
+    }
+
+    #[test]
+    #[should_panic(expected = "longer than PostgreSQL")]
+    fn a_name_over_the_limit_is_refused() {
+        let prefix = "p".repeat(MAX_IDENTIFIER - 16 - 2);
+        name_for(&prefix, &"0".repeat(16), 7);
+    }
+
+    #[cfg(feature = "postgres-tests")]
+    #[test]
+    fn a_database_already_at_a_name_is_left_alone() {
+        let admin_url = super::admin_url();
+        let name = unique_name("cm_test");
+        super::create_database(&admin_url, &name, "");
+        let oid = |name: &str| -> u32 {
+            super::admin(&admin_url)
+                .query_one("SELECT oid FROM pg_database WHERE datname = $1", &[&name])
+                .unwrap()
+                .get(0)
+        };
+        let before = oid(&name);
+        let refused = std::panic::catch_unwind(|| super::create_database(&admin_url, &name, ""));
+        let after = oid(&name);
+        super::admin(&admin_url)
+            .batch_execute(&format!("DROP DATABASE {name} WITH (FORCE)"))
+            .unwrap();
+        assert!(refused.is_err(), "a second CREATE DATABASE went through");
+        assert_eq!(before, after, "the database was replaced");
     }
 }
