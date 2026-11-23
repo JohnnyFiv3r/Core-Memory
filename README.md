@@ -39,7 +39,7 @@ Install the command. Each wheel carries the compiled engine for Linux or macOS, 
 
 ```bash
 uv tool install core-memory     # or: pipx install core-memory
-core-memory --version           # core-memory 2.0.1
+core-memory --version           # core-memory 2.1.0
 ```
 
 Start PostgreSQL 15 or newer:
