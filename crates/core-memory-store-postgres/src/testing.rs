@@ -4,8 +4,10 @@
 // A test helper that cannot set up its database should stop the test.
 #![allow(clippy::unwrap_used)]
 
+use std::hash::{BuildHasher, RandomState};
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use postgres::{Client, NoTls};
 
@@ -17,13 +19,24 @@ use crate::store::PostgresStore;
 /// databases on, as a URL ending in a database name.
 pub const TEST_DATABASE_URL: &str = "CORE_MEMORY_TEST_DATABASE_URL";
 
-/// The application name of every connection these helpers open as the
-/// database owner, so a test can tell its own sessions from the engine's
-/// whatever application name the test URL gives.
-pub const ADMIN_APPLICATION: &str = "cm_test_admin";
-
 static COUNTER: AtomicU64 = AtomicU64::new(0);
+static ADMIN_APPLICATION: OnceLock<String> = OnceLock::new();
 static TEMPLATE: OnceLock<String> = OnceLock::new();
+
+/// The application name of every connection these helpers open as the
+/// database owner in this process, so a test can tell its own sessions from
+/// the engine's whatever application name the test URL gives. It holds 16
+/// random hex digits, taken once per process from the operating system's
+/// random source, so no URL can already name it.
+pub fn admin_application() -> &'static str {
+    ADMIN_APPLICATION.get_or_init(|| {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |d| d.as_nanos());
+        let id = RandomState::new().hash_one((std::process::id(), nanos));
+        format!("cm_test_admin_{id:016x}")
+    })
+}
 
 /// A database that exists for one test.
 #[derive(Debug)]
@@ -65,7 +78,7 @@ fn admin(url: &str) -> Client {
     let mut config: postgres::Config = url
         .parse()
         .unwrap_or_else(|e| panic!("cannot read {TEST_DATABASE_URL}: {e}"));
-    config.application_name(ADMIN_APPLICATION);
+    config.application_name(admin_application());
     config
         .connect(NoTls)
         .unwrap_or_else(|e| panic!("cannot connect to {TEST_DATABASE_URL}: {e}"))
@@ -195,7 +208,16 @@ impl Drop for TestDb {
 
 #[cfg(test)]
 mod tests {
-    use super::with_database;
+    use super::{admin_application, with_database};
+
+    #[test]
+    fn the_helpers_session_name_is_random_and_the_same_all_run() {
+        let name = admin_application();
+        assert_eq!(name, admin_application());
+        let id = name.strip_prefix("cm_test_admin_").unwrap();
+        assert_eq!(id.len(), 16);
+        assert!(id.bytes().all(|b| b.is_ascii_hexdigit()));
+    }
 
     #[test]
     fn a_slash_or_an_escape_in_an_option_is_kept() {
