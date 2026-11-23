@@ -28,7 +28,7 @@ silicon), so no Rust toolchain is needed:
 
 ```bash
 uv tool install core-memory     # or: pipx install core-memory
-core-memory --version           # core-memory 2.0.1
+core-memory --version           # core-memory 2.1.0
 ```
 
 The engine needs PostgreSQL 15 or newer. The package holds only the command:
@@ -408,8 +408,9 @@ binding = "small"
 ```
 
 The list stops at `max_window_beads` or `max_window_bytes`, whichever is
-reached first, so the nearest in time are the first to be left out. The
-memories are chosen in that order, and the judge sees the chosen ones in time
+reached first. The memories of open disputes and those a source names are
+taken first, then the others nearest in time first, so the ones farthest in
+time are the first to be left out. The judge sees the chosen ones in time
 order. Raising `max_window_beads` adds text only if there are more memories to
 show and `max_window_bytes` leaves room.
 
