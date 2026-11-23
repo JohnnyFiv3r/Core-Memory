@@ -26,6 +26,12 @@ results_root() {
     echo "run.sh: cannot make $root private to you; set CORE_MEMORY_RESULTS to a folder you own, or give an output folder" >&2
     exit 2
   fi
+  # mv would move the new file into a directory of that name, and the chmod
+  # below would then lock it.
+  if [ -e "$root/README.md" ] && [ ! -f "$root/README.md" ]; then
+    echo "run.sh: $root/README.md is not a file; move it away, set CORE_MEMORY_RESULTS to another folder, or give an output folder" >&2
+    exit 2
+  fi
   # Kept as the repository has it, so a folder made by an older version gets
   # the current instructions.
   if ! cmp -s "$here_results/RESULTS.md" "$root/README.md"; then
