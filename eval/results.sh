@@ -29,7 +29,11 @@ results_root() {
   # Kept as the repository has it, so a folder made by an older version gets
   # the current instructions.
   if ! cmp -s "$here_results/RESULTS.md" "$root/README.md"; then
-    if ! (umask 077; rm -f -- "$root/README.md" && cp "$here_results/RESULTS.md" "$root/README.md"); then
+    # Written beside it and renamed over it, so a copy cut short leaves the
+    # previous complete README, and a read-only one is replaced all the same.
+    readme_new="$root/.README.md.$$"
+    if ! (umask 077; cp "$here_results/RESULTS.md" "$readme_new" && mv -f -- "$readme_new" "$root/README.md"); then
+      rm -f -- "$readme_new"
       echo "run.sh: cannot write $root/README.md; set CORE_MEMORY_RESULTS to a folder you own, or give an output folder" >&2
       exit 2
     fi
