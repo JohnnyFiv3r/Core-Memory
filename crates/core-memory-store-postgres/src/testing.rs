@@ -19,12 +19,8 @@ use crate::store::PostgresStore;
 /// databases on, as a URL ending in a database name.
 pub const TEST_DATABASE_URL: &str = "CORE_MEMORY_TEST_DATABASE_URL";
 
-/// The application name of every connection these helpers open as the
-/// database owner, so a test can tell its own sessions from the engine's
-/// whatever application name the test URL gives.
-pub const ADMIN_APPLICATION: &str = "cm_test_admin";
-
 static COUNTER: AtomicU64 = AtomicU64::new(0);
+static ADMIN_APPLICATION: OnceLock<String> = OnceLock::new();
 static TEMPLATE: OnceLock<String> = OnceLock::new();
 static RUN: OnceLock<String> = OnceLock::new();
 
@@ -59,6 +55,15 @@ fn name_for(prefix: &str, run: &str, n: u64) -> String {
 /// as `cm_test` or `cm_t_reader_engine`, so the name needs no quoting.
 pub fn unique_name(prefix: &str) -> String {
     name_for(prefix, run_id(), COUNTER.fetch_add(1, Ordering::SeqCst))
+}
+
+/// The application name of every connection these helpers open as the
+/// database owner in this process, so a test can tell its own sessions from
+/// the engine's whatever application name the test URL gives. It holds 16
+/// random hex digits, taken once per process from the operating system's
+/// random source, so no URL can already name it.
+pub fn admin_application() -> &'static str {
+    ADMIN_APPLICATION.get_or_init(|| format!("cm_test_admin_{}", run_id()))
 }
 
 /// A database that exists for one test.
@@ -101,7 +106,7 @@ fn admin(url: &str) -> Client {
     let mut config: postgres::Config = url
         .parse()
         .unwrap_or_else(|e| panic!("cannot read {TEST_DATABASE_URL}: {e}"));
-    config.application_name(ADMIN_APPLICATION);
+    config.application_name(admin_application());
     config
         .connect(NoTls)
         .unwrap_or_else(|e| panic!("cannot connect to {TEST_DATABASE_URL}: {e}"))
@@ -219,7 +224,16 @@ impl Drop for TestDb {
 
 #[cfg(test)]
 mod tests {
-    use super::{MAX_IDENTIFIER, name_for, unique_name, with_database};
+    use super::{MAX_IDENTIFIER, admin_application, name_for, unique_name, with_database};
+
+    #[test]
+    fn the_helpers_session_name_is_random_and_the_same_all_run() {
+        let name = admin_application();
+        assert_eq!(name, admin_application());
+        let id = name.strip_prefix("cm_test_admin_").unwrap();
+        assert_eq!(id.len(), 16);
+        assert!(id.bytes().all(|b| b.is_ascii_hexdigit()));
+    }
 
     #[test]
     fn a_slash_or_an_escape_in_an_option_is_kept() {

@@ -11,7 +11,7 @@ use core_memory_contract::Sha256Digest;
 use core_memory_sidecar::config::Loaded;
 use core_memory_sidecar::server::{ServeLimits, prepare, serve};
 use core_memory_store_postgres::SCHEMA_VERSION;
-use core_memory_store_postgres::testing::{ADMIN_APPLICATION, TestDb};
+use core_memory_store_postgres::testing::{TestDb, admin_application};
 use http_body_util::BodyExt;
 use serde_json::{Value, json};
 use tower::ServiceExt;
@@ -141,7 +141,8 @@ impl Server {
     fn engine_sessions() -> String {
         format!(
             "FROM pg_stat_activity WHERE datname = current_database() \
-             AND backend_type = 'client backend' AND application_name <> '{ADMIN_APPLICATION}'"
+             AND backend_type = 'client backend' AND application_name <> '{}'",
+            admin_application()
         )
     }
 
