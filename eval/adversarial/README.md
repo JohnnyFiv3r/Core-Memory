@@ -6,6 +6,12 @@ engine with live models, as the [LoCoMo smoke test](../locomo-smoke/) does
 and with its config, and `score.py` checks what was stored against the
 answers.
 
+Every case message must fit in one chunk (4096 bytes under the runner's
+profile). `score.py` refuses an export in which one does not, naming the case
+and message, because it scores a pair on each message's first chunk.
+`score.py --reader-only` is not refused: the reader section reads every chunk
+of a message.
+
 The smoke test shows the engine working on a tidy, friendly conversation
 written by a language model. These cases go where that conversation does
 not: the types it never needs (`decision`, `instruction`, `constraint`,
