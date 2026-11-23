@@ -21,6 +21,7 @@ use core_memory_core::store::{
     WindowOf, Withheld,
 };
 use core_memory_core::{Clock, JudgeReport, JudgeRound};
+use core_memory_store_postgres::testing::unique_name;
 use core_memory_store_postgres::{ConnectConfig, PostgresStore, QueuedReads};
 use serde_json::{Value, json};
 
@@ -2611,17 +2612,18 @@ fn beads_stored_before_there_was_a_judge_are_queued_when_asked() {
 #[test]
 fn the_engine_role_judges_and_cannot_rewrite_what_was_judged() {
     let w = judging("second_read = true");
+    let role = unique_name("cm_t_judge_engine");
     let mut admin = w.db.connect();
     admin
-        .batch_execute(
-            "DROP ROLE IF EXISTS cm_t_judge_engine;
-             CREATE ROLE cm_t_judge_engine LOGIN PASSWORD 'synthetic';
-             GRANT core_memory_engine TO cm_t_judge_engine;",
-        )
+        .batch_execute(&format!(
+            "DROP ROLE IF EXISTS {role};
+             CREATE ROLE {role} LOGIN PASSWORD 'synthetic';
+             GRANT core_memory_engine TO {role};"
+        ))
         .unwrap();
     let (scheme, rest) = w.db.url.split_once("://").unwrap();
     let (_, host) = rest.split_once('@').unwrap();
-    let url = format!("{scheme}://cm_t_judge_engine:synthetic@{host}");
+    let url = format!("{scheme}://{role}:synthetic@{host}");
     // Whole rounds with the engine's privileges and nothing more: beads
     // are admitted and judged, a replacement is held, read again and
     // written, and a group and a name link are made.
@@ -2778,7 +2780,7 @@ fn the_engine_role_judges_and_cannot_rewrite_what_was_judged() {
     drop(raw);
     drop(store);
     admin
-        .batch_execute("DROP OWNED BY cm_t_judge_engine; DROP ROLE cm_t_judge_engine")
+        .batch_execute(&format!("DROP OWNED BY {role}; DROP ROLE {role}"))
         .unwrap();
 }
 
@@ -3044,20 +3046,21 @@ fn a_verdict_and_a_name_link_carry_the_scopes_of_their_beads() {
 
     // So a host can let a role that reads one scope read what was judged
     // inside it, with a policy that looks at the row and nothing else.
+    let role = unique_name("cm_t_verdict_reader");
     let mut admin = w.db.connect();
     admin
-        .batch_execute(
-            "DROP ROLE IF EXISTS cm_t_verdict_reader;
-             CREATE ROLE cm_t_verdict_reader;
-             GRANT USAGE ON SCHEMA core_memory TO cm_t_verdict_reader;
+        .batch_execute(&format!(
+            "DROP ROLE IF EXISTS {role};
+             CREATE ROLE {role};
+             GRANT USAGE ON SCHEMA core_memory TO {role};
              GRANT SELECT ON core_memory.verdicts, core_memory.name_links
-                TO cm_t_verdict_reader;
-             CREATE POLICY host_reads ON core_memory.verdicts FOR SELECT TO cm_t_verdict_reader
+                TO {role};
+             CREATE POLICY host_reads ON core_memory.verdicts FOR SELECT TO {role}
                  USING (earlier_scope = 'acme' AND later_scope = 'acme');
              CREATE POLICY host_reads ON core_memory.name_links FOR SELECT
-                 TO cm_t_verdict_reader USING (a_scope = 'acme' AND b_scope = 'acme');
-             SET ROLE cm_t_verdict_reader;",
-        )
+                 TO {role} USING (a_scope = 'acme' AND b_scope = 'acme');
+             SET ROLE {role};"
+        ))
         .unwrap();
     let seen: i64 = admin
         .query_one("SELECT count(*) FROM core_memory.verdicts", &[])
@@ -3108,12 +3111,12 @@ fn a_verdict_and_a_name_link_carry_the_scopes_of_their_beads() {
     let message = refused.as_db_error().unwrap().message().to_string();
     assert!(message.contains("earlier_scope"), "{message}");
     admin
-        .batch_execute(
+        .batch_execute(&format!(
             "DROP POLICY host_reads ON core_memory.verdicts;
              DROP POLICY host_reads ON core_memory.name_links;
-             DROP OWNED BY cm_t_verdict_reader;
-             DROP ROLE cm_t_verdict_reader;",
-        )
+             DROP OWNED BY {role};
+             DROP ROLE {role};"
+        ))
         .unwrap();
 }
 

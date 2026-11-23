@@ -18,6 +18,7 @@ use core_memory_core::store::{
     CallFinish, CallResult, Change, Permit, PermitRequest, Purpose, ReadWrite, Sending, Store,
 };
 use core_memory_core::{Clock, ReadReport, ReadRound};
+use core_memory_store_postgres::testing::unique_name;
 use core_memory_store_postgres::{ConnectConfig, PostgresStore, QueuedReads, Reread};
 use serde_json::{Value, json};
 
@@ -1396,17 +1397,18 @@ fn an_abstention_is_stored_as_a_judgment_not_retried() {
 fn the_engine_role_reads_but_cannot_grant_itself_consent_or_rewrite_receipts() {
     let mut w = reading("");
     w.accept(&chat("1", "read with least privilege"));
+    let role = unique_name("cm_t_reader_engine");
     let mut admin = w.db.connect();
     admin
-        .batch_execute(
-            "DROP ROLE IF EXISTS cm_t_reader_engine;
-             CREATE ROLE cm_t_reader_engine LOGIN PASSWORD 'synthetic';
-             GRANT core_memory_engine TO cm_t_reader_engine;",
-        )
+        .batch_execute(&format!(
+            "DROP ROLE IF EXISTS {role};
+             CREATE ROLE {role} LOGIN PASSWORD 'synthetic';
+             GRANT core_memory_engine TO {role};"
+        ))
         .unwrap();
     let (scheme, rest) = w.db.url.split_once("://").unwrap();
     let (_, host) = rest.split_once('@').unwrap();
-    let url = format!("{scheme}://cm_t_reader_engine:synthetic@{host}");
+    let url = format!("{scheme}://{role}:synthetic@{host}");
     let mut store = PostgresStore::new(&ConnectConfig::new(url.clone())).unwrap();
     let round = w
         .engine
@@ -1454,6 +1456,6 @@ fn the_engine_role_reads_but_cannot_grant_itself_consent_or_rewrite_receipts() {
     drop(raw);
     drop(store);
     admin
-        .batch_execute("DROP OWNED BY cm_t_reader_engine; DROP ROLE cm_t_reader_engine")
+        .batch_execute(&format!("DROP OWNED BY {role}; DROP ROLE {role}"))
         .unwrap();
 }
