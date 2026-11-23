@@ -10,8 +10,10 @@ python3 eval/compare/compare.py opus-1=out/opus-1 opus-2=out/opus-2 \
     sonnet-1=out/sonnet-1 sonnet-2=out/sonnet-2
 ```
 
-Runs kept by the runners, and how to pick the last two that kept an export (a
-run refused at the start has none), are in [../RESULTS.md](../RESULTS.md).
+The factory keeps runs in `/factory/work/core-memory-results/runs/` by default.
+[../RESULTS.md](../RESULTS.md) says how to pick the last two that kept an export
+(a run refused at the start has none), and where runs are kept when
+`CORE_MEMORY_RESULTS` is set or `/factory/work` is not writable.
 
 Runs line up by message, so they may come from different databases. An
 export of the hard cases run with `REPEATS` is one run per scope.
