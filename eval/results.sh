@@ -167,7 +167,17 @@ results_publish() {
     fi
     final="$run_base-$n"
   done
-  cp -pR -- "$out/." "$final/"
+  # The config is not needed past here, so whatever a failed copy leaves behind
+  # holds none.
+  rm -rf -- "$confdir"
+  if ! cp -pR -- "$out/." "$final/"; then
+    # Not a second copy under another name, which would leave this folder empty
+    # beside it: remove the partial one and keep the staged run for a retry.
+    rm -rf -- "$final"
+    echo "run.sh: the run could not be copied to $root/runs; it was checked and is still in $out" >&2
+    publish_failed=1
+    exit 2
+  fi
   rm -rf -- "$stage"
   stage=""
   out=$final
@@ -179,6 +189,8 @@ results_publish() {
 # has been published or deleted.
 results_finish() {
   [ -n "${stage:-}" ] || return 0
+  # A copy that failed once is not tried again under another name.
+  [ -z "${publish_failed:-}" ] || return 0
   rm -rf -- "$confdir"
   results_publish
 }

@@ -31,13 +31,13 @@ From the repository root, so that `eval/compare/compare.py` is found:
 
 ```bash
 runs=${CORE_MEMORY_RESULTS:-/factory/work/core-memory-results}/runs
-ls -d "$runs"/*-adversarial* | tail -2
+for d in "$runs"/*-adversarial*; do [ -s "$d/export.jsonl" ] && echo "$d"; done | tail -2
 python3 eval/compare/compare.py before=<older run> after=<newer run>
 ```
 
-Give the paths `ls` printed.
-
-A first run has nothing to compare: run it twice.
+The loop lists only runs that kept an export, so a run refused at the start is
+skipped. Give the two paths it printed. With fewer than two, there is nothing
+to compare yet: run it again.
 
 ## What may be stored
 
