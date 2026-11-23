@@ -11,7 +11,7 @@ use core_memory_contract::Sha256Digest;
 use core_memory_sidecar::config::Loaded;
 use core_memory_sidecar::server::{ServeLimits, prepare, serve};
 use core_memory_store_postgres::SCHEMA_VERSION;
-use core_memory_store_postgres::testing::TestDb;
+use core_memory_store_postgres::testing::{ADMIN_APPLICATION, TestDb};
 use http_body_util::BodyExt;
 use serde_json::{Value, json};
 use tower::ServiceExt;
@@ -133,6 +133,16 @@ impl Server {
             .connect()
             .batch_execute(sql)
             .unwrap();
+    }
+
+    /// The engine's sessions on this test's database: every client session
+    /// there that the test helpers did not open. Each test has a database of
+    /// its own, so no other run's sessions can match.
+    fn engine_sessions() -> String {
+        format!(
+            "FROM pg_stat_activity WHERE datname = current_database() \
+             AND backend_type = 'client backend' AND application_name <> '{ADMIN_APPLICATION}'"
+        )
     }
 
     fn count(&self, sql: &str) -> i64 {
@@ -594,10 +604,7 @@ fn many_requests_share_a_small_pool() {
         24
     );
     assert!(
-        s.count(
-            "SELECT count(*) FROM pg_stat_activity
-              WHERE datname = current_database() AND application_name = 'core-memory'"
-        ) <= 2,
+        s.count(&format!("SELECT count(*) {}", Server::engine_sessions())) <= 2,
         "the pool holds at most two connections"
     );
 }
@@ -927,13 +934,13 @@ fn a_database_that_takes_no_writes_makes_the_server_busy_and_not_ready() {
     assert_eq!(s.post(WRITER, event("1", "stored")).status, StatusCode::OK);
     // As after a failover that left this database a standby. Connections
     // opened from now on are read-only; the pool's are closed.
-    s.sql(
+    s.sql(&format!(
         "DO $$ BEGIN EXECUTE format(
              'ALTER DATABASE %I SET default_transaction_read_only = on', current_database());
          END $$;
-         SELECT pg_terminate_backend(pid) FROM pg_stat_activity
-          WHERE datname = current_database() AND application_name = 'core-memory';",
-    );
+         SELECT pg_terminate_backend(pid) {};",
+        Server::engine_sessions()
+    ));
     let ready = s.get("/v1/ready", None);
     assert_eq!(ready.status, StatusCode::SERVICE_UNAVAILABLE);
     assert_eq!(ready.body["problem"], "store_unavailable");
