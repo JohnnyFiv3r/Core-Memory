@@ -759,10 +759,7 @@ fn a_login_the_store_refuses_is_a_failure_and_not_a_reason_to_wait() {
     let q = Quickstart::ready();
     serve_on(&q, "127.0.0.1:0", "");
     let wrong_password = url_with_password(&q.db.url, "not-the-password");
-    let no_such_database = {
-        let (server, _) = q.db.url.rsplit_once('/').unwrap();
-        format!("{server}/cm_t_no_such_database")
-    };
+    let no_such_database = q.db.url_for("cm_t_no_such_database");
     for (url, says) in [
         (&wrong_password, "password authentication failed"),
         (&no_such_database, "does not exist"),
