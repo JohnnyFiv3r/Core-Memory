@@ -20,6 +20,7 @@ use crate::store::PostgresStore;
 pub const TEST_DATABASE_URL: &str = "CORE_MEMORY_TEST_DATABASE_URL";
 
 static COUNTER: AtomicU64 = AtomicU64::new(0);
+static ADMIN_APPLICATION: OnceLock<String> = OnceLock::new();
 static TEMPLATE: OnceLock<String> = OnceLock::new();
 static RUN: OnceLock<String> = OnceLock::new();
 
@@ -54,6 +55,15 @@ fn name_for(prefix: &str, run: &str, n: u64) -> String {
 /// as `cm_test` or `cm_t_reader_engine`, so the name needs no quoting.
 pub fn unique_name(prefix: &str) -> String {
     name_for(prefix, run_id(), COUNTER.fetch_add(1, Ordering::SeqCst))
+}
+
+/// The application name of every connection these helpers open as the
+/// database owner in this process, so a test can tell its own sessions from
+/// the engine's whatever application name the test URL gives. It holds 16
+/// random hex digits, taken once per process from the operating system's
+/// random source, so no URL can already name it.
+pub fn admin_application() -> &'static str {
+    ADMIN_APPLICATION.get_or_init(|| format!("cm_test_admin_{}", run_id()))
 }
 
 /// A database that exists for one test.
@@ -93,7 +103,12 @@ fn with_database(url: &str, name: &str) -> String {
 }
 
 fn admin(url: &str) -> Client {
-    Client::connect(url, NoTls)
+    let mut config: postgres::Config = url
+        .parse()
+        .unwrap_or_else(|e| panic!("cannot read {TEST_DATABASE_URL}: {e}"));
+    config.application_name(admin_application());
+    config
+        .connect(NoTls)
         .unwrap_or_else(|e| panic!("cannot connect to {TEST_DATABASE_URL}: {e}"))
 }
 
@@ -188,6 +203,12 @@ impl TestDb {
     pub fn connect(&self) -> Client {
         admin(&self.url)
     }
+
+    /// This database's URL with `database` in place of its name, every query
+    /// option kept as it was.
+    pub fn url_for(&self, database: &str) -> String {
+        with_database(&self.url, database)
+    }
 }
 
 impl Drop for TestDb {
@@ -203,7 +224,34 @@ impl Drop for TestDb {
 
 #[cfg(test)]
 mod tests {
-    use super::{MAX_IDENTIFIER, name_for, unique_name, with_database};
+    use super::{MAX_IDENTIFIER, admin_application, name_for, unique_name, with_database};
+
+    #[test]
+    fn the_helpers_session_name_is_random_and_the_same_all_run() {
+        let name = admin_application();
+        assert_eq!(name, admin_application());
+        let id = name.strip_prefix("cm_test_admin_").unwrap();
+        assert_eq!(id.len(), 16);
+        assert!(id.bytes().all(|b| b.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn a_slash_or_an_escape_in_an_option_is_kept() {
+        assert_eq!(
+            with_database(
+                "postgresql://u:p@h:5432/postgres?sslmode=disable&application_name=qa/path",
+                "t1"
+            ),
+            "postgresql://u:p@h:5432/t1?sslmode=disable&application_name=qa/path"
+        );
+        assert_eq!(
+            with_database(
+                "postgresql://u:p@h:5432/postgres?application_name=qa114%2Fpath%20x",
+                "t1"
+            ),
+            "postgresql://u:p@h:5432/t1?application_name=qa114%2Fpath%20x"
+        );
+    }
 
     #[test]
     fn the_database_name_is_replaced_and_the_rest_kept() {
