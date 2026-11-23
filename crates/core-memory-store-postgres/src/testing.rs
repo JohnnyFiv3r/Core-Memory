@@ -19,6 +19,11 @@ use crate::store::PostgresStore;
 /// databases on, as a URL ending in a database name.
 pub const TEST_DATABASE_URL: &str = "CORE_MEMORY_TEST_DATABASE_URL";
 
+/// The application name of every connection these helpers open as the
+/// database owner, so a test can tell its own sessions from the engine's
+/// whatever application name the test URL gives.
+pub const ADMIN_APPLICATION: &str = "cm_test_admin";
+
 static COUNTER: AtomicU64 = AtomicU64::new(0);
 static TEMPLATE: OnceLock<String> = OnceLock::new();
 static RUN: OnceLock<String> = OnceLock::new();
@@ -93,7 +98,12 @@ fn with_database(url: &str, name: &str) -> String {
 }
 
 fn admin(url: &str) -> Client {
-    Client::connect(url, NoTls)
+    let mut config: postgres::Config = url
+        .parse()
+        .unwrap_or_else(|e| panic!("cannot read {TEST_DATABASE_URL}: {e}"));
+    config.application_name(ADMIN_APPLICATION);
+    config
+        .connect(NoTls)
         .unwrap_or_else(|e| panic!("cannot connect to {TEST_DATABASE_URL}: {e}"))
 }
 
@@ -188,6 +198,12 @@ impl TestDb {
     pub fn connect(&self) -> Client {
         admin(&self.url)
     }
+
+    /// This database's URL with `database` in place of its name, every query
+    /// option kept as it was.
+    pub fn url_for(&self, database: &str) -> String {
+        with_database(&self.url, database)
+    }
 }
 
 impl Drop for TestDb {
@@ -204,6 +220,24 @@ impl Drop for TestDb {
 #[cfg(test)]
 mod tests {
     use super::{MAX_IDENTIFIER, name_for, unique_name, with_database};
+
+    #[test]
+    fn a_slash_or_an_escape_in_an_option_is_kept() {
+        assert_eq!(
+            with_database(
+                "postgresql://u:p@h:5432/postgres?sslmode=disable&application_name=qa/path",
+                "t1"
+            ),
+            "postgresql://u:p@h:5432/t1?sslmode=disable&application_name=qa/path"
+        );
+        assert_eq!(
+            with_database(
+                "postgresql://u:p@h:5432/postgres?application_name=qa114%2Fpath%20x",
+                "t1"
+            ),
+            "postgresql://u:p@h:5432/t1?application_name=qa114%2Fpath%20x"
+        );
+    }
 
     #[test]
     fn the_database_name_is_replaced_and_the_rest_kept() {
