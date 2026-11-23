@@ -77,19 +77,27 @@ while :; do
   fi
   cat "$out/last-rounds.jsonl" >>"$out/rounds.jsonl"
   cat "$out/last-run.log" >>"$out/runs.log"
-  read -r calls owed rejected < <(python3 -I "$smoke/report.py" --left \
+  read -r calls owed rejected failed < <(python3 -I "$smoke/report.py" --left \
     "$out/last-run.log" "$out/last-rounds.jsonl")
-  if [ "$owed" -eq 0 ]; then
-    why="everything was read and judged"
+  # An empty queue can hold work set aside as failed, and a run's last
+  # attempt empties it too, so a fault is named before the queue is judged.
+  if [ "$rejected" -eq 2 ]; then
+    why="the model server's TLS certificate was not trusted, so nothing was sent: \
+set MODELS_CA_FILE to the certificate authority of the proxy or gateway that re-signs it"
     break
   fi
   if [ "$rejected" -eq 1 ]; then
     why="the API turned the key or a model down; see runs.log"
     break
   fi
-  if [ "$rejected" -eq 2 ]; then
-    why="the model server's TLS certificate was not trusted, so nothing was sent: \
-set MODELS_CA_FILE to the certificate authority of the proxy or gateway that re-signs it"
+  if [ "$owed" -eq 0 ]; then
+    if [ "$failed" -eq 0 ]; then
+      why="everything was read and judged"
+    elif [ "$failed" -eq 1 ]; then
+      why="the queue is empty, but 1 item was set aside as failed; see report.md"
+    else
+      why="the queue is empty, but $failed items were set aside as failed; see report.md"
+    fi
     break
   fi
   if [ "$calls" -eq 0 ]; then

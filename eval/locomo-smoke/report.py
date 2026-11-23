@@ -2,7 +2,7 @@
 samples of what the judge said, to be read by a person. run.sh runs it.
 
     report.py <output-folder> <why the run stopped>
-    report.py --left <log> <rounds>   of one `read run`; prints: calls owed rejected
+    report.py --left <log> <rounds>   of one `read run`; prints: calls owed rejected failed
 """
 
 import collections
@@ -46,12 +46,14 @@ def left(log, rounds):
     """Calls one `read run` made, the work it left ready or leased, and why
     no call can succeed until someone acts: 1 if the API turned a binding
     down, 2 if the model server's certificate was not trusted, 0 otherwise.
-    A run that ended without its totals owes work still."""
-    calls, owed = 0, 1
+    A run that ended without its totals owes work still. It also prints the
+    work set aside as failed, over every lane: 0 when there were no totals."""
+    calls, owed, failed = 0, 1, 0
     for line in lines(log):
         if "queued" in line and "read" in line:
             calls = line["read"]["calls"]
             owed = sum(w["ready"] + w["leased"] for w in line["queued"].values())
+            failed = sum(w.get("failed", 0) for w in line["queued"].values())
     problems = {
         (round_.get("read") or round_.get("judged") or {}).get("problem")
         for round_ in lines(rounds)
@@ -62,7 +64,7 @@ def left(log, rounds):
         rejected = 1
     else:
         rejected = 0
-    print(calls, owed, rejected)
+    print(calls, owed, rejected, failed)
 
 
 def report(out, why):
