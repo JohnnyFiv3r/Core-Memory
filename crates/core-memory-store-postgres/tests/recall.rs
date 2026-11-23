@@ -597,8 +597,7 @@ fn the_engine_role_recalls_and_the_search_uses_the_index() {
     let mut admin = w.db.connect();
     admin
         .batch_execute(&format!(
-            "DROP ROLE IF EXISTS {role};
-             CREATE ROLE {role} LOGIN PASSWORD 'synthetic';
+            "CREATE ROLE {role} LOGIN PASSWORD 'synthetic';
              GRANT core_memory_engine TO {role};"
         ))
         .unwrap();
@@ -787,8 +786,7 @@ fn a_reader_of_the_views_sees_only_what_its_own_policies_let_it() {
     let mut admin = w.db.connect();
     admin
         .batch_execute(&format!(
-            "DROP ROLE IF EXISTS {role};
-             CREATE ROLE {role} NOLOGIN;
+            "CREATE ROLE {role} NOLOGIN;
              GRANT USAGE ON SCHEMA core_memory TO {role};
              GRANT SELECT ON core_memory.bead_state, core_memory.bead_text,
                              core_memory.beads, core_memory.edges, core_memory.chunk_reads,

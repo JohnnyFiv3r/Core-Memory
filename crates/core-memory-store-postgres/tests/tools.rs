@@ -1233,8 +1233,7 @@ fn the_engine_role_reads_tool_calls_and_cannot_rewrite_what_was_read() {
     let mut admin = w.db.connect();
     admin
         .batch_execute(&format!(
-            "DROP ROLE IF EXISTS {role};
-             CREATE ROLE {role} LOGIN PASSWORD 'synthetic';
+            "CREATE ROLE {role} LOGIN PASSWORD 'synthetic';
              GRANT core_memory_engine TO {role};"
         ))
         .unwrap();

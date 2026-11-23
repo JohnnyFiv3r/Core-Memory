@@ -1401,8 +1401,7 @@ fn the_engine_role_reads_but_cannot_grant_itself_consent_or_rewrite_receipts() {
     let mut admin = w.db.connect();
     admin
         .batch_execute(&format!(
-            "DROP ROLE IF EXISTS {role};
-             CREATE ROLE {role} LOGIN PASSWORD 'synthetic';
+            "CREATE ROLE {role} LOGIN PASSWORD 'synthetic';
              GRANT core_memory_engine TO {role};"
         ))
         .unwrap();

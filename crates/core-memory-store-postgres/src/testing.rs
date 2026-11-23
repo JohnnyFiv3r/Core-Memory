@@ -140,6 +140,14 @@ fn template(admin_url: &str) -> &'static str {
     })
 }
 
+/// Creates `name`, and panics if it exists. A database that is already there
+/// is another run's, so it is never dropped to make room.
+fn create_database(admin_url: &str, name: &str, options: &str) {
+    admin(admin_url)
+        .batch_execute(&format!("CREATE DATABASE {name} {options}"))
+        .unwrap();
+}
+
 impl TestDb {
     /// A migrated, empty database. Panics with instructions if
     /// [`TEST_DATABASE_URL`] is not set.
@@ -147,13 +155,7 @@ impl TestDb {
         let admin_url = admin_url();
         let template = template(&admin_url);
         let name = unique_name("cm_test");
-        let mut client = admin(&admin_url);
-        client
-            .batch_execute(&format!("DROP DATABASE IF EXISTS {name} WITH (FORCE)"))
-            .unwrap();
-        client
-            .batch_execute(&format!("CREATE DATABASE {name} TEMPLATE {template}"))
-            .unwrap();
+        create_database(&admin_url, &name, &format!("TEMPLATE {template}"));
         Self {
             url: with_database(&admin_url, &name),
             admin_url,
@@ -165,13 +167,7 @@ impl TestDb {
     pub fn create_empty() -> Self {
         let admin_url = admin_url();
         let name = unique_name("cm_test");
-        let mut client = admin(&admin_url);
-        client
-            .batch_execute(&format!("DROP DATABASE IF EXISTS {name} WITH (FORCE)"))
-            .unwrap();
-        client
-            .batch_execute(&format!("CREATE DATABASE {name}"))
-            .unwrap();
+        create_database(&admin_url, &name, "");
         Self {
             url: with_database(&admin_url, &name),
             admin_url,
@@ -258,5 +254,27 @@ mod tests {
     fn a_name_over_the_limit_is_refused() {
         let prefix = "p".repeat(MAX_IDENTIFIER - 16 - 2);
         name_for(&prefix, &"0".repeat(16), 7);
+    }
+
+    #[cfg(feature = "postgres-tests")]
+    #[test]
+    fn a_database_already_at_a_name_is_left_alone() {
+        let admin_url = super::admin_url();
+        let name = unique_name("cm_test");
+        super::create_database(&admin_url, &name, "");
+        let oid = |name: &str| -> u32 {
+            super::admin(&admin_url)
+                .query_one("SELECT oid FROM pg_database WHERE datname = $1", &[&name])
+                .unwrap()
+                .get(0)
+        };
+        let before = oid(&name);
+        let refused = std::panic::catch_unwind(|| super::create_database(&admin_url, &name, ""));
+        let after = oid(&name);
+        super::admin(&admin_url)
+            .batch_execute(&format!("DROP DATABASE {name} WITH (FORCE)"))
+            .unwrap();
+        assert!(refused.is_err(), "a second CREATE DATABASE went through");
+        assert_eq!(before, after, "the database was replaced");
     }
 }

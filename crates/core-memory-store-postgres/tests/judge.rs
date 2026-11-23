@@ -2616,8 +2616,7 @@ fn the_engine_role_judges_and_cannot_rewrite_what_was_judged() {
     let mut admin = w.db.connect();
     admin
         .batch_execute(&format!(
-            "DROP ROLE IF EXISTS {role};
-             CREATE ROLE {role} LOGIN PASSWORD 'synthetic';
+            "CREATE ROLE {role} LOGIN PASSWORD 'synthetic';
              GRANT core_memory_engine TO {role};"
         ))
         .unwrap();
@@ -3050,8 +3049,7 @@ fn a_verdict_and_a_name_link_carry_the_scopes_of_their_beads() {
     let mut admin = w.db.connect();
     admin
         .batch_execute(&format!(
-            "DROP ROLE IF EXISTS {role};
-             CREATE ROLE {role};
+            "CREATE ROLE {role};
              GRANT USAGE ON SCHEMA core_memory TO {role};
              GRANT SELECT ON core_memory.verdicts, core_memory.name_links
                 TO {role};
