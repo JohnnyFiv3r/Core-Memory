@@ -32,12 +32,13 @@ if [ -n "${1:-}" ]; then
   out=$1
   mkdir -p "$out"
   out=$(cd "$out" && pwd)
+  stage=
   confdir=
 else
   results_refuse_unsafe_settings
   results_root
   results_new_run locomo-smoke public
-  trap 'results_finish "$out"' EXIT
+  trap results_finish EXIT
 fi
 
 data="$out/locomo10.json"
@@ -86,7 +87,7 @@ quiet=0
 why=""
 while :; do
   if ! cm read run >"$out/last-rounds.jsonl" 2>"$out/last-run.log"; then
-    echo "run.sh: read run failed; see $out/last-run.log" >&2
+    echo "run.sh: read run failed; see last-run.log in the run's results" >&2
   fi
   cat "$out/last-rounds.jsonl" >>"$out/rounds.jsonl"
   cat "$out/last-run.log" >>"$out/runs.log"
@@ -139,4 +140,9 @@ cm read status >"$out/status.jsonl"
 # any other scope that shares the workspace.
 cm export --scope locomo >"$out/export.jsonl"
 python3 -I "$here/report.py" "$out" "$why" >"$out/report.md"
+# A default run is checked and kept before any of its files is printed.
+if [ -n "$stage" ]; then
+  rm -rf -- "$confdir"
+  results_publish
+fi
 cat "$out/report.md"

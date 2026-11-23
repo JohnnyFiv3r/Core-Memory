@@ -38,12 +38,13 @@ if [ -n "${1:-}" ]; then
   out=$1
   mkdir -p "$out"
   out=$(cd "$out" && pwd)
+  stage=
   confdir=
 else
   results_refuse_unsafe_settings
   results_root
   results_new_run adversarial synthetic
-  trap 'results_finish "$out"' EXIT
+  trap results_finish EXIT
 fi
 
 config="${confdir:-$out}/core-memory.toml"
@@ -91,7 +92,7 @@ quiet=0
 why=""
 while :; do
   if ! cm read run >"$out/last-rounds.jsonl" 2>"$out/last-run.log"; then
-    echo "run.sh: read run failed; see $out/last-run.log" >&2
+    echo "run.sh: read run failed; see last-run.log in the run's results" >&2
   fi
   cat "$out/last-rounds.jsonl" >>"$out/rounds.jsonl"
   cat "$out/last-run.log" >>"$out/runs.log"
@@ -150,6 +151,11 @@ fi
 # A refusal (stderr) goes into score.md too, and set -e must not skip report.md.
 status=0
 python3 -I "$here/score.py" ${only[@]+"${only[@]}"} "$here/cases.toml" "$out/export.jsonl" >"$out/score.md" 2>&1 || status=$?
+# A default run is checked and kept before any of its files is printed.
+if [ -n "$stage" ]; then
+  rm -rf -- "$confdir"
+  results_publish
+fi
 cat "$out/score.md"
 echo
 cat "$out/report.md"

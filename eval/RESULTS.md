@@ -22,7 +22,8 @@ findings/<date>-<slug>.md    one graded finding per file
 A run that stopped early keeps what it wrote. If it got as far as reporting,
 `report.md` says why it stopped; a run refused at the start (a used database,
 say) has no `report.md`, and says why on stderr. To delete a run, `rm -r` its
-folder.
+folder. A run appears here only when it ends; a folder still being copied may
+be incomplete for a moment.
 
 ## Compare two runs
 
@@ -54,7 +55,9 @@ scope, before any model call, and exports only its own scope (`adversarial-N`,
 `locomo`). A setting that would carry a credential, or a URL in
 `MODELS_CA_FILE`, is refused (exit 2) before any folder is made. A run's
 `core-memory.toml` is not kept: `meta.txt` names the commit and settings that
-rebuild it. When a run ends, its folder is checked. If a credential's value
-appears anywhere in it, or a URL appears anywhere but the corpus text, the
-folder is deleted and the run exits 3. Copying a file out of this folder (into
-an attachment, a message or a pull request) is publishing it: check it first.
+rebuild it. A run is written to a private temporary folder and checked when
+it ends. It is kept here, and its reports printed, only if no credential's
+value appears anywhere in it and no URL appears outside the corpus text.
+Otherwise it is deleted before anything is kept or printed, and the run exits
+3. Copying a file out of this folder (into an attachment, a message or a pull
+request) is publishing it: check it first.

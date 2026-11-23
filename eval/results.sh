@@ -56,31 +56,28 @@ results_refuse_unsafe_settings() {
   fi
 }
 
-# results_new_run <eval> <corpus>: makes a run folder under root, sets out.
+# results_new_run <eval> <corpus>: makes a private staging folder and sets out
+# (the run's files), confdir (its config), stage (both) and run_base (where
+# results_publish keeps a clean run). Nothing reaches root until then.
 results_new_run() {
-  local stamp base n=1 settings name
+  local stamp settings name
   # Only here, not in results_root: this process is the runner, so the umask
   # reaches every file the run writes, and a run given its own folder keeps
   # the umask it always had.
   umask 077
   stamp=$(date -u +%Y%m%dT%H%M%SZ)
-  base="$root/runs/$stamp-$1"
-  out=$base
-  # mkdir without -p is atomic, so two runs in one second cannot share a folder.
-  until (umask 077; mkdir "$out" 2>/dev/null); do
-    n=$((n + 1))
-    if [ "$n" -gt 9 ]; then
-      echo "run.sh: cannot make a run folder under $root/runs" >&2
-      exit 2
-    fi
-    out="$base-$n"
-  done
-  # The config holds the endpoint and every setting as typed: it is used during
-  # the run and never kept (meta.txt names what rebuilds it).
-  if ! confdir=$(umask 077; mktemp -d "${TMPDIR:-/tmp}/core-memory-run.XXXXXX"); then
-    echo "run.sh: cannot make a private folder for the run's config" >&2
+  run_base="$root/runs/$stamp-$1"
+  # A run is written here and kept only once it has been checked, so a value
+  # that should not be kept never reaches the shared folder or the terminal.
+  if ! stage=$(umask 077; mktemp -d "${TMPDIR:-/tmp}/core-memory-run.XXXXXX"); then
+    echo "run.sh: cannot make a private folder for the run" >&2
     exit 2
   fi
+  out="$stage/run"
+  # The config holds the endpoint and every setting as typed: it is used during
+  # the run and never kept (meta.txt names what rebuilds it).
+  confdir="$stage/config"
+  (umask 077; mkdir "$out" "$confdir")
   # Only these non-secret settings are named, so two runs can be told apart.
   settings=""
   for name in REPEATS READER_ONLY READER_EFFORT JUDGE_MODEL JUDGE_EFFORT MAX_MINUTES LOCOMO_SAMPLE; do
@@ -103,16 +100,16 @@ results_new_run() {
       echo "settings:$settings"
     } >"$out/meta.txt"
   )
-  echo "run.sh: results go to $out" >&2
+  echo "run.sh: the run is kept under $root/runs once it has been checked" >&2
 }
 
-# Deletes the run and stops with exit 3 when a credential's value appears in
-# it, or a URL appears in a file that is not corpus text. It matches whole
-# values only, so it is a backstop to the engine never writing them, not a
-# proof. Only ever called with the folder results_new_run made.
+# Deletes the staged run and stops with exit 3 when a credential's value
+# appears in it, or a URL appears in a file that is not corpus text. It
+# matches whole values only, so it is a backstop to the engine never writing
+# them, not a proof. Only ever called with the staged run results_new_run made.
 results_check_clean() {
   local vals=() v found=""
-  [[ $1 == "$root/runs/"* ]] || { echo "run.sh: refusing to delete $1" >&2; exit 3; }
+  [[ $1 == "$stage/run" ]] || { echo "run.sh: refusing to delete $1" >&2; exit 3; }
   # An empty value would be an empty pattern, which matches every line.
   for v in "${CORE_MEMORY_DATABASE_URL:-}" "${CORE_MEMORY_ANTHROPIC_KEY:-}" "${OPENAI_API_KEY:-}" "${CORE_MEMORY_OPENAI_KEY:-}"; do
     [ -n "$v" ] && vals+=("$v")
@@ -128,16 +125,41 @@ results_check_clean() {
     found="a URL"
   fi
   if [ -n "$found" ]; then
-    rm -rf -- "$1"
-    echo "run.sh: $found appeared in the run's results, so the run folder was deleted" >&2
+    rm -rf -- "$stage"
+    # So the EXIT trap has nothing left to keep.
+    stage=""
+    echo "run.sh: $found appeared in the run's results, so the run was deleted before it was kept" >&2
     exit 3
   fi
 }
 
-# The runner's EXIT trap for a default run: drops the private config, scans
-# whatever the run wrote, even when it stopped early, then says where it is.
+# Checks the staged run, and only then copies it to runs/ and sets out to the
+# kept folder. A copy, not a move: TMPDIR and the results folder may be on
+# different filesystems. For a moment the kept folder is partly copied.
+results_publish() {
+  local n=1 final=$run_base
+  results_check_clean "$out"
+  # mkdir without -p is atomic, so two runs in one second cannot share a folder.
+  until (umask 077; mkdir "$final" 2>/dev/null); do
+    n=$((n + 1))
+    if [ "$n" -gt 9 ]; then
+      echo "run.sh: cannot make a run folder under $root/runs" >&2
+      exit 2
+    fi
+    final="$run_base-$n"
+  done
+  cp -pR -- "$out/." "$final/"
+  rm -rf -- "$stage"
+  stage=""
+  out=$final
+  echo "run.sh: results kept in $out" >&2
+}
+
+# The runner's EXIT trap for a default run: drops the private config and keeps
+# what an early stop wrote, after the same check. Does nothing once the run
+# has been published or deleted.
 results_finish() {
-  [ -n "${confdir:-}" ] && rm -rf -- "$confdir"
-  results_check_clean "$1"
-  echo "run.sh: results kept in $1" >&2
+  [ -n "${stage:-}" ] || return 0
+  rm -rf -- "$confdir"
+  results_publish
 }
