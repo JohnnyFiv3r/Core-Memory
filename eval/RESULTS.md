@@ -30,14 +30,16 @@ be incomplete for a moment.
 From the repository root, so that `eval/compare/compare.py` is found:
 
 ```bash
-runs=${CORE_MEMORY_RESULTS:-/factory/work/core-memory-results}/runs
-for d in "$runs"/*-adversarial*; do [ -s "$d/export.jsonl" ] && echo "$d"; done | tail -2
+root=${CORE_MEMORY_RESULTS:-/factory/work/core-memory-results}
+[ -n "${CORE_MEMORY_RESULTS:-}" ] || { [ -d /factory/work ] && [ -w /factory/work ]; } || root=results
+for d in "$root"/runs/*-adversarial*; do if [ -s "$d/export.jsonl" ]; then echo "$d"; fi; done | tail -2
 python3 eval/compare/compare.py before=<older run> after=<newer run>
 ```
 
-The loop lists only runs that kept an export, so a run refused at the start is
-skipped. Give the two paths it printed. With fewer than two, there is nothing
-to compare yet: run it again.
+The first two lines choose the folder the way the runners do. The loop lists
+only runs that kept an export, so a run refused at the start is skipped, and
+it ends successfully even when the last run was skipped. Give the two paths it
+printed. With fewer than two, there is nothing to compare yet: run it again.
 
 ## What may be stored
 
@@ -54,8 +56,9 @@ so they keep their text files. Each refuses a database that already holds a
 scope, before any model call, and exports only its own scope (`adversarial-N`,
 `locomo`). A setting that would carry a credential, or a URL in
 `MODELS_CA_FILE`, is refused (exit 2) before any folder is made. A run's
-`core-memory.toml` is not kept: `meta.txt` names the commit and settings that
-rebuild it. A run is written to a private temporary folder and checked when
+`core-memory.toml` is not kept: `meta.txt` records the commit and the plain
+settings the run was given, not `MODELS_CA_FILE` or the endpoint, so it does not
+rebuild the config on its own. A run is written to a private temporary folder and checked when
 it ends. It is kept here, and its reports printed, only if no credential's
 value appears anywhere in it and no URL appears outside the corpus text.
 Otherwise it is deleted before anything is kept or printed, and the run exits
