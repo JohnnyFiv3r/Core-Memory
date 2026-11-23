@@ -48,13 +48,23 @@ if [ ! -f "$data" ]; then
   # Downloaded outside the run and checked first, so a response that is not the
   # corpus is never among the files a default run keeps.
   download=$(mktemp "${TMPDIR:-/tmp}/core-memory-locomo.XXXXXX")
-  if ! curl -fsSL --retry 3 -o "$download" \
-    https://raw.githubusercontent.com/snap-research/locomo/main/data/locomo10.json ||
-    ! echo "$want  $download" | sha256sum -c --quiet -; then
+  rc=0
+  curl -fsSL --retry 3 -o "$download" \
+    https://raw.githubusercontent.com/snap-research/locomo/main/data/locomo10.json || rc=$?
+  # curl's own status stays the runner's, as it was before the download moved.
+  if [ "$rc" -ne 0 ]; then
+    rm -f -- "$download"
+    exit "$rc"
+  fi
+  if ! echo "$want  $download" | sha256sum -c --quiet -; then
     rm -f -- "$download"
     exit 1
   fi
-  cp -- "$download" "$data"
+  # A copy cut short must not leave part of the corpus in the run.
+  if ! cp -- "$download" "$data"; then
+    rm -f -- "$download" "$data"
+    exit 1
+  fi
   rm -f -- "$download"
 else
   echo "$want  $data" | sha256sum -c --quiet -

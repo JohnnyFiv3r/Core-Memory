@@ -19,15 +19,23 @@ results_root() {
     echo "run.sh: cannot write to $root; set CORE_MEMORY_RESULTS to a folder you can write, or give an output folder" >&2
     exit 2
   fi
+  # mkdir and cp leave an existing folder or file as it was, so one made with a
+  # looser mode would stay readable by others. The folders are fixed first: a
+  # read-only README can only be replaced by a process that may write its folder.
+  if ! chmod 700 "$root" "$root/runs" "$root/findings"; then
+    echo "run.sh: cannot make $root private to you; set CORE_MEMORY_RESULTS to a folder you own, or give an output folder" >&2
+    exit 2
+  fi
   # Kept as the repository has it, so a folder made by an older version gets
   # the current instructions.
   if ! cmp -s "$here_results/RESULTS.md" "$root/README.md"; then
-    (umask 077; cp "$here_results/RESULTS.md" "$root/README.md")
+    if ! (umask 077; rm -f -- "$root/README.md" && cp "$here_results/RESULTS.md" "$root/README.md"); then
+      echo "run.sh: cannot write $root/README.md; set CORE_MEMORY_RESULTS to a folder you own, or give an output folder" >&2
+      exit 2
+    fi
   fi
-  # mkdir and cp leave an existing folder or file as it was, so one made with a
-  # looser mode would stay readable by others.
-  if ! chmod 700 "$root" "$root/runs" "$root/findings" || ! chmod 600 "$root/README.md"; then
-    echo "run.sh: cannot make $root private to you; set CORE_MEMORY_RESULTS to a folder you own, or give an output folder" >&2
+  if ! chmod 600 "$root/README.md"; then
+    echo "run.sh: cannot make $root/README.md private to you; set CORE_MEMORY_RESULTS to a folder you own, or give an output folder" >&2
     exit 2
   fi
 }
