@@ -24,6 +24,12 @@ results_root() {
   if ! cmp -s "$here_results/RESULTS.md" "$root/README.md"; then
     (umask 077; cp "$here_results/RESULTS.md" "$root/README.md")
   fi
+  # mkdir and cp leave an existing folder or file as it was, so one made with a
+  # looser mode would stay readable by others.
+  if ! chmod 700 "$root" "$root/runs" "$root/findings" || ! chmod 600 "$root/README.md"; then
+    echo "run.sh: cannot make $root private to you; set CORE_MEMORY_RESULTS to a folder you own, or give an output folder" >&2
+    exit 2
+  fi
 }
 
 # Whether a string holds the value of a credential. Empty values are skipped:

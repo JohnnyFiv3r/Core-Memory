@@ -42,13 +42,23 @@ else
 fi
 
 data="$out/locomo10.json"
-if [ ! -f "$data" ]; then
-  curl -fsSL --retry 3 -o "$data" \
-    https://raw.githubusercontent.com/snap-research/locomo/main/data/locomo10.json
-fi
 # The file this test was written against. A changed upstream file stops it.
-echo "79fa87e90f04081343b8c8debecb80a9a6842b76a7aa537dc9fdf651ea698ff4  $data" |
-  sha256sum -c --quiet -
+want=79fa87e90f04081343b8c8debecb80a9a6842b76a7aa537dc9fdf651ea698ff4
+if [ ! -f "$data" ]; then
+  # Downloaded outside the run and checked first, so a response that is not the
+  # corpus is never among the files a default run keeps.
+  download=$(mktemp "${TMPDIR:-/tmp}/core-memory-locomo.XXXXXX")
+  if ! curl -fsSL --retry 3 -o "$download" \
+    https://raw.githubusercontent.com/snap-research/locomo/main/data/locomo10.json ||
+    ! echo "$want  $download" | sha256sum -c --quiet -; then
+    rm -f -- "$download"
+    exit 1
+  fi
+  cp -- "$download" "$data"
+  rm -f -- "$download"
+else
+  echo "$want  $data" | sha256sum -c --quiet -
+fi
 python3 -I "$here/locomo_to_events.py" "$data" "$sample" locomo "$out/events.jsonl"
 
 config="${confdir:-$out}/core-memory.toml"

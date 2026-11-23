@@ -58,7 +58,10 @@ scope, before any model call, and exports only its own scope (`adversarial-N`,
 `MODELS_CA_FILE`, is refused (exit 2) before any folder is made. A run's
 `core-memory.toml` is not kept: `meta.txt` records the commit and the plain
 settings the run was given, not `MODELS_CA_FILE` or the endpoint, so it does not
-rebuild the config on its own. A run is written to a private temporary folder and checked when
+rebuild the config on its own. A runner sets this folder, `runs`, `findings`
+and this README to owner-only modes, even if they existed with looser ones, and
+stops (exit 2) if it cannot. LoCoMo's download is checked against its pinned
+checksum before it joins the run. A run is written to a private temporary folder and checked when
 it ends. It is kept here, and its reports printed, only if no credential's
 value appears anywhere in it and no URL appears outside the corpus text.
 Otherwise it is deleted before anything is kept or printed, and the run exits
