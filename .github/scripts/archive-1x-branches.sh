@@ -55,7 +55,8 @@ fi
 {
   echo "Archive of Core Memory's old branches"
   echo
-  echo "Each line is a branch that was deleted, its tip, and the tip's date."
+  echo "Each line is a branch, its tip, and the tip's date. Every tip is kept"
+  echo "reachable from this tag. A line does not show whether the branch was deleted."
   echo "To restore one: git fetch origin tag $tag && git branch <name> <tip>"
   echo
   cat "$work/index"
@@ -66,6 +67,29 @@ if git ls-remote --exit-code --tags "$remote" "refs/tags/$tag" > /dev/null; then
   git fetch --quiet "$remote" "+refs/tags/$tag:refs/tags/$tag"
   archive="$(git rev-parse "refs/tags/$tag^{commit}")"
   echo "Using the existing $tag at $archive."
+  # Only a branch still at the tip the tag lists for it is deleted: restoring
+  # from the tag must bring back what was deleted. One that moved since, or
+  # that the tag does not list, is left, even when its tip is reachable.
+  git tag -l --format='%(contents)' "$tag" |
+    awk 'NF == 3 && $2 ~ /^[0-9a-f]+$/ {print $1, $2}' > "$work/listed"
+  : > "$work/held"
+  : > "$work/moved"
+  while read -r name sha date; do
+    if grep -qxF "$name $sha" "$work/listed"; then
+      printf '%s %s %s\n' "$name" "$sha" "$date" >> "$work/held"
+    else
+      echo "$name" >> "$work/moved"
+    fi
+  done < "$work/index"
+  mv "$work/held" "$work/index"
+  count="$(wc -l < "$work/index" | tr -d ' ')"
+  if [ -s "$work/moved" ]; then
+    echo "::error::These branches are not at the tip $tag lists for them, so they are left:"
+    cat "$work/moved"
+    if [ "$count" -eq 0 ]; then
+      exit 1
+    fi
+  fi
 else
   empty_tree="$(git hash-object -t tree /dev/null)"
   parents=()
@@ -105,18 +129,24 @@ if [ "$pushed" != "$archive" ]; then
 fi
 echo "Pushed $tag."
 
-mapfile -t names < <(awk '{print $1}' "$work/index")
-for ((i = 0; i < ${#names[@]}; i += 50)); do
-  batch=("${names[@]:i:50}")
+# Each push names the branch by its full ref (a tag may share its name) and
+# deletes it only while it is still at the tip that was archived: a branch
+# that moved since is left, and the count below says so.
+mapfile -t lines < "$work/index"
+for ((i = 0; i < ${#lines[@]}; i += 50)); do
+  batch=()
+  for line in "${lines[@]:i:50}"; do
+    read -r name sha _ <<< "$line"
+    batch+=("--force-with-lease=refs/heads/$name:$sha" ":refs/heads/$name")
+  done
   # A batch is deleted whole or not at all; one that fails is tried a
   # branch at a time, so one protected branch does not keep the rest.
-  if ! git push --quiet --atomic "$remote" --delete "${batch[@]}"; then
-    for name in "${batch[@]}"; do
-      git push --quiet "$remote" --delete "$name" || echo "::warning::could not delete $name"
+  if ! git push --quiet --atomic "$remote" "${batch[@]}"; then
+    for ((j = 0; j < ${#batch[@]}; j += 2)); do
+      git push --quiet "$remote" "${batch[@]:j:2}" || echo "::warning::could not delete ${batch[j+1]#:refs/heads/}"
     done
   fi
 done
-
 # What the remote has now is the count, not what the pushes said.
 git ls-remote --heads "$remote" | awk '{sub("refs/heads/", "", $2); print $2}' | sort > "$work/remaining"
 awk '{print $1}' "$work/index" | sort > "$work/archived"
@@ -129,3 +159,7 @@ if [ -n "$left" ]; then
   exit 1
 fi
 echo "Branches left: $(tr '\n' ' ' < "$work/remaining")"
+# A branch left because it moved is not a success.
+if [ -s "$work/moved" ]; then
+  exit 1
+fi
