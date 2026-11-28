@@ -510,7 +510,7 @@ would run as the migrating role.
 A migration never changes once released. The runner records a checksum of
 each one it applies and refuses a database whose history differs.
 
-2.0.0 released migrations 1 and 2, 2.1.0 migration 3 and 2.1.1 migration 4,
+2.0.0 released migrations 1 and 2, 2.1.0 migration 3 and 2.2.0 migration 4,
 and they no longer change. A database created by a build from before 2.0.0
 must be recreated, not migrated.
 
