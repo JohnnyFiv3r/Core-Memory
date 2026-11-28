@@ -473,8 +473,8 @@ scope's.
 ## Recalling
 
 ```bash
-core-memory recall launch date                    # every scope
-core-memory recall '"launch date"' -- -draft      # a phrase, and not "draft"
+core-memory recall when is the launch             # a question, every scope
+core-memory recall --match all '"launch date"' -- -draft   # every word, a phrase, and not "draft"
 core-memory recall budget --scope acme --follow 2 --include-ended
 ```
 
@@ -483,12 +483,31 @@ curl -s localhost:7600/v1/recall -H "Authorization: Bearer $TOKEN" \
     -d '{"query": "launch date", "scopes": ["acme"], "limit": 5}'
 ```
 
-Recall finds the chunks whose text holds the words, with PostgreSQL's own
-full-text search: words are compared as English stems, all are required,
-`"quoted words"` stand together, `or` takes either and `-word` leaves out
-what holds it. By the words it makes no model call. The answer says
-`matched`, `no_match`, or `no_terms` when the query held no word to look
-for: only words too common to search for, or only words to leave out.
+Recall finds the chunks whose text holds words of the query, with
+PostgreSQL's own full-text search. Words are compared as English stems, and
+words as common as `the` are ignored. By the words it makes no model call.
+
+- **Any word, unless asked otherwise.** A chunk matches if it holds any of
+  the words, so a question can be asked as it would be said. A chunk that
+  holds more of the words, or rarer ones, comes first: a word counts for
+  more the fewer of the matching chunks hold it. A chunk that holds every
+  word is never placed below one that holds only some, and chunks that hold
+  the same words come newest first. The query is plain text: quotation
+  marks, `or` and `-` mean nothing.
+- **Every word, with `--match all`** (`"match": "all"` over HTTP). The
+  query is then read as a web search reads it: `"quoted words"` stand
+  together, `or` takes either and `-word` leaves out what holds it. The
+  chunks whose words stand closest together come first.
+
+The answer says `matched`, `no_match`, or `no_terms` when the query held no
+word to look for: only words too common to search for, or only words to
+leave out.
+
+A search that holds a very common word counts every chunk that holds it,
+so its cost grows with what is stored. One search of a recall may take
+`search_timeout_ms` (5 seconds unless set, under `[store]`). A search that
+runs past it is left out, and the answer says so: `"words": "unavailable"`.
+If nothing else was searched, `found` is `not_searched`.
 
 With an embedder configured, recall also finds chunks that say what the
 query asks in other words; see [Recalling by meaning](#recalling-by-meaning).
@@ -638,8 +657,16 @@ A chunk longer than `max_input_bytes` (8000) is embedded by its start.
 
 The search compares the query with every vector of the scopes searched. It
 is exact, and its cost grows with what is stored. If it runs past the
-store's `statement_timeout_ms`, the answer comes from the words and says
-`unavailable`.
+store's `search_timeout_ms`, the answer comes from the words and says
+`"meaning": "unavailable"`.
+
+**How much was searched.** An answer that was searched by meaning says how
+far that reached: `"compared": {"vectors": 4210, "beads": 9800}`. `vectors`
+is how many vectors the query was compared with, and `beads` is how many
+beads of messages and tool calls the scopes searched hold. Where `vectors`
+is the smaller, the rest could be found by their words only: text that has
+no vector yet, a scope that does not allow the embedder, or a tool call,
+which is never given one.
 
 ## Erasing
 
@@ -806,6 +833,7 @@ the database is trusted.
 [store]
 connect_timeout_ms = 10000     # to reach the server, for each address its name resolves to
 statement_timeout_ms = 30000   # for one statement
+search_timeout_ms = 5000       # for one search of a recall; never more than a statement's
 ```
 
 Opening a connection, from looking up the server's name to a session that

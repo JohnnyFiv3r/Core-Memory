@@ -888,6 +888,7 @@ fn every_call_waits_for_a_migration_holding_nothing_else() {
         limit: 10,
         follow: 2,
         include_ended: false,
+        matching: core_memory_contract::RecallMatch::Any,
         search: core_memory_core::Search::Words,
         meaning: core_memory_core::MeaningLeg::Without(
             core_memory_contract::RecallMeaning::NotAsked,
@@ -1753,6 +1754,7 @@ fn reads_are_refused_too_once_the_schema_has_moved_on() {
         limit: 10,
         follow: 1,
         include_ended: false,
+        matching: core_memory_contract::RecallMatch::Any,
         search: core_memory_core::Search::Words,
         meaning: core_memory_core::MeaningLeg::Without(
             core_memory_contract::RecallMeaning::NotAsked,

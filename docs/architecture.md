@@ -1342,24 +1342,60 @@ an ordinary recursive query.
 
 The index holds each chunk's words as PostgreSQL's English text search
 configuration reduces them, so `deadlines` finds `deadline` and common
-words such as `the` are ignored. A query is read as a web search reads it:
-every word is required, `"quoted words"` must stand together, `or` takes
-either of two words, and `-word` leaves out what holds it. The configuration
-is part of the index; changing it is a migration.
+words such as `the` are ignored. The configuration is part of the index;
+changing it is a migration.
+
+**Any word, by default.** A chunk matches if it holds any word of the
+query, and the query is plain text: nothing in it is an operator. A caller
+is usually an agent passing on a question, and a question's words are
+almost never all in one chunk. Requiring them all returns nothing, and a
+stray `or` in a sentence would change what is asked.
+
+The matches are ranked by how rare their words are among them. A word's
+weight is the natural logarithm of one plus the matching chunks over the
+chunks that hold the word, and a chunk's rank is the sum over the words it
+holds. So a word that every match holds counts for little, a word that one
+match holds counts for much, and a chunk that holds every word has the
+highest rank there is. Chunks of one rank come newest first.
+
+Nothing is stored for this, and no chunk's text is read again to rank it.
+The index is asked, word by word, which chunks hold it, and the counts are
+made from the matches of the one query. Breaking text into words is the
+cost of a text search, and the index already paid it: on 300,000 chunks,
+ranking 100,000 matches from the index took 0.2 s where reading their text
+again took 6.5 s. It is not BM25: how often a chunk holds a word, and how
+long the chunk is, are not counted. Chunks are cut to similar lengths, and
+a count that needs the text would cost what the index saves.
+
+**Every word, when asked** (`match: all`). The query is then read as a web
+search reads it: every word is required, `"quoted words"` must stand
+together, `or` takes either of two words, and `-word` leaves out what holds
+it. These matches are ranked by how closely and how often the words occur
+in them (`ts_rank_cd`), which reads each match's text, then newest first.
+
+**One search has its own time limit.** A search's cost grows with what is
+stored: a very common word is held by many chunks, and each is counted.
+One search of a recall may run for `store.search_timeout_ms`, 5 seconds
+unless set and never more than a statement may. A search that runs past it
+is ended and the recall is not: it runs inside a savepoint, the other
+search still answers, and the answer says which was left out (`words` or
+`meaning`: `unavailable`). A recall that failed instead would be asked for
+again and run as long again. With nothing else searched, the answer is
+`not_searched`, never `no_match`.
 
 Only the first 100,000 characters of a chunk are indexed. A text search
 vector holds at most 1 MB, and computing one for a longer text would fail
 the admission that stores it. The chunkers' defaults cut text far shorter.
 
-Matches are ranked by how closely and how often the words occur in them
-(`ts_rank_cd`), then newest first. A bead is one match however many of its
-chunks hold the words: a tool call is one bead.
+A bead is one match however many of its chunks hold the words: a tool call
+is one bead, with the rank of its best chunk.
 
 A query that holds no word to look for is answered `no_terms`, not
 `no_match`: nothing was searched. That is a query of common words or
-punctuation only, and one that names only words to leave out or offers
-one as an alternative (`-draft`, `launch or -draft`). The index cannot
-answer those, and PostgreSQL would read every chunk to.
+punctuation only and, where every word is asked for, one that names only
+words to leave out or offers one as an alternative (`-draft`, `launch or
+-draft`). The index cannot answer those, and PostgreSQL would read every
+chunk to.
 
 ### Finding the meaning
 
@@ -1415,10 +1451,16 @@ stored and recall answers from the words and says `not_installed`.
 The search is exact: every vector of the scopes searched is compared, by
 cosine distance. Its cost grows with what is stored. It is not an
 approximate index, and nothing is tuned or rebuilt. A comparison that runs
-past the store's statement timeout ends that search and not the recall: it
-runs inside a savepoint, the words answer, and the answer says
-`unavailable`. A recall that failed instead would be asked for again and
-time out again.
+past the time one search may take is left out as a search by the words is:
+the words answer, and the answer says `unavailable`.
+
+**How far it reached.** An answer that was searched by meaning says how
+many vectors the query was compared with and how many beads of messages
+and tool calls the scopes searched hold (`compared`). The first is the
+smaller while text waits for its vector, where a scope does not allow the
+embedder, and for every tool call, which is never given one. Without the
+two numbers, a store that is half embedded would answer as if the whole of
+it had been searched.
 
 **The query.** A query is the caller's own text, not stored text. It is
 sent to the embedder without a receipt, and it is never stored or logged.

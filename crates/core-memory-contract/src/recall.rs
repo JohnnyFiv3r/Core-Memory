@@ -39,15 +39,17 @@ pub const RECALL_MAX_TEXT_BYTES: u64 = 1 << 20;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct RecallRequest {
-    /// The words to look for, read as a web search reads them: words are
-    /// all required, `"quoted words"` must stand together, `or` between
-    /// two words takes either, and `-word` leaves out what holds it. Words
-    /// are compared as English stems, so `deadlines` finds `deadline`, and
-    /// common words such as `the` are ignored.
+    /// The words to look for, or a question in plain language. Words are
+    /// compared as English stems, so `deadlines` finds `deadline`, and
+    /// common words such as `the` are ignored. `match` says how many of
+    /// the words a chunk must hold.
     ///
     /// Where the engine has an embedder, the same text is also the
     /// question whose meaning is looked for, however it is worded.
     pub query: String,
+    /// How the words are matched. `any` if not given.
+    #[serde(default, rename = "match", skip_serializing_if = "Option::is_none")]
+    pub matching: Option<RecallMatch>,
     /// The scopes to search. Without it, every scope the caller may recall
     /// from.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -72,6 +74,26 @@ pub struct RecallRequest {
     pub search: Option<RecallSearch>,
 }
 
+/// How a query's words are matched.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum RecallMatch {
+    /// A chunk matches if it holds any of the words. A chunk that holds
+    /// more of them, or rarer ones, comes first: a word counts for more
+    /// the fewer of the matching chunks hold it, so a chunk that holds
+    /// every word is never placed below one that holds only some. Chunks
+    /// that hold the same words come newest first. The query is read as
+    /// plain text: quotation marks, `or` and `-` mean nothing.
+    #[default]
+    Any,
+    /// A chunk matches only if it holds every word, and the chunks whose
+    /// words stand closest together come first. The query is read as a
+    /// web search reads it: `"quoted words"` must stand together, `or`
+    /// between two words takes either, and `-word` leaves out what holds
+    /// it.
+    All,
+}
+
 /// One way to search.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -93,9 +115,27 @@ pub enum RecallFound {
     /// The query has no word to look for: only common words such as `the`,
     /// punctuation, or words to leave out. Nothing was searched.
     NoTerms,
-    /// The request asked for a search by meaning only, and that search
-    /// could not be made. `meaning` says why. Nothing was searched.
+    /// No search could be made: the one by meaning that the request asked
+    /// for alone, or either of the two. `words` and `meaning` say why.
+    /// Nothing was searched.
     NotSearched,
+}
+
+/// Whether an answer was searched for by its words, and if not, why not.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum RecallWords {
+    /// The chunks of the scopes searched were looked through for the
+    /// words.
+    #[default]
+    Used,
+    /// The request asked for a search by meaning only.
+    NotAsked,
+    /// The query has no word to look for.
+    NoTerms,
+    /// Looking for the words ran past the time one search may take
+    /// (`store.search_timeout_ms`). The answer was made without it.
+    Unavailable,
 }
 
 /// Whether an answer was searched for by meaning, and if not, why not.
@@ -117,8 +157,23 @@ pub enum RecallMeaning {
     /// allows text to be sent to it. The query was sent nowhere.
     NoVectors,
     /// The query could not be compared in time: the embedder did not give
-    /// it a vector, or comparing it ran past the store's statement timeout.
+    /// it a vector, or comparing it ran past the time one search may take
+    /// (`store.search_timeout_ms`). The answer was made without it.
     Unavailable,
+}
+
+/// How much of what was searched a search by meaning could reach.
+///
+/// Where `vectors` is the smaller number, the other beads could be found
+/// by their words only: text that has no vector yet, a scope that does not
+/// allow the embedder, or a tool call, which is never given one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+pub struct RecallCompared {
+    /// The vectors the query's was compared with: one for each chunk that
+    /// has one of the engine's embedder, in a scope that allows it.
+    pub vectors: u64,
+    /// The beads of messages and tool calls in the scopes searched.
+    pub beads: u64,
 }
 
 /// Which search found a match.
@@ -147,15 +202,22 @@ pub struct RecallAnswer {
     /// Whether the query was also searched for by meaning.
     #[serde(default)]
     pub meaning: RecallMeaning,
+    /// Whether the query was searched for by its words.
+    #[serde(default)]
+    pub words: RecallWords,
+    /// When the query was searched for by meaning, how much of what was
+    /// searched that search could reach.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compared: Option<RecallCompared>,
 }
 
 /// How a bead came into an answer.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "via", rename_all = "snake_case")]
 pub enum RecallVia {
-    /// Its text holds the words, or its vector is among the nearest to the
-    /// query's, as `by` says. `rank` orders the matches of one answer and
-    /// means nothing across answers. `distance` is the cosine distance
+    /// Its text holds words of the query, or its vector is among the
+    /// nearest to the query's, as `by` says. `rank` orders the matches of
+    /// one answer and means nothing across answers. `distance` is the cosine distance
     /// between its vector and the query's, from 0 for the same direction
     /// to 2 for the opposite, when it was found by meaning.
     Match {
@@ -306,6 +368,51 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(older.meaning, RecallMeaning::NotAsked);
+    }
+
+    #[test]
+    fn a_request_may_say_how_words_match_and_an_answer_says_what_was_searched() {
+        let request: RecallRequest =
+            serde_json::from_value(json!({"query": "launch date", "match": "all"})).unwrap();
+        assert_eq!(request.matching, Some(RecallMatch::All));
+        assert_eq!(
+            serde_json::to_value(&request).unwrap(),
+            json!({"query": "launch date", "match": "all"})
+        );
+        assert!(
+            serde_json::from_value::<RecallRequest>(json!({"query": "x", "match": "phrase"}))
+                .is_err()
+        );
+        let plain: RecallRequest = serde_json::from_value(json!({"query": "launch"})).unwrap();
+        assert_eq!(plain.matching, None);
+
+        let answer: RecallAnswer = serde_json::from_value(json!({
+            "found": "matched", "beads": [], "arrows": [], "linked_omitted": 0,
+            "meaning": "used", "words": "unavailable",
+            "compared": {"vectors": 4, "beads": 9},
+        }))
+        .unwrap();
+        assert_eq!(answer.words, RecallWords::Unavailable);
+        assert_eq!(
+            answer.compared,
+            Some(RecallCompared {
+                vectors: 4,
+                beads: 9
+            })
+        );
+        // An answer written before either was said still reads, and one
+        // that was not searched by meaning carries no count.
+        let older: RecallAnswer = serde_json::from_value(json!({
+            "found": "matched", "beads": [], "arrows": [], "linked_omitted": 0,
+        }))
+        .unwrap();
+        assert_eq!((older.words, older.compared), (RecallWords::Used, None));
+        assert!(
+            serde_json::to_value(&older)
+                .unwrap()
+                .get("compared")
+                .is_none()
+        );
     }
 
     #[test]

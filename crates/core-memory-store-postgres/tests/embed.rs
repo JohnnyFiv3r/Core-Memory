@@ -11,7 +11,8 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use common::{CONFIG, World, behind_a_migration, chat, chat_in, engine_with, tool_call};
 use core_memory_contract::{
-    MatchedBy, RecallAnswer, RecallFound, RecallMeaning, RecallRequest, RecallSearch, RecallVia,
+    MatchedBy, RecallAnswer, RecallCompared, RecallFound, RecallMatch, RecallMeaning,
+    RecallRequest, RecallSearch, RecallVia, RecallWords,
 };
 use core_memory_core::embed::{EmbedReport, EmbedRound};
 use core_memory_core::model::{EmbedRequest, EmbedResponse, FnEmbedTransport, TransportError};
@@ -160,6 +161,7 @@ fn request(query: &str) -> RecallRequest {
         limit: None,
         follow: Some(0),
         include_ended: false,
+        matching: None,
         search: None,
     }
 }
@@ -887,7 +889,7 @@ fn a_question_finds_what_means_the_same_in_other_words() {
     w.accept(&chat("4", "What we charge is under review this quarter."));
     embed_all(&mut w);
 
-    // No chunk holds both words, so the words alone find nothing.
+    // No chunk holds either word, so the words alone find nothing.
     let asked = request("pricing customers");
     let words = RecallRequest {
         search: Some(RecallSearch::Words),
@@ -896,11 +898,17 @@ fn a_question_finds_what_means_the_same_in_other_words() {
     let calls = AtomicU32::new(0);
     let answer = recall(&mut w, &counting(&calls), &words);
     assert_eq!(
-        (answer.found, answer.meaning),
-        (RecallFound::NoMatch, RecallMeaning::NotAsked)
+        (answer.found, answer.meaning, answer.words),
+        (
+            RecallFound::NoMatch,
+            RecallMeaning::NotAsked,
+            RecallWords::Used
+        )
     );
-    // Asked for the words only, the query was sent nowhere.
+    // Asked for the words only, the query was sent nowhere, and nothing
+    // is said of vectors.
     assert_eq!(calls.load(Ordering::SeqCst), 0);
+    assert_eq!(answer.compared, None);
 
     // By meaning, the chunks about what is charged come first, whatever
     // their words.
@@ -911,8 +919,12 @@ fn a_question_finds_what_means_the_same_in_other_words() {
     };
     let answer = recall(&mut w, &counting(&calls), &meaning);
     assert_eq!(
-        (answer.found, answer.meaning),
-        (RecallFound::Matched, RecallMeaning::Used)
+        (answer.found, answer.meaning, answer.words),
+        (
+            RecallFound::Matched,
+            RecallMeaning::Used,
+            RecallWords::NotAsked
+        )
     );
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     let found = told(&answer);
@@ -1158,10 +1170,10 @@ fn a_comparison_that_runs_out_of_time_leaves_the_words_to_answer() {
         max_distance: None,
     });
 
-    // A store that gives a statement a third of a second, and a table
-    // that cannot be read in that time: another session holds it.
+    // A store that gives one search a third of a second, and a table that
+    // cannot be read in that time: another session holds it.
     let mut config = w.db.config();
-    config.statement_timeout = std::time::Duration::from_millis(300);
+    config.search_timeout = std::time::Duration::from_millis(300);
     let mut store = PostgresStore::new(&config).unwrap();
     assert_eq!(store.recall(&query).unwrap().meaning, RecallMeaning::Used);
     let mut owner = w.db.connect();
@@ -1185,6 +1197,71 @@ fn a_comparison_that_runs_out_of_time_leaves_the_words_to_answer() {
     );
     held.rollback().unwrap();
     assert_eq!(store.recall(&query).unwrap().meaning, RecallMeaning::Used);
+
+    // The search by the words has the same limit. With the text held, and
+    // nothing else asked for, nothing was searched and the answer says so.
+    query.search = Search::Words;
+    query.meaning = MeaningLeg::Without(RecallMeaning::NotAsked);
+    let mut held = owner.transaction().unwrap();
+    held.batch_execute("LOCK TABLE core_memory.chunk_text IN ACCESS EXCLUSIVE MODE")
+        .unwrap();
+    for matching in [RecallMatch::Any, RecallMatch::All] {
+        query.matching = matching;
+        let answer = store.recall(&query).unwrap();
+        assert_eq!(
+            (answer.found, answer.words),
+            (RecallFound::NotSearched, RecallWords::Unavailable),
+            "{matching:?}"
+        );
+    }
+    held.rollback().unwrap();
+    let answer = store.recall(&query).unwrap();
+    assert_eq!(
+        (answer.found, answer.words),
+        (RecallFound::Matched, RecallWords::Used)
+    );
+}
+
+#[test]
+fn an_answer_says_how_much_of_what_was_searched_had_a_vector() {
+    let mut w = embedding("");
+    if !install_vectors(&w, "public") {
+        return;
+    }
+    w.accept(&chat("1", "The subscription fee goes up in March."));
+    w.accept(&chat("2", "The rollout is on Friday, after the freeze."));
+    embed_all(&mut w);
+    // Text that came after the vectors were made has none yet.
+    w.accept(&chat("3", "What we charge is under review this quarter."));
+
+    let calls = AtomicU32::new(0);
+    let answer = recall(&mut w, &counting(&calls), &request("what do we charge"));
+    assert_eq!(answer.meaning, RecallMeaning::Used);
+    assert_eq!(
+        answer.compared,
+        Some(RecallCompared {
+            vectors: 2,
+            beads: 3
+        })
+    );
+    // The chunk without a vector is still found, by its words.
+    let found = told(&answer);
+    assert!(
+        found
+            .iter()
+            .any(|(text, by)| text.contains("under review") && *by == MatchedBy::Words)
+    );
+
+    // Once it has one, everything searched was compared.
+    embed_all(&mut w);
+    let answer = recall(&mut w, &counting(&calls), &request("what do we charge"));
+    assert_eq!(
+        answer.compared,
+        Some(RecallCompared {
+            vectors: 3,
+            beads: 3
+        })
+    );
 }
 
 #[test]

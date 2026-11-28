@@ -197,6 +197,34 @@ fn recall_prints_the_text_that_holds_the_words() {
         "{answer}"
     );
     assert_eq!(q.ok(&["recall", "zeppelin"])[0]["found"], "no_match");
+
+    // A question in plain language finds the text that holds any of its
+    // words, the chunk that holds the most of them first. Asked for all
+    // of them, nothing holds them together.
+    let question = [
+        "recall",
+        "is",
+        "the",
+        "Northwind",
+        "renewal",
+        "a",
+        "zeppelin?",
+    ];
+    let any = &q.ok(&question)[0];
+    assert_eq!(
+        (&any["found"], &any["words"]),
+        (&json!("matched"), &json!("used"))
+    );
+    assert!(
+        any["beads"][0]["chunks"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("Northwind renewal"),
+        "{any}"
+    );
+    let all: Vec<&str> = question.iter().copied().chain(["--match", "all"]).collect();
+    assert_eq!(q.ok(&all)[0]["found"], "no_match");
+
     for (args, problem) in [
         (
             &["recall", "Northwind", "--scope", "elsewhere"][..],
@@ -2295,7 +2323,7 @@ fn chunks_are_given_vectors_and_recall_finds_them_by_meaning() {
         q.ok(&args).remove(0)
     };
     let embedded = model.requests().len();
-    let words = asked(&["--search", "words"]);
+    let words = asked(&["--search", "words", "--match", "all"]);
     assert_eq!(
         (&words["found"], &words["meaning"]),
         (&Value::from("no_match"), &Value::from("not_asked"))
@@ -2303,12 +2331,18 @@ fn chunks_are_given_vectors_and_recall_finds_them_by_meaning() {
     assert_eq!(model.requests().len(), embedded);
 
     // A database without the `vector` extension stores vectors and cannot
-    // compare them: recall says so, and still sends the query nowhere.
+    // compare them: recall says so, answers from the words, and still
+    // sends the query nowhere.
     let plain = asked(&[]);
     assert_eq!(
-        (&plain["found"], &plain["meaning"]),
-        (&Value::from("no_match"), &Value::from("not_installed"))
+        (&plain["found"], &plain["meaning"], &plain["words"]),
+        (
+            &Value::from("matched"),
+            &Value::from("not_installed"),
+            &Value::from("used")
+        )
     );
+    assert!(plain.get("compared").is_none(), "{plain}");
     assert_eq!(model.requests().len(), embedded);
 
     let mut owner = q.db.connect();
@@ -2337,11 +2371,17 @@ fn chunks_are_given_vectors_and_recall_finds_them_by_meaning() {
         (&Value::from("matched"), &Value::from("used")),
         "{found}"
     );
-    let first = &found["beads"][0];
-    assert_eq!(
-        (&first["via"], &first["by"]),
-        (&json!("match"), &json!("meaning"))
+    // Every chunk that is not a tool call's has a vector, and the answer
+    // says how many were compared, of how many beads searched.
+    let compared = &found["compared"];
+    assert!(
+        compared["vectors"].as_u64().unwrap() > 0
+            && compared["vectors"].as_u64() <= compared["beads"].as_u64(),
+        "{found}"
     );
+    let first = &found["beads"][0];
+    assert_eq!(first["via"], json!("match"));
+    assert!(first["by"] == "meaning" || first["by"] == "both", "{first}");
     assert!(first["distance"].as_f64().unwrap() < 0.3, "{first}");
     let text = first["chunks"][0]["text"].as_str().unwrap().to_lowercase();
     assert!(
@@ -2363,8 +2403,20 @@ fn chunks_are_given_vectors_and_recall_finds_them_by_meaning() {
     model.fail_with(503);
     let down = asked(&[]);
     assert_eq!(
-        (&down["found"], &down["meaning"]),
-        (&Value::from("no_match"), &Value::from("unavailable"))
+        (&down["found"], &down["meaning"], &down["words"]),
+        (
+            &Value::from("matched"),
+            &Value::from("unavailable"),
+            &Value::from("used")
+        )
+    );
+    assert!(
+        down["beads"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|bead| bead["via"] != "match" || bead["by"] == "words"),
+        "{down}"
     );
     assert_eq!(model.requests().len(), embedded + 4);
     // Asked for meaning alone, it says nothing was searched.

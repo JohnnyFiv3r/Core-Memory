@@ -11,8 +11,8 @@ use clap::{Parser, Subcommand};
 use core_memory_contract::schema::Contract;
 use core_memory_contract::{
     AdmissionOutcome, BusyCause, EventId, EventKey, FieldError, RECALL_DEFAULT_FOLLOW,
-    RECALL_DEFAULT_LIMIT, RecallRequest, RecallSearch, Record, RecordKind, RefusalReason,
-    Sha256Digest,
+    RECALL_DEFAULT_LIMIT, RecallMatch, RecallRequest, RecallSearch, Record, RecordKind,
+    RefusalReason, Sha256Digest,
 };
 use core_memory_core::store::{Change, Purpose, ScopeState, Store};
 use core_memory_core::{
@@ -127,12 +127,17 @@ enum Command {
     /// what now stands in its place; the beads the judge's arrows lead to;
     /// and the arrows between them.
     Recall {
-        /// The words to look for, read as a web search reads them: all are
-        /// required, "quoted words" stand together, `or` takes either and
-        /// `-word` leaves out what holds it. Put `--` before a query that
-        /// starts with `-`.
+        /// The words to look for, or a question in plain language. Put
+        /// `--` before a query that starts with `-`.
         #[arg(required = true, num_args = 1..)]
         query: Vec<String>,
+        /// How the words match. `any`: a chunk that holds any of them
+        /// matches, and those that hold more of them, or rarer ones, come
+        /// first. `all`: every word is required, and the query is read as
+        /// a web search reads it: "quoted words" stand together, `or`
+        /// takes either and `-word` leaves out what holds it.
+        #[arg(long = "match", value_enum, default_value_t = MatchArg::Any)]
+        matching: MatchArg,
         /// Only this scope. Repeat it for more. Without it, every scope.
         #[arg(long = "scope", allow_hyphen_values = true)]
         scopes: Vec<String>,
@@ -292,6 +297,13 @@ struct Destination {
     destination: Option<String>,
 }
 
+/// How a query's words match.
+#[derive(Clone, Copy, clap::ValueEnum)]
+enum MatchArg {
+    Any,
+    All,
+}
+
 /// One way to search.
 #[derive(Clone, Copy, clap::ValueEnum)]
 enum SearchArg {
@@ -370,6 +382,7 @@ fn main() -> ExitCode {
         } => export(config, workspace, scope.as_deref(), after),
         Command::Recall {
             query,
+            matching,
             scopes,
             limit,
             follow,
@@ -379,6 +392,10 @@ fn main() -> ExitCode {
             config,
             RecallRequest {
                 query: query.join(" "),
+                matching: Some(match matching {
+                    MatchArg::Any => RecallMatch::Any,
+                    MatchArg::All => RecallMatch::All,
+                }),
                 scopes: (!scopes.is_empty()).then_some(scopes),
                 limit: Some(limit),
                 follow: Some(follow),

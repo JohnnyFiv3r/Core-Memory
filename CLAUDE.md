@@ -32,12 +32,14 @@ auditable memory in PostgreSQL. For each SourceEvent it:
    call's, when an embedder is configured and the chunk's scope allows the
    model's destination.
 
-It also answers recall: the stored text that holds some words, verbatim,
-with what a judge said of it. Recall is a read of the same tables and keeps
-nothing of its own. With an embedder it also finds text by meaning: the
-query is given a vector and compared with the chunks' vectors, and the
-answer says which search found each match. A vector finds a chunk. It is
-never evidence, and what is returned is always the chunk's stored text.
+It also answers recall: the stored text that holds words of a query,
+verbatim, with what a judge said of it. Any word matches unless every word
+is asked for, and rarer words count for more. Recall is a read of the same
+tables and keeps nothing of its own. With an embedder it also finds text by
+meaning: the query is given a vector and compared with the chunks' vectors,
+and the answer says which search found each match. A vector finds a chunk.
+It is never evidence, and what is returned is always the chunk's stored
+text.
 
 PostgreSQL is the only store and the system of record. The engine owns the
 `core_memory` schema. A host such as memoriesQL runs the engine against its
