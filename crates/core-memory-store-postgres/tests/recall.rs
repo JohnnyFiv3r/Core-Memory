@@ -12,7 +12,8 @@ use common::{CONFIG, World, tool_call};
 use std::collections::BTreeMap;
 
 use core_memory_contract::{
-    BeadId, BeadKind, ChunkId, RecallAnswer, RecallFound, RecallVia, RecalledBead, SourceEvent,
+    BeadId, BeadKind, ChunkId, RecallAnswer, RecallFound, RecallVia, RecallWords, RecalledBead,
+    SourceEvent,
 };
 use core_memory_core::model::{FnTransport, ModelRequest, ModelResponse, TransportError, Usage};
 use core_memory_core::store::Store;
@@ -141,10 +142,20 @@ fn ask(query: &str) -> RecallQuery {
         limit: 10,
         follow: 1,
         include_ended: false,
+        matching: core_memory_contract::RecallMatch::Any,
         search: core_memory_core::Search::Words,
         meaning: core_memory_core::MeaningLeg::Without(
             core_memory_contract::RecallMeaning::NotAsked,
         ),
+    }
+}
+
+/// The same, with every word required and the query read as a web search
+/// reads it.
+fn ask_all(query: &str) -> RecallQuery {
+    RecallQuery {
+        matching: core_memory_contract::RecallMatch::All,
+        ..ask(query)
     }
 }
 
@@ -202,9 +213,10 @@ fn words_find_the_chunks_that_hold_them_best_first() {
         &said_in("other", "4", 10, "Another team's launch plan."),
     );
 
-    // Words are compared as stems, and the chunk that holds more of them
-    // comes first. Every scope is searched when none is named.
-    let answer = w.store.recall(&ask("launches")).unwrap();
+    // Words are compared as stems, and asked for all of them, the chunk
+    // that holds a word more often comes first. Every scope is searched
+    // when none is named.
+    let answer = w.store.recall(&ask_all("launches")).unwrap();
     assert_eq!(answer.found, RecallFound::Matched);
     assert_eq!(answer.beads.len(), 3);
     assert_eq!(answer.beads[0].bead_id, early);
@@ -227,7 +239,7 @@ fn words_find_the_chunks_that_hold_them_best_first() {
     assert!(answer.arrows.is_empty());
 
     // Named scopes narrow the search, and limit the answer.
-    let mut narrowed = ask("launch");
+    let mut narrowed = ask_all("launch");
     narrowed.scopes = only(&["acme"]);
     let answer = w.store.recall(&narrowed).unwrap();
     let ids: Vec<BeadId> = answer.beads.iter().map(|b| b.bead_id).collect();
@@ -235,36 +247,112 @@ fn words_find_the_chunks_that_hold_them_best_first() {
     narrowed.limit = 1;
     assert_eq!(w.store.recall(&narrowed).unwrap().beads.len(), 1);
 
-    // All the words are required, a quoted phrase must stand together, and
-    // a word after `-` leaves out what holds it.
+    // Asked for all the words, each is required, a quoted phrase must
+    // stand together, and a word after `-` leaves out what holds it.
     let ids = |w: &mut World, query: &str| -> Vec<BeadId> {
-        let answer = w.store.recall(&ask(query)).unwrap();
+        let answer = w.store.recall(&ask_all(query)).unwrap();
         answer.beads.iter().map(|b| b.bead_id).collect()
     };
     assert_eq!(ids(&mut w, "launch export"), [early]);
     assert_eq!(ids(&mut w, "launch -export -plan"), [thursday]);
-    let plan = w.store.recall(&ask("\"launch plan\"")).unwrap();
+    let plan = w.store.recall(&ask_all("\"launch plan\"")).unwrap();
     assert_eq!(told(&plan), [pair("Another team's launch plan.", "match")]);
     assert!(ids(&mut w, "\"plan launch\"").is_empty());
 
     // Nothing found, and nothing that could be searched for, are told
-    // apart.
-    assert_eq!(
-        w.store.recall(&ask("zeppelin")).unwrap().found,
-        RecallFound::NoMatch
-    );
-    let common = w.store.recall(&ask("the and of")).unwrap();
-    assert_eq!(common.found, RecallFound::NoTerms);
-    assert!(common.beads.is_empty());
+    // apart, however the words match.
+    for asked in [ask as fn(&str) -> RecallQuery, ask_all] {
+        let none = w.store.recall(&asked("zeppelin")).unwrap();
+        assert_eq!(
+            (none.found, none.words),
+            (RecallFound::NoMatch, RecallWords::Used)
+        );
+        let common = w.store.recall(&asked("the and of")).unwrap();
+        assert_eq!(
+            (common.found, common.words),
+            (RecallFound::NoTerms, RecallWords::NoTerms)
+        );
+        assert!(common.beads.is_empty());
+    }
     // Words to leave out alone name nothing to look for: the index could
     // not answer, and every chunk would be read.
     for nothing_to_find in ["-export", "launch or -export", "\"\" -the"] {
         assert_eq!(
-            w.store.recall(&ask(nothing_to_find)).unwrap().found,
+            w.store.recall(&ask_all(nothing_to_find)).unwrap().found,
             RecallFound::NoTerms,
             "{nothing_to_find}"
         );
     }
+}
+
+#[test]
+fn any_word_matches_and_rarer_words_count_for_more() {
+    let mut w = world();
+    let thursday = bead(&mut w, &said("1", 0, "The launch is on Thursday."));
+    let hours = bead(&mut w, &said("2", 5, "The export still takes three hours."));
+    let early = bead(
+        &mut w,
+        &said(
+            "3",
+            9,
+            "Launching early means launching without the export.",
+        ),
+    );
+    let plan = bead(
+        &mut w,
+        &said_in("other", "4", 10, "Another team's launch plan."),
+    );
+    let ids = |w: &mut World, query: &str| -> Vec<BeadId> {
+        let answer = w.store.recall(&ask(query)).unwrap();
+        assert_eq!(answer.words, RecallWords::Used);
+        answer.beads.iter().map(|b| b.bead_id).collect()
+    };
+
+    // Four chunks hold one of the two words. The one that holds both comes
+    // first. Two chunks hold `export` and three hold `launch`, so the
+    // rarer word, `export`, counts for more. The two that hold `launch`
+    // alone have one rank, and the newer comes first.
+    assert_eq!(ids(&mut w, "launch export"), [early, hours, plan, thursday]);
+    // Chunks that hold the one word asked for come newest first, however
+    // often each holds it.
+    assert_eq!(ids(&mut w, "launches"), [plan, early, thursday]);
+
+    // A question is asked as it would be said. Its common words are
+    // ignored, and `or`, `-` and quotation marks are not operators. No
+    // chunk holds all of its words. Every chunk that holds one is found,
+    // and the one that holds the rarest of them, `Thursday`, comes first.
+    let asked = "Is the launch on Thursday, or \"later\" - and what about the -export?";
+    assert_eq!(ids(&mut w, asked), [thursday, early, hours, plan]);
+    // Asked for all the words, no chunk answers.
+    let strict = w.store.recall(&ask_all("launch Thursday export")).unwrap();
+    assert_eq!(strict.found, RecallFound::NoMatch);
+    assert_eq!(ids(&mut w, "launch Thursday export").len(), 4);
+
+    // A match's rank is higher the more it holds, and orders the answer.
+    let answer = w.store.recall(&ask("launch export")).unwrap();
+    let ranks: Vec<f32> = answer
+        .beads
+        .iter()
+        .map(|bead| match bead.via {
+            RecallVia::Match { rank, by, .. } => {
+                assert_eq!(by, core_memory_contract::MatchedBy::Words);
+                rank
+            }
+            _ => panic!("not a match"),
+        })
+        .collect();
+    assert!(ranks[0] > ranks[1] && ranks[1] > ranks[2] && ranks[2] == ranks[3]);
+
+    // Scopes narrow what is counted as well as what is found: among the
+    // chunks of `acme` alone, `launch` and `export` are held by two each,
+    // and the chunk with both still comes first.
+    let mut narrowed = ask("launch export");
+    narrowed.scopes = only(&["acme"]);
+    let answer = w.store.recall(&narrowed).unwrap();
+    let found: Vec<BeadId> = answer.beads.iter().map(|b| b.bead_id).collect();
+    assert_eq!(found, [early, hours, thursday]);
+    narrowed.limit = 1;
+    assert_eq!(w.store.recall(&narrowed).unwrap().beads.len(), 1);
 }
 
 #[test]

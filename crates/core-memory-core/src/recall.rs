@@ -9,8 +9,8 @@ use std::collections::BTreeSet;
 
 use core_memory_contract::{
     RECALL_DEFAULT_FOLLOW, RECALL_DEFAULT_LIMIT, RECALL_MAX_FOLLOW, RECALL_MAX_LIMIT,
-    RECALL_MAX_QUERY_BYTES, RECALL_MAX_SCOPES, RecallAnswer, RecallMeaning, RecallRequest,
-    RecallSearch, Sha256Digest,
+    RECALL_MAX_QUERY_BYTES, RECALL_MAX_SCOPES, RecallAnswer, RecallMatch, RecallMeaning,
+    RecallRequest, RecallSearch, Sha256Digest,
 };
 
 use crate::engine::{Engine, ScopeGrants};
@@ -24,8 +24,11 @@ const MAX_SCOPE_BYTES: usize = 512;
 /// A request that may be answered.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RecallQuery {
-    /// The words, trimmed, read as a web search reads them.
+    /// The words, trimmed.
     pub query: String,
+    /// How many of the words a chunk must hold, and so how the query is
+    /// read.
+    pub matching: RecallMatch,
     /// The scopes searched, and the only scopes whose beads the answer may
     /// hold.
     pub scopes: ScopeGrants,
@@ -179,6 +182,7 @@ impl RecallQuery {
         };
         Ok(Self {
             query: query.to_string(),
+            matching: request.matching.unwrap_or_default(),
             scopes,
             limit,
             follow,
@@ -257,6 +261,7 @@ mod tests {
             follow: None,
             include_ended: false,
             search: None,
+            matching: None,
         }
     }
 
@@ -274,6 +279,14 @@ mod tests {
             (RECALL_DEFAULT_LIMIT, RECALL_DEFAULT_FOLLOW)
         );
         assert!(!q.include_ended);
+        // Any word matches unless the request asks for all of them.
+        assert_eq!(q.matching, RecallMatch::Any);
+        let all = RecallRequest {
+            matching: Some(RecallMatch::All),
+            ..request("launch date")
+        };
+        let q = RecallQuery::from_request(&all, &only(&["acme"])).unwrap();
+        assert_eq!(q.matching, RecallMatch::All);
     }
 
     #[test]

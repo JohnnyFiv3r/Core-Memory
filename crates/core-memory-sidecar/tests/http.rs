@@ -1448,3 +1448,39 @@ fn an_answer_says_whether_it_was_searched_for_by_meaning() {
         (StatusCode::BAD_REQUEST, "malformed")
     );
 }
+
+#[test]
+fn a_question_matches_any_of_its_words_unless_all_are_asked_for() {
+    let s = Server::new();
+    assert_eq!(
+        s.post(WRITER, event("1", "The launch is on Thursday."))
+            .status,
+        StatusCode::OK
+    );
+    let recall = |body: Value| s.call("POST", "/v1/recall", Some(READER), Some(body));
+
+    // Asked as it would be said, the question finds the chunk that holds
+    // some of its words, and the answer says the words were searched.
+    let question = "Is the launch still on Thursday, or was it moved?";
+    let reply = recall(json!({"query": question}));
+    assert_eq!(reply.status, StatusCode::OK);
+    assert_eq!(
+        (&reply.body["found"], &reply.body["words"]),
+        (&json!("matched"), &json!("used"))
+    );
+    // An answer that was not searched by meaning says nothing of vectors.
+    assert!(reply.body.get("compared").is_none());
+
+    // Asked for every word, nothing holds them all.
+    let reply = recall(json!({"query": "launch Thursday moved", "match": "all"}));
+    assert_eq!(reply.body["found"], "no_match");
+    let reply = recall(json!({"query": "launch Thursday", "match": "all"}));
+    assert_eq!(reply.body["found"], "matched");
+    assert_eq!(
+        recall(json!({"query": "launch", "match": "some"})).outcome(),
+        (StatusCode::BAD_REQUEST, "malformed")
+    );
+    // Asked for meaning alone, the words were not searched.
+    let reply = recall(json!({"query": "launch", "search": "meaning"}));
+    assert_eq!(reply.body["words"], "not_asked");
+}

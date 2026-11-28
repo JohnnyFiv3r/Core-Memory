@@ -12,7 +12,9 @@ use core_memory_core::tool::ToolReaderConfig;
 use core_memory_core::{
     BindingConfig, EngineConfig, Limits, ScopeGrants, SourceProfile, Vocabulary, is_identifier,
 };
-use core_memory_store_postgres::{ConnectConfig, MAX_CONNECT_TIMEOUT, MAX_STATEMENT_TIMEOUT};
+use core_memory_store_postgres::{
+    ConnectConfig, DEFAULT_SEARCH_TIMEOUT, MAX_CONNECT_TIMEOUT, MAX_STATEMENT_TIMEOUT,
+};
 use serde::Deserialize;
 
 /// Where the database URL is read from when the config names nothing else.
@@ -80,6 +82,11 @@ pub struct StoreConfig {
     /// Limit for one statement.
     #[serde(default = "default_statement_timeout_ms")]
     pub statement_timeout_ms: u64,
+    /// Limit for one search of a recall: by the words, or by meaning. A
+    /// search that runs past it is left out of the answer, which says so.
+    /// Where it is longer than `statement_timeout_ms`, that is the limit.
+    #[serde(default = "default_search_timeout_ms")]
+    pub search_timeout_ms: u64,
 }
 
 impl std::fmt::Debug for StoreConfig {
@@ -92,6 +99,7 @@ impl std::fmt::Debug for StoreConfig {
             .field("pool_size", &self.pool_size)
             .field("connect_timeout_ms", &self.connect_timeout_ms)
             .field("statement_timeout_ms", &self.statement_timeout_ms)
+            .field("search_timeout_ms", &self.search_timeout_ms)
             .finish()
     }
 }
@@ -105,6 +113,7 @@ impl Default for StoreConfig {
             pool_size: default_pool_size(),
             connect_timeout_ms: default_connect_timeout_ms(),
             statement_timeout_ms: default_statement_timeout_ms(),
+            search_timeout_ms: default_search_timeout_ms(),
         }
     }
 }
@@ -131,6 +140,10 @@ fn default_connect_timeout_ms() -> u64 {
 
 fn default_statement_timeout_ms() -> u64 {
     30_000
+}
+
+fn default_search_timeout_ms() -> u64 {
+    u64::try_from(DEFAULT_SEARCH_TIMEOUT.as_millis()).unwrap_or(u64::MAX)
 }
 
 #[derive(Debug, Deserialize)]
@@ -402,6 +415,11 @@ impl Loaded {
                 c.store.statement_timeout_ms,
                 MAX_STATEMENT_TIMEOUT,
             ),
+            (
+                "store.search_timeout_ms",
+                c.store.search_timeout_ms,
+                MAX_STATEMENT_TIMEOUT,
+            ),
         ] {
             if value == 0 || u128::from(value) > max.as_millis() {
                 return Err(format!("{name} must be between 1 and {}", max.as_millis()));
@@ -487,6 +505,7 @@ impl Loaded {
             ca_file: store.ca_file.as_deref().map(|p| self.resolve(p)),
             connect_timeout: Duration::from_millis(store.connect_timeout_ms),
             statement_timeout: Duration::from_millis(store.statement_timeout_ms),
+            search_timeout: Duration::from_millis(store.search_timeout_ms),
         })
     }
 
@@ -718,6 +737,10 @@ mod tests {
     #[test]
     fn timeouts_the_database_driver_would_refuse_are_refused_here() {
         for (setting, ok) in [
+            ("search_timeout_ms = 0", false),
+            ("search_timeout_ms = 1", true),
+            ("search_timeout_ms = 3600000", true),
+            ("search_timeout_ms = 3600001", false),
             ("statement_timeout_ms = 1", true),
             ("statement_timeout_ms = 3600000", true),
             ("statement_timeout_ms = 3600001", false),

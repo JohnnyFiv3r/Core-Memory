@@ -32,6 +32,8 @@ const KEEPALIVE_RETRIES: u32 = 3;
 /// The longest statement timeout accepted. A statement that needs longer
 /// than this is a migration, which sets its own limits.
 pub const MAX_STATEMENT_TIMEOUT: Duration = Duration::from_secs(3_600);
+/// How long one search of a recall may take when a config does not say.
+pub const DEFAULT_SEARCH_TIMEOUT: Duration = Duration::from_secs(5);
 /// The longest wait accepted for opening a connection.
 pub const MAX_CONNECT_TIMEOUT: Duration = Duration::from_secs(300);
 /// How long a statement may wait for a row or table lock.
@@ -66,6 +68,10 @@ pub struct ConnectConfig {
     /// Limit for one statement. A connection that goes silent is dropped a
     /// few seconds after it.
     pub statement_timeout: Duration,
+    /// Limit for one search of a recall: by the words, or by meaning. A
+    /// search that runs past it is left out of the answer, which says so.
+    /// Never longer than `statement_timeout`.
+    pub search_timeout: Duration,
 }
 
 impl ConnectConfig {
@@ -75,6 +81,7 @@ impl ConnectConfig {
             ca_file: None,
             connect_timeout: Duration::from_secs(10),
             statement_timeout: Duration::from_secs(30),
+            search_timeout: DEFAULT_SEARCH_TIMEOUT,
         }
     }
 }
@@ -86,8 +93,18 @@ impl fmt::Debug for ConnectConfig {
             .field("ca_file", &self.ca_file)
             .field("connect_timeout", &self.connect_timeout)
             .field("statement_timeout", &self.statement_timeout)
+            .field("search_timeout", &self.search_timeout)
             .finish()
     }
+}
+
+/// How long a recall's statements may run, in milliseconds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct SearchLimits {
+    /// The session's limit for a statement.
+    pub(crate) statement_ms: u128,
+    /// The limit for one search, at most the statement's.
+    pub(crate) search_ms: u128,
 }
 
 /// A validated [`ConnectConfig`], ready to open connections.
@@ -96,6 +113,8 @@ pub struct Connector {
     config: postgres::Config,
     tls: MakeRustlsConnect,
     statement_timeout_ms: u128,
+    /// The limit for one search of a recall, at most the statement's.
+    search_timeout_ms: u128,
     /// The limit for one whole attempt, from resolving the server's name
     /// to a session with its limits set.
     attempt_limit: Duration,
@@ -141,6 +160,11 @@ impl Connector {
             (
                 "statement_timeout",
                 config.statement_timeout,
+                MAX_STATEMENT_TIMEOUT,
+            ),
+            (
+                "search_timeout",
+                config.search_timeout,
                 MAX_STATEMENT_TIMEOUT,
             ),
         ] {
@@ -217,16 +241,27 @@ impl Connector {
             .connect_timeout
             .saturating_mul(ATTEMPT_ALLOWANCE)
             .saturating_mul(u32::try_from(hosts).unwrap_or(u32::MAX));
+        let statement_timeout_ms = config
+            .statement_timeout
+            .as_millis()
+            .clamp(1, u128::from(u32::MAX));
         Ok(Self {
             config: pg,
             tls: MakeRustlsConnect::new(tls),
-            statement_timeout_ms: config
-                .statement_timeout
-                .as_millis()
-                .clamp(1, u128::from(u32::MAX)),
+            statement_timeout_ms,
+            search_timeout_ms: config.search_timeout.as_millis().min(statement_timeout_ms),
             attempt_limit,
             abandoned: Arc::new(AtomicUsize::new(0)),
         })
+    }
+
+    /// The limits a recall runs under, in milliseconds: one statement's,
+    /// which the session has, and one search's, which is never the longer.
+    pub(crate) fn search_limits(&self) -> SearchLimits {
+        SearchLimits {
+            statement_ms: self.statement_timeout_ms,
+            search_ms: self.search_timeout_ms,
+        }
     }
 
     /// Opens one connection with the session limits set.

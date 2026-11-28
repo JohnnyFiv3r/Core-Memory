@@ -174,6 +174,11 @@ impl PostgresStore {
     }
 
     /// The connection, after checking the schema version once.
+    /// The limits a recall runs under.
+    pub(crate) fn search_limits(&self) -> crate::connect::SearchLimits {
+        self.connector.search_limits()
+    }
+
     pub(crate) fn client(&mut self) -> Result<&mut Client, StoreError> {
         if !self.checked {
             migrate::require_current(self.raw()?)?;

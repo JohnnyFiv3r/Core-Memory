@@ -5,6 +5,11 @@
 //! which hold what a judge said as IDs. An erase therefore reaches
 //! everything recall could return, in the erase's own transaction.
 //!
+//! By default a chunk matches if it holds any word of the query, and the
+//! matches are ranked by how rare their words are among them. Nothing is
+//! kept for that either: the index says which chunks hold each word, and
+//! the counts are made from the matches of the one query.
+//!
 //! A query that comes with a vector is also compared with the vectors of
 //! `chunk_vectors`, which an erase deletes with the text they were made
 //! from. A vector finds a chunk; what is returned is the chunk's text.
@@ -16,8 +21,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use core_memory_contract::{
     Arrow, BeadId, BeadKind, ChunkId, EdgeType, EventId, EventKey, MatchedBy, RECALL_MAX_LINKED,
-    RECALL_MAX_TEXT_BYTES, RecallAnswer, RecallFound, RecallMeaning, RecallVia, RecalledArrow,
-    RecalledBead, RecalledChunk, RecalledEvent, TimeBasis, Timestamp,
+    RECALL_MAX_TEXT_BYTES, RecallAnswer, RecallCompared, RecallFound, RecallMatch, RecallMeaning,
+    RecallVia, RecallWords, RecalledArrow, RecalledBead, RecalledChunk, RecalledEvent, TimeBasis,
+    Timestamp,
 };
 use core_memory_core::{MeaningLeg, QuestionVector, RecallQuery, Search, StoreError};
 use postgres::Transaction;
@@ -25,6 +31,7 @@ use postgres::error::SqlState;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
+use crate::connect::SearchLimits;
 use crate::embed::{dimensions, named, vector_schema};
 use crate::error::{backend, corrupt};
 use crate::store::{PostgresStore, read_transaction, to_u32, to_u64};
@@ -33,9 +40,15 @@ use crate::store::{PostgresStore, read_transaction, to_u32, to_u64};
 /// query must use this expression exactly, or it cannot use the index.
 const SEARCHED: &str = "pg_catalog.to_tsvector('pg_catalog.english'::pg_catalog.regconfig, \
                         pg_catalog.\"left\"(t.text, 100000))";
-/// The caller's words as a query, read as a web search reads them.
+/// The caller's words as a query, read as a web search reads them: every
+/// word required.
 const QUERY: &str =
     "pg_catalog.websearch_to_tsquery('pg_catalog.english'::pg_catalog.regconfig, $1)";
+/// The caller's text as the words the index holds: its English stems,
+/// without the common words. Read as plain text, so nothing in it is an
+/// operator.
+const STEMS: &str = "pg_catalog.tsvector_to_array(pg_catalog.to_tsvector(\
+                     'pg_catalog.english'::pg_catalog.regconfig, $1))";
 /// Arrows that end the currency of the bead they point at.
 const ENDING: &str = "(SELECT a.arrow FROM core_memory.arrows AS a WHERE a.ends_currency)";
 /// Arrows that say two beads cannot both hold.
@@ -120,8 +133,67 @@ enum Near {
     Found(Vec<(Uuid, f32)>),
     /// The database cannot compare vectors.
     NotInstalled,
-    /// The comparison ran past the store's statement timeout.
+    /// The comparison ran past the time one search may take.
     TooSlow,
+}
+
+/// What a search by the words came to.
+enum Worded {
+    /// The live beads whose text matched, best first, with their ranks.
+    Found(Vec<(Uuid, f32)>),
+    /// The query has no word to look for.
+    NoTerms,
+    /// The search ran past the time one search may take.
+    TooSlow,
+}
+
+/// What an answer says of how it was searched for.
+#[derive(Debug, Clone, Copy)]
+struct Searched {
+    meaning: RecallMeaning,
+    words: RecallWords,
+    compared: Option<RecallCompared>,
+}
+
+/// Sets the limit for the statements that follow in this transaction.
+fn limit_statements(tx: &mut Transaction<'_>, ms: u128) -> Result<(), StoreError> {
+    tx.query_one(
+        "SELECT pg_catalog.set_config('statement_timeout', $1, true)",
+        &[&ms.to_string()],
+    )
+    .map_err(backend)?;
+    Ok(())
+}
+
+/// Runs one search of a recall under the time one search may take, and
+/// gives `None` if it ran past it.
+///
+/// The cost of a search grows with what is stored: every vector is
+/// compared, and every chunk that holds a word is counted. Running past the
+/// limit ends that search and not the recall. It runs inside a savepoint,
+/// the other search still answers, and the caller is told, where a failed
+/// recall would be asked for again and run as long again.
+fn within<T>(
+    tx: &mut Transaction<'_>,
+    limits: SearchLimits,
+    search: impl FnOnce(&mut Transaction<'_>) -> Result<T, postgres::Error>,
+) -> Result<Option<T>, StoreError> {
+    let mut held = tx.transaction().map_err(backend)?;
+    limit_statements(&mut held, limits.search_ms)?;
+    match search(&mut held) {
+        Ok(found) => {
+            // A savepoint that is kept keeps what it set, so the session's
+            // own limit is put back before it is.
+            limit_statements(&mut held, limits.statement_ms)?;
+            held.commit().map_err(backend)?;
+            Ok(Some(found))
+        }
+        Err(e) if e.code() == Some(&SqlState::QUERY_CANCELED) => {
+            held.rollback().map_err(backend)?;
+            Ok(None)
+        }
+        Err(e) => Err(backend(e)),
+    }
 }
 
 /// Compares the query's vector with the stored ones.
@@ -136,19 +208,14 @@ fn nearest(
     question: &QuestionVector,
     scopes: &Option<Vec<String>>,
     depth: i64,
+    limits: SearchLimits,
 ) -> Result<Near, StoreError> {
     let Some(schema) = vector_schema(tx)? else {
         return Ok(Near::NotInstalled);
     };
-    // Every vector searched is compared, so on a large store the statement
-    // can run past the store's timeout. That ends this search and not the
-    // recall: it runs inside a savepoint, and the words still answer. The
-    // caller is told, where a failed recall would be asked for again and
-    // time out again.
-    let mut compared = tx.transaction().map_err(backend)?;
-    let found = compared.query(
-        &format!(
-            "SELECT near.chunk_id, near.distance::float4
+    let size = dimensions(&question.vector)?;
+    let sql = format!(
+        "SELECT near.chunk_id, near.distance::float4
                    FROM (SELECT v.chunk_id,
                                 v.vector::{schema}.vector
                                     OPERATOR({schema}.<=>) $1::real[]::{schema}.vector
@@ -164,37 +231,182 @@ fn nearest(
                   WHERE $6::float8 IS NULL OR near.distance <= $6
                   ORDER BY near.distance, b.time_at DESC, b.seq DESC
                   LIMIT $7"
-        ),
-        &[
-            &question.vector,
-            &question.embedder_rev.as_bytes().as_slice(),
-            &dimensions(&question.vector)?,
-            scopes,
-            &question.destination,
-            &question.max_distance.map(f64::from),
-            &depth,
-        ],
     );
-    let rows = match found {
-        Ok(rows) => rows,
-        Err(e) if e.code() == Some(&SqlState::QUERY_CANCELED) => {
-            compared.rollback().map_err(backend)?;
-            return Ok(Near::TooSlow);
+    let found = within(tx, limits, |tx| {
+        tx.query(
+            &sql,
+            &[
+                &question.vector,
+                &question.embedder_rev.as_bytes().as_slice(),
+                &size,
+                scopes,
+                &question.destination,
+                &question.max_distance.map(f64::from),
+                &depth,
+            ],
+        )
+    })?;
+    Ok(match found {
+        Some(rows) => Near::Found(rows.iter().map(|r| (r.get(0), r.get(1))).collect()),
+        None => Near::TooSlow,
+    })
+}
+
+/// How much of what is searched a search by meaning reaches: the vectors
+/// [`nearest`] compares, and the beads of messages and tool calls in the
+/// scopes searched.
+fn compared(
+    tx: &mut Transaction<'_>,
+    question: &QuestionVector,
+    scopes: &Option<Vec<String>>,
+) -> Result<RecallCompared, StoreError> {
+    let row = tx
+        .query_one(
+            "SELECT (SELECT pg_catalog.count(*)
+                       FROM core_memory.chunk_vectors AS v
+                      WHERE v.embedder_rev = $1 AND v.dimensions = $2
+                        AND ($3::text[] IS NULL OR v.scope = ANY ($3))
+                        AND EXISTS (SELECT 1 FROM core_memory.scope_destinations AS d
+                                     WHERE d.scope = v.scope AND d.destination = $4
+                                       AND d.state = 'granted')),
+                    (SELECT pg_catalog.count(*)
+                       FROM core_memory.beads AS b
+                      WHERE b.kind IN ('chunk', 'tool') AND b.state = 'live'
+                        AND ($3::text[] IS NULL OR b.scope = ANY ($3)))",
+            &[
+                &question.embedder_rev.as_bytes().as_slice(),
+                &dimensions(&question.vector)?,
+                scopes,
+                &question.destination,
+            ],
+        )
+        .map_err(backend)?;
+    Ok(RecallCompared {
+        vectors: to_u64(row.get(0), "vectors compared")?,
+        beads: to_u64(row.get(1), "beads searched")?,
+    })
+}
+
+/// Looks for the query's words in the text of the scopes searched.
+fn worded(
+    tx: &mut Transaction<'_>,
+    query: &RecallQuery,
+    scopes: &Option<Vec<String>>,
+    depth: i64,
+    limits: SearchLimits,
+) -> Result<Worded, StoreError> {
+    let found = match query.matching {
+        RecallMatch::All => {
+            // A query of common words alone asks for nothing, and
+            // PostgreSQL would match nothing with it. One of words to leave
+            // out alone, or one where a word to leave out is an
+            // alternative, names no word the index can look up: PostgreSQL
+            // would read every chunk to answer it (`querytree` says `T`).
+            // Neither is searched, and saying so is the honest answer.
+            let searchable: bool = tx
+                .query_one(
+                    &format!(
+                        "SELECT pg_catalog.numnode(q) > 0 AND pg_catalog.querytree(q) <> 'T'
+                           FROM (SELECT {QUERY} AS q) AS asked"
+                    ),
+                    &[&query.query],
+                )
+                .map_err(backend)?
+                .get(0);
+            if !searchable {
+                return Ok(Worded::NoTerms);
+            }
+            let sql = format!(
+                "SELECT b.bead_id, max(pg_catalog.ts_rank_cd({SEARCHED}, {QUERY}))::float4
+                   FROM core_memory.chunk_text AS t
+                   JOIN core_memory.chunks AS c ON c.chunk_id = t.chunk_id
+                   JOIN core_memory.beads AS b
+                     ON b.bead_id = ANY (ARRAY[t.chunk_id, c.event_id])
+                    AND b.kind IN ('chunk', 'tool') AND b.state = 'live'
+                  WHERE {SEARCHED} @@ {QUERY}
+                    AND ($2::text[] IS NULL OR t.scope = ANY ($2))
+                  GROUP BY b.bead_id, b.time_at, b.seq
+                  ORDER BY 2 DESC, b.time_at DESC, b.seq DESC
+                  LIMIT $3"
+            );
+            within(tx, limits, |tx| {
+                tx.query(&sql, &[&query.query, scopes, &depth])
+            })?
         }
-        Err(e) => return Err(backend(e)),
+        RecallMatch::Any => {
+            let stems: Vec<String> = tx
+                .query_one(&format!("SELECT {STEMS}"), &[&query.query])
+                .map_err(backend)?
+                .get(0);
+            if stems.is_empty() {
+                return Ok(Worded::NoTerms);
+            }
+            // The index is asked, word by word, which chunks hold it. No
+            // chunk's text is read again to rank it: breaking text into
+            // words is what a search costs, and it was done once, for the
+            // index. Each word is written as PostgreSQL writes a stem,
+            // quoted, so nothing a caller sent is read as an operator.
+            //
+            // A word counts for more the fewer of the matching chunks hold
+            // it: the natural logarithm of one plus the matching chunks
+            // over the chunks that hold the word. A chunk's rank is that,
+            // added up over the words it holds, in one order so that two
+            // chunks with the same words have the same rank. So a chunk
+            // that holds every word has the highest rank there is. Chunks
+            // of one rank come newest first. A tool call's rank is its
+            // best chunk's.
+            let sql = format!(
+                "WITH held AS MATERIALIZED (
+                     SELECT w.stem, h.chunk_id
+                       FROM pg_catalog.unnest($1::text[]) AS w (stem)
+                       CROSS JOIN LATERAL (
+                           SELECT t.chunk_id
+                             FROM core_memory.chunk_text AS t
+                            WHERE {SEARCHED} @@ pg_catalog.array_to_tsvector(
+                                      ARRAY[w.stem])::text::pg_catalog.tsquery
+                              AND ($2::text[] IS NULL OR t.scope = ANY ($2))
+                       ) AS h
+                 ), weights AS (
+                     SELECT h.stem,
+                            pg_catalog.ln(1 + n.chunks::float8 / pg_catalog.count(*)) AS weight
+                       FROM held AS h
+                       CROSS JOIN (SELECT pg_catalog.count(DISTINCT x.chunk_id) AS chunks
+                                     FROM held AS x) AS n
+                      GROUP BY h.stem, n.chunks
+                 ), ranked AS (
+                     SELECT h.chunk_id,
+                            pg_catalog.sum(w.weight ORDER BY w.stem) AS rank
+                       FROM held AS h
+                       JOIN weights AS w ON w.stem = h.stem
+                      GROUP BY h.chunk_id
+                 )
+                 SELECT b.bead_id, pg_catalog.max(r.rank)::float4
+                   FROM ranked AS r
+                   JOIN core_memory.chunks AS c ON c.chunk_id = r.chunk_id
+                   JOIN core_memory.beads AS b
+                     ON b.bead_id = ANY (ARRAY[r.chunk_id, c.event_id])
+                    AND b.kind IN ('chunk', 'tool') AND b.state = 'live'
+                  GROUP BY b.bead_id, b.time_at, b.seq
+                  ORDER BY 2 DESC, b.time_at DESC, b.seq DESC
+                  LIMIT $3"
+            );
+            within(tx, limits, |tx| tx.query(&sql, &[&stems, scopes, &depth]))?
+        }
     };
-    compared.commit().map_err(backend)?;
-    Ok(Near::Found(
-        rows.iter().map(|r| (r.get(0), r.get(1))).collect(),
-    ))
+    Ok(match found {
+        Some(rows) => Worded::Found(rows.iter().map(|r| (r.get(0), r.get(1))).collect()),
+        None => Worded::TooSlow,
+    })
 }
 
 impl PostgresStore {
     pub(crate) fn read_recall(&mut self, query: &RecallQuery) -> Result<RecallAnswer, StoreError> {
+        let limits = self.search_limits();
         let mut tx = read_transaction(self.client()?)?;
         let scopes: Option<Vec<String>> = named(&query.scopes);
 
         // By meaning, if the query came with a vector.
+        let mut reached = None;
         let (near, meaning) = match (query.search, &query.meaning) {
             (Search::Words, _) => (None, RecallMeaning::NotAsked),
             (_, MeaningLeg::Without(why)) => (None, *why),
@@ -203,16 +415,24 @@ impl PostgresStore {
                     Search::Meaning => i64::from(query.limit),
                     Search::Both | Search::Words => fused_depth(query.limit),
                 };
-                match nearest(&mut tx, question, &scopes, depth)? {
-                    Near::Found(near) => (Some(near), RecallMeaning::Used),
+                match nearest(&mut tx, question, &scopes, depth, limits)? {
+                    Near::Found(near) => {
+                        reached = Some(compared(&mut tx, question, &scopes)?);
+                        (Some(near), RecallMeaning::Used)
+                    }
                     Near::NotInstalled => (None, RecallMeaning::NotInstalled),
                     Near::TooSlow => (None, RecallMeaning::Unavailable),
                 }
             }
         };
         if query.search == Search::Meaning {
+            let said = Searched {
+                meaning,
+                words: RecallWords::NotAsked,
+                compared: reached,
+            };
             let Some(near) = near else {
-                return Ok(empty(RecallFound::NotSearched, meaning));
+                return Ok(empty(RecallFound::NotSearched, said));
             };
             let hits: Vec<Hit> = near
                 .iter()
@@ -224,62 +444,37 @@ impl PostgresStore {
                     distance: Some(*distance),
                 })
                 .collect();
-            return answer(tx, query, &scopes, hits, meaning);
+            return answer(tx, query, &scopes, hits, said);
         }
 
-        // By the words.
-        //
-        // A query of common words alone asks for nothing, and PostgreSQL
-        // would match nothing with it. One of words to leave out alone, or
-        // one where a word to leave out is an alternative, names no word the
-        // index can look up: PostgreSQL would read every chunk to answer
-        // it (`querytree` says `T`). Neither is searched, and saying so is
-        // the honest answer.
-        let searchable: bool = tx
-            .query_one(
-                &format!(
-                    "SELECT pg_catalog.numnode(q) > 0 AND pg_catalog.querytree(q) <> 'T'
-                       FROM (SELECT {QUERY} AS q) AS asked"
-                ),
-                &[&query.query],
-            )
-            .map_err(backend)?
-            .get(0);
-        if !searchable && near.is_none() {
-            return Ok(empty(RecallFound::NoTerms, meaning));
-        }
-
-        // Put together with a search by meaning, the words give more
-        // matches than the answer holds; alone, as many as it holds.
+        // By the words. Put together with a search by meaning, the words
+        // give more matches than the answer holds; alone, as many as it
+        // holds.
         let depth = match near {
             Some(_) => fused_depth(query.limit),
             None => i64::from(query.limit),
         };
-        let matches = if !searchable {
-            Vec::new()
-        } else {
-            tx.query(
-                &format!(
-                    "SELECT b.bead_id, max(pg_catalog.ts_rank_cd({SEARCHED}, {QUERY}))::float4
-                       FROM core_memory.chunk_text AS t
-                       JOIN core_memory.chunks AS c ON c.chunk_id = t.chunk_id
-                       JOIN core_memory.beads AS b
-                         ON b.bead_id = ANY (ARRAY[t.chunk_id, c.event_id])
-                        AND b.kind IN ('chunk', 'tool') AND b.state = 'live'
-                      WHERE {SEARCHED} @@ {QUERY}
-                        AND ($2::text[] IS NULL OR t.scope = ANY ($2))
-                      GROUP BY b.bead_id, b.time_at, b.seq
-                      ORDER BY 2 DESC, b.time_at DESC, b.seq DESC
-                      LIMIT $3"
-                ),
-                &[&query.query, &scopes, &depth],
-            )
-            .map_err(backend)?
+        let (words, worded) = match worded(&mut tx, query, &scopes, depth, limits)? {
+            Worded::Found(words) => (Some(words), RecallWords::Used),
+            Worded::NoTerms => (None, RecallWords::NoTerms),
+            Worded::TooSlow => (None, RecallWords::Unavailable),
         };
-        let words: Vec<(Uuid, f32)> = matches.iter().map(|r| (r.get(0), r.get(1))).collect();
-        let hits: Vec<Hit> = match &near {
-            Some(near) => fuse(&words, near, query.limit as usize),
-            None => words
+        let said = Searched {
+            meaning,
+            words: worded,
+            compared: reached,
+        };
+        let hits: Vec<Hit> = match (words, near) {
+            (None, None) => {
+                let found = match worded {
+                    RecallWords::NoTerms => RecallFound::NoTerms,
+                    _ => RecallFound::NotSearched,
+                };
+                return Ok(empty(found, said));
+            }
+            (Some(words), Some(near)) => fuse(&words, &near, query.limit as usize),
+            (None, Some(near)) => fuse(&[], &near, query.limit as usize),
+            (Some(words), None) => words
                 .iter()
                 .map(|(bead, rank)| Hit {
                     bead: *bead,
@@ -289,7 +484,7 @@ impl PostgresStore {
                 })
                 .collect(),
         };
-        answer(tx, query, &scopes, hits, meaning)
+        answer(tx, query, &scopes, hits, said)
     }
 }
 
@@ -301,10 +496,10 @@ fn answer(
     query: &RecallQuery,
     scopes: &Option<Vec<String>>,
     hits: Vec<Hit>,
-    meaning: RecallMeaning,
+    said: Searched,
 ) -> Result<RecallAnswer, StoreError> {
     if hits.is_empty() {
-        return Ok(empty(RecallFound::NoMatch, meaning));
+        return Ok(empty(RecallFound::NoMatch, said));
     }
     let matched = hits;
     let ids: Vec<Uuid> = matched.iter().map(|hit| hit.bead).collect();
@@ -455,17 +650,21 @@ fn answer(
         beads,
         arrows,
         linked_omitted,
-        meaning,
+        meaning: said.meaning,
+        words: said.words,
+        compared: said.compared,
     })
 }
 
-fn empty(found: RecallFound, meaning: RecallMeaning) -> RecallAnswer {
+fn empty(found: RecallFound, said: Searched) -> RecallAnswer {
     RecallAnswer {
         found,
         beads: Vec::new(),
         arrows: Vec::new(),
         linked_omitted: 0,
-        meaning,
+        meaning: said.meaning,
+        words: said.words,
+        compared: said.compared,
     }
 }
 
