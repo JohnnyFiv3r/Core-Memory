@@ -28,7 +28,7 @@ silicon), so no Rust toolchain is needed:
 
 ```bash
 uv tool install core-memory     # or: pipx install core-memory
-core-memory --version           # core-memory 2.1.1
+core-memory --version           # core-memory 2.2.0
 ```
 
 The engine needs PostgreSQL 15 or newer. The package holds only the command:
@@ -823,7 +823,7 @@ for. After the migration, engines from the old build answer `busy` until
 they are replaced, so nothing is written by code that does not know the new
 schema.
 
-2.0.0 released migrations 1 and 2, 2.1.0 migration 3 and 2.1.1 migration 4,
+2.0.0 released migrations 1 and 2, 2.1.0 migration 3 and 2.2.0 migration 4,
 and a released migration never changes. A database created by a build from
 before 2.0.0 must be recreated, not migrated.
 
