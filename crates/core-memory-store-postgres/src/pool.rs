@@ -11,11 +11,12 @@ use std::time::{Duration, Instant};
 use core_memory_contract::{Checkpoint, EventId, RecallAnswer, Sha256Digest, Timestamp};
 use core_memory_core::store::{
     AdmissionCommit, AdmissionWrite, CallFinish, CallFinished, Change, CheckpointAdvance,
-    CheckpointState, JudgeBatch, JudgeClaim, JudgePermit, JudgePermitRequest, JudgeSettle,
-    JudgmentFinish, JudgmentFinished, LeasedToolCall, Permit, PermitRequest, PinKind, PinResult,
-    Purpose, ReadBatch, ScopeInfo, Store, StoredEvent, WorkCounts, WorkUpdate,
+    CheckpointState, EmbedBatch, EmbedFinish, JudgeBatch, JudgeClaim, JudgePermit,
+    JudgePermitRequest, JudgeSettle, JudgmentFinish, JudgmentFinished, LeasedToolCall,
+    MeaningReady, Permit, PermitRequest, PinKind, PinResult, Purpose, ReadBatch, ScopeInfo, Store,
+    StoredEvent, WorkCounts, WorkUpdate,
 };
-use core_memory_core::{RecallQuery, StoreError};
+use core_memory_core::{RecallQuery, ScopeGrants, StoreError};
 
 use crate::connect::{ConnectConfig, Connector};
 use crate::store::PostgresStore;
@@ -227,6 +228,31 @@ impl Store for PoolStore<'_> {
 
     fn update_work(&mut self, work: &[WorkUpdate]) -> Result<(), StoreError> {
         self.checkout()?.update_work(work)
+    }
+
+    fn claim_embeddings(
+        &mut self,
+        limit: u32,
+        max_attempts: u32,
+        now: Timestamp,
+        lease_until: Timestamp,
+    ) -> Result<Option<EmbedBatch>, StoreError> {
+        self.checkout()?
+            .claim_embeddings(limit, max_attempts, now, lease_until)
+    }
+
+    fn finish_embedding(&mut self, finish: &EmbedFinish<'_>) -> Result<CallFinished, StoreError> {
+        self.checkout()?.finish_embedding(finish)
+    }
+
+    fn meaning_ready(
+        &mut self,
+        scopes: &ScopeGrants,
+        destination: &str,
+        embedder_rev: &Sha256Digest,
+    ) -> Result<MeaningReady, StoreError> {
+        self.checkout()?
+            .meaning_ready(scopes, destination, embedder_rev)
     }
 
     fn settle_judgment(&mut self, settle: &JudgeSettle<'_>) -> Result<(), StoreError> {

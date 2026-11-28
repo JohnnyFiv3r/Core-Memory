@@ -5,21 +5,27 @@
 //! which hold what a judge said as IDs. An erase therefore reaches
 //! everything recall could return, in the erase's own transaction.
 //!
+//! A query that comes with a vector is also compared with the vectors of
+//! `chunk_vectors`, which an erase deletes with the text they were made
+//! from. A vector finds a chunk; what is returned is the chunk's text.
+//!
 //! Every statement here runs in one read-only transaction on one
 //! snapshot, which takes `schema_migrations` before anything else.
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use core_memory_contract::{
-    Arrow, BeadId, BeadKind, ChunkId, EdgeType, EventId, EventKey, RECALL_MAX_LINKED,
-    RECALL_MAX_TEXT_BYTES, RecallAnswer, RecallFound, RecallVia, RecalledArrow, RecalledBead,
-    RecalledChunk, RecalledEvent, TimeBasis, Timestamp,
+    Arrow, BeadId, BeadKind, ChunkId, EdgeType, EventId, EventKey, MatchedBy, RECALL_MAX_LINKED,
+    RECALL_MAX_TEXT_BYTES, RecallAnswer, RecallFound, RecallMeaning, RecallVia, RecalledArrow,
+    RecalledBead, RecalledChunk, RecalledEvent, TimeBasis, Timestamp,
 };
-use core_memory_core::{RecallQuery, ScopeGrants, StoreError};
+use core_memory_core::{MeaningLeg, QuestionVector, RecallQuery, Search, StoreError};
 use postgres::Transaction;
+use postgres::error::SqlState;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
+use crate::embed::{dimensions, named, vector_schema};
 use crate::error::{backend, corrupt};
 use crate::store::{PostgresStore, read_transaction, to_u32, to_u64};
 
@@ -35,20 +41,194 @@ const ENDING: &str = "(SELECT a.arrow FROM core_memory.arrows AS a WHERE a.ends_
 /// Arrows that say two beads cannot both hold.
 const DISPUTING: &str = "(SELECT a.arrow FROM core_memory.arrows AS a WHERE a.disputes)";
 
+/// The constant of reciprocal rank fusion: a bead's score is the sum, over
+/// the searches that found it, of one over this plus its place in that
+/// search. With 60, the usual value, a bead both searches found outranks
+/// one that either put first.
+const FUSION_K: f32 = 60.0;
+
+/// How many matches each search gives when two are put together. More
+/// than the answer holds, so that a bead both found a little way down is
+/// not lost to one that a single search put higher.
+fn fused_depth(limit: u32) -> i64 {
+    i64::from(limit.saturating_mul(3).max(30))
+}
+
 /// One bead's place in an answer, before its details are read.
 struct Placed {
     bead: Uuid,
     via: RecallVia,
 }
 
+/// A bead a search found.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Hit {
+    bead: Uuid,
+    rank: f32,
+    by: MatchedBy,
+    distance: Option<f32>,
+}
+
+/// Puts the matches of the two searches in one order, by reciprocal rank
+/// fusion. Each list is best first. Places are what is added up, never
+/// the two searches' own scores, which measure different things.
+fn fuse(words: &[(Uuid, f32)], near: &[(Uuid, f32)], limit: usize) -> Vec<Hit> {
+    let mut hits: BTreeMap<Uuid, Hit> = BTreeMap::new();
+    for (place, (bead, _)) in words.iter().enumerate() {
+        hits.insert(
+            *bead,
+            Hit {
+                bead: *bead,
+                rank: 1.0 / (FUSION_K + place as f32 + 1.0),
+                by: MatchedBy::Words,
+                distance: None,
+            },
+        );
+    }
+    for (place, (bead, distance)) in near.iter().enumerate() {
+        let score = 1.0 / (FUSION_K + place as f32 + 1.0);
+        hits.entry(*bead)
+            .and_modify(|hit| {
+                hit.rank += score;
+                hit.by = MatchedBy::Both;
+                hit.distance = Some(*distance);
+            })
+            .or_insert(Hit {
+                bead: *bead,
+                rank: score,
+                by: MatchedBy::Meaning,
+                distance: Some(*distance),
+            });
+    }
+    let mut fused: Vec<Hit> = hits.into_values().collect();
+    // Best first. Two beads with one score keep a fixed order: the one
+    // whose words matched first, then by ID.
+    fused.sort_by(|a, b| {
+        b.rank
+            .total_cmp(&a.rank)
+            .then((a.by == MatchedBy::Meaning).cmp(&(b.by == MatchedBy::Meaning)))
+            .then(a.bead.cmp(&b.bead))
+    });
+    fused.truncate(limit);
+    fused
+}
+
+/// What a search by meaning came to.
+enum Near {
+    /// The live chunk beads whose vectors are nearest the query's, nearest
+    /// first, with their cosine distances.
+    Found(Vec<(Uuid, f32)>),
+    /// The database cannot compare vectors.
+    NotInstalled,
+    /// The comparison ran past the store's statement timeout.
+    TooSlow,
+}
+
+/// Compares the query's vector with the stored ones.
+///
+/// Every vector of the scopes searched is compared: the search is exact,
+/// and its cost grows with what is stored. Only vectors the query's own
+/// embedder made are compared, and only those of scopes that allow the
+/// embedder's destination now: a scope that has taken its consent back is
+/// no longer searched this way.
+fn nearest(
+    tx: &mut Transaction<'_>,
+    question: &QuestionVector,
+    scopes: &Option<Vec<String>>,
+    depth: i64,
+) -> Result<Near, StoreError> {
+    let Some(schema) = vector_schema(tx)? else {
+        return Ok(Near::NotInstalled);
+    };
+    // Every vector searched is compared, so on a large store the statement
+    // can run past the store's timeout. That ends this search and not the
+    // recall: it runs inside a savepoint, and the words still answer. The
+    // caller is told, where a failed recall would be asked for again and
+    // time out again.
+    let mut compared = tx.transaction().map_err(backend)?;
+    let found = compared.query(
+        &format!(
+            "SELECT near.chunk_id, near.distance::float4
+                   FROM (SELECT v.chunk_id,
+                                v.vector::{schema}.vector
+                                    OPERATOR({schema}.<=>) $1::real[]::{schema}.vector
+                                    AS distance
+                           FROM core_memory.chunk_vectors AS v
+                          WHERE v.embedder_rev = $2 AND v.dimensions = $3
+                            AND ($4::text[] IS NULL OR v.scope = ANY ($4))
+                            AND EXISTS (SELECT 1 FROM core_memory.scope_destinations AS d
+                                         WHERE d.scope = v.scope AND d.destination = $5
+                                           AND d.state = 'granted')) AS near
+                   JOIN core_memory.beads AS b
+                     ON b.bead_id = near.chunk_id AND b.kind = 'chunk' AND b.state = 'live'
+                  WHERE $6::float8 IS NULL OR near.distance <= $6
+                  ORDER BY near.distance, b.time_at DESC, b.seq DESC
+                  LIMIT $7"
+        ),
+        &[
+            &question.vector,
+            &question.embedder_rev.as_bytes().as_slice(),
+            &dimensions(&question.vector)?,
+            scopes,
+            &question.destination,
+            &question.max_distance.map(f64::from),
+            &depth,
+        ],
+    );
+    let rows = match found {
+        Ok(rows) => rows,
+        Err(e) if e.code() == Some(&SqlState::QUERY_CANCELED) => {
+            compared.rollback().map_err(backend)?;
+            return Ok(Near::TooSlow);
+        }
+        Err(e) => return Err(backend(e)),
+    };
+    compared.commit().map_err(backend)?;
+    Ok(Near::Found(
+        rows.iter().map(|r| (r.get(0), r.get(1))).collect(),
+    ))
+}
+
 impl PostgresStore {
     pub(crate) fn read_recall(&mut self, query: &RecallQuery) -> Result<RecallAnswer, StoreError> {
         let mut tx = read_transaction(self.client()?)?;
-        let scopes: Option<Vec<String>> = match &query.scopes {
-            ScopeGrants::All => None,
-            ScopeGrants::Only(named) => Some(named.iter().cloned().collect()),
-        };
+        let scopes: Option<Vec<String>> = named(&query.scopes);
 
+        // By meaning, if the query came with a vector.
+        let (near, meaning) = match (query.search, &query.meaning) {
+            (Search::Words, _) => (None, RecallMeaning::NotAsked),
+            (_, MeaningLeg::Without(why)) => (None, *why),
+            (_, MeaningLeg::Vector(question)) => {
+                let depth = match query.search {
+                    Search::Meaning => i64::from(query.limit),
+                    Search::Both | Search::Words => fused_depth(query.limit),
+                };
+                match nearest(&mut tx, question, &scopes, depth)? {
+                    Near::Found(near) => (Some(near), RecallMeaning::Used),
+                    Near::NotInstalled => (None, RecallMeaning::NotInstalled),
+                    Near::TooSlow => (None, RecallMeaning::Unavailable),
+                }
+            }
+        };
+        if query.search == Search::Meaning {
+            let Some(near) = near else {
+                return Ok(empty(RecallFound::NotSearched, meaning));
+            };
+            let hits: Vec<Hit> = near
+                .iter()
+                .map(|(bead, distance)| Hit {
+                    bead: *bead,
+                    // Nearest first, as a number that is higher for better.
+                    rank: 1.0 - distance,
+                    by: MatchedBy::Meaning,
+                    distance: Some(*distance),
+                })
+                .collect();
+            return answer(tx, query, &scopes, hits, meaning);
+        }
+
+        // By the words.
+        //
         // A query of common words alone asks for nothing, and PostgreSQL
         // would match nothing with it. One of words to leave out alone, or
         // one where a word to leave out is an alternative, names no word the
@@ -65,12 +245,20 @@ impl PostgresStore {
             )
             .map_err(backend)?
             .get(0);
-        if !searchable {
-            return Ok(empty(RecallFound::NoTerms));
+        if !searchable && near.is_none() {
+            return Ok(empty(RecallFound::NoTerms, meaning));
         }
 
-        let matches = tx
-            .query(
+        // Put together with a search by meaning, the words give more
+        // matches than the answer holds; alone, as many as it holds.
+        let depth = match near {
+            Some(_) => fused_depth(query.limit),
+            None => i64::from(query.limit),
+        };
+        let matches = if !searchable {
+            Vec::new()
+        } else {
+            tx.query(
                 &format!(
                     "SELECT b.bead_id, max(pg_catalog.ts_rank_cd({SEARCHED}, {QUERY}))::float4
                        FROM core_memory.chunk_text AS t
@@ -84,72 +272,110 @@ impl PostgresStore {
                       ORDER BY 2 DESC, b.time_at DESC, b.seq DESC
                       LIMIT $3"
                 ),
-                &[&query.query, &scopes, &i64::from(query.limit)],
-            )
-            .map_err(backend)?;
-        if matches.is_empty() {
-            return Ok(empty(RecallFound::NoMatch));
-        }
-        let matched: Vec<(Uuid, f32)> = matches.iter().map(|r| (r.get(0), r.get(1))).collect();
-        let ids: Vec<Uuid> = matched.iter().map(|(id, _)| *id).collect();
-
-        // The bead whose arrow ended each match that is no longer current.
-        let enders: BTreeMap<Uuid, Uuid> = tx
-            .query(
-                &format!(
-                    "SELECT e.to_bead, e.from_bead FROM core_memory.edges AS e
-                      WHERE e.to_bead = ANY ($1) AND e.arrow IN {ENDING}"
-                ),
-                &[&ids],
+                &[&query.query, &scopes, &depth],
             )
             .map_err(backend)?
-            .iter()
-            .map(|r| (r.get(0), r.get(1)))
-            .collect();
-        let ended: Vec<Uuid> = ids
-            .iter()
-            .copied()
-            .filter(|id| enders.contains_key(id))
-            .collect();
-        let heads = successors(&mut tx, &ended, &scopes)?;
-
-        // Matches, best first, each followed by what now stands in its
-        // place.
-        let mut placed: Vec<Placed> = Vec::new();
-        let mut seen: BTreeSet<Uuid> = BTreeSet::new();
-        let matched_ids: BTreeSet<Uuid> = ids.iter().copied().collect();
-        for (bead, rank) in &matched {
-            if (!enders.contains_key(bead) || query.include_ended) && seen.insert(*bead) {
-                placed.push(Placed {
+        };
+        let words: Vec<(Uuid, f32)> = matches.iter().map(|r| (r.get(0), r.get(1))).collect();
+        let hits: Vec<Hit> = match &near {
+            Some(near) => fuse(&words, near, query.limit as usize),
+            None => words
+                .iter()
+                .map(|(bead, rank)| Hit {
                     bead: *bead,
-                    via: RecallVia::Match { rank: *rank },
+                    rank: *rank,
+                    by: MatchedBy::Words,
+                    distance: None,
+                })
+                .collect(),
+        };
+        answer(tx, query, &scopes, hits, meaning)
+    }
+}
+
+/// The answer that `hits`, best first, make: each match, what stands in
+/// the place of one that is no longer current, what a judge related to
+/// them, and the arrows between all of them.
+fn answer(
+    mut tx: Transaction<'_>,
+    query: &RecallQuery,
+    scopes: &Option<Vec<String>>,
+    hits: Vec<Hit>,
+    meaning: RecallMeaning,
+) -> Result<RecallAnswer, StoreError> {
+    if hits.is_empty() {
+        return Ok(empty(RecallFound::NoMatch, meaning));
+    }
+    let matched = hits;
+    let ids: Vec<Uuid> = matched.iter().map(|hit| hit.bead).collect();
+
+    // The bead whose arrow ended each match that is no longer current.
+    let enders: BTreeMap<Uuid, Uuid> = tx
+        .query(
+            &format!(
+                "SELECT e.to_bead, e.from_bead FROM core_memory.edges AS e
+                      WHERE e.to_bead = ANY ($1) AND e.arrow IN {ENDING}"
+            ),
+            &[&ids],
+        )
+        .map_err(backend)?
+        .iter()
+        .map(|r| (r.get(0), r.get(1)))
+        .collect();
+    let ended: Vec<Uuid> = ids
+        .iter()
+        .copied()
+        .filter(|id| enders.contains_key(id))
+        .collect();
+    let heads = successors(&mut tx, &ended, scopes)?;
+
+    // Matches, best first, each followed by what now stands in its
+    // place.
+    let mut placed: Vec<Placed> = Vec::new();
+    let mut seen: BTreeSet<Uuid> = BTreeSet::new();
+    let matched_ids: BTreeSet<Uuid> = ids.iter().copied().collect();
+    for Hit {
+        bead,
+        rank,
+        by,
+        distance,
+    } in &matched
+    {
+        if (!enders.contains_key(bead) || query.include_ended) && seen.insert(*bead) {
+            placed.push(Placed {
+                bead: *bead,
+                via: RecallVia::Match {
+                    rank: *rank,
+                    by: *by,
+                    distance: *distance,
+                },
+            });
+        }
+        if let Some(head) = heads.get(bead) {
+            // A successor that matched too is listed as a match.
+            if !matched_ids.contains(head) && seen.insert(*head) {
+                placed.push(Placed {
+                    bead: *head,
+                    via: RecallVia::Successor { of: BeadId(*bead) },
                 });
             }
-            if let Some(head) = heads.get(bead) {
-                // A successor that matched too is listed as a match.
-                if !matched_ids.contains(head) && seen.insert(*head) {
-                    placed.push(Placed {
-                        bead: *head,
-                        via: RecallVia::Successor { of: BeadId(*bead) },
-                    });
-                }
-            }
         }
+    }
 
-        // What a judge related to them, up to `follow` steps away. A match
-        // left out because it was ended is not brought back that way, and
-        // nothing is reached through it.
-        let seeds: Vec<Uuid> = placed.iter().map(|p| p.bead).collect();
-        let left_out: Vec<Uuid> = ended
-            .iter()
-            .copied()
-            .filter(|id| !seen.contains(id))
-            .collect();
-        let mut linked_omitted = 0;
-        if query.follow > 0 && !seeds.is_empty() {
-            let rows = tx
-                .query(
-                    "WITH RECURSIVE reach (bead, steps, onward) AS (
+    // What a judge related to them, up to `follow` steps away. A match
+    // left out because it was ended is not brought back that way, and
+    // nothing is reached through it.
+    let seeds: Vec<Uuid> = placed.iter().map(|p| p.bead).collect();
+    let left_out: Vec<Uuid> = ended
+        .iter()
+        .copied()
+        .filter(|id| !seen.contains(id))
+        .collect();
+    let mut linked_omitted = 0;
+    if query.follow > 0 && !seeds.is_empty() {
+        let rows = tx
+            .query(
+                "WITH RECURSIVE reach (bead, steps, onward) AS (
                          SELECT s, 0, true FROM pg_catalog.unnest($1::uuid[]) AS s
                        UNION
                          SELECT n.bead,
@@ -175,70 +401,71 @@ impl PostgresStore {
                       GROUP BY r.bead, b.time_at, b.seq
                       ORDER BY 2, b.time_at DESC, b.seq DESC
                       LIMIT $4",
-                    &[
-                        &seeds,
-                        &to_i32_steps(query.follow),
-                        &scopes,
-                        &i64::from(RECALL_MAX_LINKED),
-                        &left_out,
-                    ],
-                )
-                .map_err(backend)?;
-            if let Some(first) = rows.first() {
-                let total = to_u64(first.get(2), "beads reached")?;
-                linked_omitted =
-                    u32::try_from(total.saturating_sub(rows.len() as u64)).unwrap_or(u32::MAX);
-            }
-            for row in &rows {
-                placed.push(Placed {
-                    bead: row.get(0),
-                    via: RecallVia::Linked {
-                        steps: to_u32(row.get(1), "steps")?,
-                    },
-                });
-            }
+                &[
+                    &seeds,
+                    &to_i32_steps(query.follow),
+                    &scopes,
+                    &i64::from(RECALL_MAX_LINKED),
+                    &left_out,
+                ],
+            )
+            .map_err(backend)?;
+        if let Some(first) = rows.first() {
+            let total = to_u64(first.get(2), "beads reached")?;
+            linked_omitted =
+                u32::try_from(total.saturating_sub(rows.len() as u64)).unwrap_or(u32::MAX);
         }
+        for row in &rows {
+            placed.push(Placed {
+                bead: row.get(0),
+                via: RecallVia::Linked {
+                    steps: to_u32(row.get(1), "steps")?,
+                },
+            });
+        }
+    }
 
-        let beads = describe(&mut tx, &placed, &scopes)?;
-        let all: Vec<Uuid> = placed.iter().map(|p| p.bead).collect();
-        let arrows = tx
-            .query(
-                "SELECT e.from_bead, e.to_bead, e.arrow, e.edge_type FROM core_memory.edges AS e
+    let beads = describe(&mut tx, &placed, scopes)?;
+    let all: Vec<Uuid> = placed.iter().map(|p| p.bead).collect();
+    let arrows = tx
+        .query(
+            "SELECT e.from_bead, e.to_bead, e.arrow, e.edge_type FROM core_memory.edges AS e
                   WHERE e.from_bead = ANY ($1) AND e.to_bead = ANY ($1)
                   ORDER BY e.workspace_id, e.seq",
-                &[&all],
-            )
-            .map_err(backend)?
-            .iter()
-            .map(|r| {
-                let arrow: &str = r.get(2);
-                let edge_type: &str = r.get(3);
-                Ok(RecalledArrow {
-                    from_bead: BeadId(r.get(0)),
-                    to_bead: BeadId(r.get(1)),
-                    arrow: Arrow::from_name(arrow)
-                        .ok_or_else(|| corrupt(format!("unknown arrow `{arrow}`")))?,
-                    edge_type: EdgeType::from_name(edge_type)
-                        .ok_or_else(|| corrupt(format!("unknown edge type `{edge_type}`")))?,
-                })
+            &[&all],
+        )
+        .map_err(backend)?
+        .iter()
+        .map(|r| {
+            let arrow: &str = r.get(2);
+            let edge_type: &str = r.get(3);
+            Ok(RecalledArrow {
+                from_bead: BeadId(r.get(0)),
+                to_bead: BeadId(r.get(1)),
+                arrow: Arrow::from_name(arrow)
+                    .ok_or_else(|| corrupt(format!("unknown arrow `{arrow}`")))?,
+                edge_type: EdgeType::from_name(edge_type)
+                    .ok_or_else(|| corrupt(format!("unknown edge type `{edge_type}`")))?,
             })
-            .collect::<Result<Vec<_>, StoreError>>()?;
-        tx.commit().map_err(backend)?;
-        Ok(RecallAnswer {
-            found: RecallFound::Matched,
-            beads,
-            arrows,
-            linked_omitted,
         })
-    }
+        .collect::<Result<Vec<_>, StoreError>>()?;
+    tx.commit().map_err(backend)?;
+    Ok(RecallAnswer {
+        found: RecallFound::Matched,
+        beads,
+        arrows,
+        linked_omitted,
+        meaning,
+    })
 }
 
-fn empty(found: RecallFound) -> RecallAnswer {
+fn empty(found: RecallFound, meaning: RecallMeaning) -> RecallAnswer {
     RecallAnswer {
         found,
         beads: Vec::new(),
         arrows: Vec::new(),
         linked_omitted: 0,
+        meaning,
     }
 }
 
@@ -462,7 +689,56 @@ fn describe(
 
 #[cfg(test)]
 mod tests {
-    use super::SEARCHED;
+    use core_memory_contract::MatchedBy;
+    use uuid::Uuid;
+
+    use super::{SEARCHED, fuse, fused_depth};
+
+    #[test]
+    fn two_searches_are_put_together_by_place_and_never_by_score() {
+        let bead = |n: u128| Uuid::from_u128(n);
+        // The words' scores and the distances measure different things:
+        // only each bead's place in its list counts.
+        let words = [(bead(1), 900.0), (bead(2), 0.5), (bead(3), 0.1)];
+        let near = [(bead(4), 0.01), (bead(3), 0.2), (bead(5), 0.9)];
+        let fused = fuse(&words, &near, 10);
+        let order: Vec<(Uuid, MatchedBy)> = fused.iter().map(|hit| (hit.bead, hit.by)).collect();
+        assert_eq!(
+            order,
+            [
+                // Third by the words and second by meaning: found by both,
+                // it outranks what either search put first.
+                (bead(3), MatchedBy::Both),
+                // First in each. The one whose words matched goes first.
+                (bead(1), MatchedBy::Words),
+                (bead(4), MatchedBy::Meaning),
+                (bead(2), MatchedBy::Words),
+                (bead(5), MatchedBy::Meaning),
+            ]
+        );
+        assert!((fused[0].rank - (1.0 / 63.0 + 1.0 / 62.0)).abs() < 1e-6);
+        assert!((fused[1].rank - 1.0 / 61.0).abs() < 1e-6);
+        // A match by meaning says how far it is; one by the words has no
+        // distance to give.
+        assert_eq!(fused[0].distance, Some(0.2));
+        assert_eq!(fused[1].distance, None);
+        assert_eq!(fused[2].distance, Some(0.01));
+        // The answer holds as many as were asked for, the best of them.
+        let fewer = fuse(&words, &near, 2);
+        assert_eq!(
+            fewer.iter().map(|hit| hit.bead).collect::<Vec<_>>(),
+            [bead(3), bead(1)]
+        );
+        // One search finding nothing leaves the other's order as it was.
+        let alone = fuse(&[], &near, 10);
+        assert_eq!(
+            alone.iter().map(|hit| hit.bead).collect::<Vec<_>>(),
+            [bead(4), bead(3), bead(5)]
+        );
+        assert!(fuse(&[], &[], 10).is_empty());
+        assert_eq!(fused_depth(10), 30);
+        assert_eq!(fused_depth(50), 150);
+    }
 
     #[test]
     fn the_search_is_the_expression_the_index_holds() {

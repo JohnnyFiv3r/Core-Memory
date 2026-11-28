@@ -30,6 +30,10 @@ pub struct BindingConfig {
     pub temperature: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reasoning_effort: Option<String>,
+    /// The most tokens a reply may use. A binding that reads or judges
+    /// must say; one that only embeds has no reply to limit and leaves it
+    /// out.
+    #[serde(default)]
     pub max_output_tokens: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub seed: Option<u64>,
@@ -115,9 +119,6 @@ impl BindingConfig {
                 return err(&format!("{name} must not be empty"));
             }
         }
-        if self.max_output_tokens == 0 {
-            return err("max_output_tokens must be 1 or more");
-        }
         if let Some(t) = self.temperature
             && !(0.0..=2.0).contains(&t)
         {
@@ -133,6 +134,18 @@ impl BindingConfig {
             return err("timeout_ms must be 1 or more");
         }
         self.destination().map(|_| ())
+    }
+
+    /// Checks that the binding can be asked for a reply: a reader's, a tool
+    /// reader's or a judge's binding must limit what a reply may use.
+    pub fn replies(&self) -> Result<(), ConfigError> {
+        if self.max_output_tokens == 0 {
+            return Err(ConfigError::new(format!(
+                "binding `{}`: max_output_tokens must be 1 or more",
+                self.id
+            )));
+        }
+        Ok(())
     }
 
     /// Where a call through this binding sends text: the endpoint's host
@@ -306,6 +319,55 @@ pub trait ModelTransport: Send + Sync + fmt::Debug {
         binding: &BindingConfig,
         request: &ModelRequest,
     ) -> Result<ModelResponse, TransportError>;
+}
+
+/// One embedding call: texts in, one vector for each out, in order.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EmbedRequest {
+    pub inputs: Vec<String>,
+    /// The length of vector to ask for, where the model can be asked.
+    pub dimensions: Option<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct EmbedResponse {
+    /// One vector for each input, in the order of the inputs.
+    pub vectors: Vec<Vec<f32>>,
+    /// Tokens the provider counted in the inputs. Zero if it did not say.
+    pub input_tokens: u64,
+}
+
+/// Turns texts into vectors for a binding. Like [`ModelTransport`], an
+/// implementation makes at most one request per call, with no hidden
+/// retries or fallbacks.
+pub trait EmbedTransport: Send + Sync + fmt::Debug {
+    fn embed(
+        &self,
+        binding: &BindingConfig,
+        request: &EmbedRequest,
+    ) -> Result<EmbedResponse, TransportError>;
+}
+
+/// Embeds with a function of the request.
+pub struct FnEmbedTransport<F>(pub F);
+
+impl<F> fmt::Debug for FnEmbedTransport<F> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("FnEmbedTransport")
+    }
+}
+
+impl<F> EmbedTransport for FnEmbedTransport<F>
+where
+    F: Fn(&EmbedRequest) -> Result<EmbedResponse, TransportError> + Send + Sync,
+{
+    fn embed(
+        &self,
+        _: &BindingConfig,
+        request: &EmbedRequest,
+    ) -> Result<EmbedResponse, TransportError> {
+        (self.0)(request)
+    }
 }
 
 /// Answers from a queue of canned results, recording every request.

@@ -1412,3 +1412,39 @@ fn connections_past_the_limit_wait_their_turn() {
     let answer = read_to_close(&mut third).expect("the third connection was served");
     assert!(answer.starts_with("HTTP/1.1 200"), "{answer}");
 }
+
+#[test]
+fn an_answer_says_whether_it_was_searched_for_by_meaning() {
+    let s = Server::new();
+    assert_eq!(
+        s.post(WRITER, event("1", "The launch is on Thursday."))
+            .status,
+        StatusCode::OK
+    );
+    let recall = |body: Value| s.call("POST", "/v1/recall", Some(READER), Some(body));
+
+    // This engine has no embedder, so the words are what is searched.
+    let reply = recall(json!({"query": "launch"}));
+    assert_eq!(reply.status, StatusCode::OK);
+    assert_eq!(
+        (&reply.body["found"], &reply.body["meaning"]),
+        (&json!("matched"), &json!("not_configured"))
+    );
+    assert_eq!(reply.body["beads"][0]["by"], "words");
+    assert!(reply.body["beads"][0].get("distance").is_none());
+
+    let reply = recall(json!({"query": "launch", "search": "words"}));
+    assert_eq!(reply.body["meaning"], "not_asked");
+    // Asked for meaning alone, the answer says nothing was searched: it
+    // does not say nothing matched.
+    let reply = recall(json!({"query": "launch", "search": "meaning"}));
+    assert_eq!(reply.status, StatusCode::OK);
+    assert_eq!(
+        (&reply.body["found"], &reply.body["meaning"]),
+        (&json!("not_searched"), &json!("not_configured"))
+    );
+    assert_eq!(
+        recall(json!({"query": "launch", "search": "both"})).outcome(),
+        (StatusCode::BAD_REQUEST, "malformed")
+    );
+}

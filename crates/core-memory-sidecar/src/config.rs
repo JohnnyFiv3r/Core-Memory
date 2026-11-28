@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use core_memory_contract::Sha256Digest;
+use core_memory_core::EmbedderConfig;
 use core_memory_core::judge::JudgeConfig;
 use core_memory_core::read::ReaderConfig;
 use core_memory_core::tool::ToolReaderConfig;
@@ -39,6 +40,11 @@ pub struct SidecarConfig {
     /// workspace. Without it nothing is judged.
     #[serde(default)]
     pub judge: Option<JudgeConfig>,
+    /// Has a model give each chunk a vector, so that recall finds chunks
+    /// by meaning as well as by their words. Without it nothing is
+    /// embedded.
+    #[serde(default)]
+    pub embedder: Option<EmbedderConfig>,
     /// The models the engine may call.
     #[serde(default, rename = "binding")]
     pub bindings: Vec<BindingConfig>,
@@ -492,6 +498,7 @@ impl Loaded {
             reader: self.config.reader.clone(),
             tool_reader: self.config.tool_reader.clone(),
             judge: self.config.judge.clone(),
+            embedder: self.config.embedder.clone(),
             bindings: self.config.bindings.clone(),
         }
     }

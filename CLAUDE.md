@@ -27,11 +27,17 @@ auditable memory in PostgreSQL. For each SourceEvent it:
 6. asks a judge model how each new bead relates to the beads near it in
    time, across the scopes of its workspace, and to those of the events its
    source names, when a judge is configured and each bead's scope allows
-   the model's destination.
+   the model's destination;
+7. asks an embedding model for a vector of each chunk that is not a tool
+   call's, when an embedder is configured and the chunk's scope allows the
+   model's destination.
 
 It also answers recall: the stored text that holds some words, verbatim,
-with what a judge said of it. Recall is a read of the same tables. It keeps
-nothing of its own and calls no model.
+with what a judge said of it. Recall is a read of the same tables and keeps
+nothing of its own. With an embedder it also finds text by meaning: the
+query is given a vector and compared with the chunks' vectors, and the
+answer says which search found each match. A vector finds a chunk. It is
+never evidence, and what is returned is always the chunk's stored text.
 
 PostgreSQL is the only store and the system of record. The engine owns the
 `core_memory` schema. A host such as memoriesQL runs the engine against its
@@ -144,10 +150,10 @@ are, and the judge decides how they relate.
   the tables or on the read views, which run with the reader's rights. Row
   security stays on for every table and nothing is granted to `PUBLIC`.
 - The engine's database role can read and insert. It cannot change or delete
-  what it stored, change a scope's state, give model consent, or erase. The
-  queue of its own work (`work`) is the one table it changes in place, and
-  an arrow that waits for its second read (`pending_chains`) is the one
-  other row it deletes.
+  what it stored, a vector included, change a scope's state, give model
+  consent, or erase. The queue of its own work (`work`) is the one table it
+  changes in place, and an arrow that waits for its second read
+  (`pending_chains`) is the one other row it deletes.
 
 ### 6. Text lives in one place
 
@@ -158,6 +164,11 @@ are, and the judge decides how they relate.
 - Erasing a message removes its text and everything derived from that text,
   in one transaction. A new table that holds content must be erased with its
   source, and must say so in `docs/architecture.md`.
+- A chunk's vector (`chunk_vectors`) is derived from its text, and text can
+  be guessed back from it. A vector exists only while its text does: its key
+  to `chunk_text` deletes it in the statement that deletes the text. That
+  is the one key in the schema that deletes, and nothing else deletes a
+  vector. The planner keeps no sample of one.
 - What code computed from two beads' content for a verdict
   (`verdicts.columns`), and where a name stands in a chunk (`name_links`),
   are derived from text: both go when either bead is erased. Edges stay,
@@ -240,8 +251,24 @@ Tests fail if a function or a store call takes another lock first.
   own (`signed-in@` and the host), marked from its provider, never by a
   config. Consent is per scope and per destination, and only a governance
   function gives it.
-- Every call goes through the `ModelTransport` trait: one request, with no
-  hidden retry or fallback. Core has no code for any one provider.
+- Every call goes through the `ModelTransport` trait, or `EmbedTransport`
+  for an embedding: one request, with no hidden retry or fallback. Core has
+  no code for any one provider.
+- An embedding call is permitted and receipted as a read is, and a vector
+  is stored on a read's terms: only for a chunk its call's receipt names,
+  whose text still exists and whose scope is still active. A call that
+  fails is made again by the queue, after a wait, a counted number of
+  times, each with a receipt of its own. A tool call's chunks are never
+  embedded.
+- A recall query is the caller's own text, not stored text. It is sent to
+  the embedder without a receipt, and only when a scope that would be
+  searched holds vectors of that embedder and allows its destination now.
+  Asked for the words only, it is sent nowhere. It is never stored or
+  logged. Only vectors of scopes that allow the destination now are
+  compared, so a scope that takes its consent back is no longer searched
+  by meaning.
+- A vector never makes a relationship. Recall ranks by it; no edge, verdict
+  or type is written from a distance (see invariant 4).
 - Nothing a model writes about a chunk is stored. A type is a key of the
   vocabulary, an abstention is one of a fixed set, and anything else the
   model reports is a quote kept as the byte range where it was found in
@@ -297,6 +324,11 @@ database:
 export CORE_MEMORY_TEST_DATABASE_URL=postgresql://postgres:secret@127.0.0.1:5432/postgres
 cargo test --workspace --all-features
 ```
+
+The tests of recall by meaning need a server that has the `vector`
+extension (pgvector) to install, such as the `pgvector/pgvector` images.
+On a server without it they say so and pass without searching. CI sets
+`CORE_MEMORY_TEST_PGVECTOR=required`, which fails them there instead.
 
 There is no in-memory store. The engine's guarantees are transactional, so
 they are tested against PostgreSQL.

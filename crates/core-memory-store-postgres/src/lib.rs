@@ -9,6 +9,7 @@
 //! `docs/architecture.md` describes the schema and the reasons for it.
 
 mod connect;
+mod embed;
 mod error;
 mod judge;
 pub mod migrate;

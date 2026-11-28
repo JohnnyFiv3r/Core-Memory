@@ -141,6 +141,10 @@ fn ask(query: &str) -> RecallQuery {
         limit: 10,
         follow: 1,
         include_ended: false,
+        search: core_memory_core::Search::Words,
+        meaning: core_memory_core::MeaningLeg::Without(
+            core_memory_contract::RecallMeaning::NotAsked,
+        ),
     }
 }
 

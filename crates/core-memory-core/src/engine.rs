@@ -13,6 +13,7 @@ use serde::Deserialize;
 
 use crate::clock::Clock;
 use crate::content::{accept_content, event_hash};
+use crate::embed::{CompiledEmbedder, EmbedderConfig};
 use crate::error::{ConfigError, EngineError, StoreError};
 use crate::facets::chunk_facets;
 use crate::judge::JudgeConfig;
@@ -51,6 +52,11 @@ pub struct EngineConfig {
     /// Without it nothing is judged and no relationship is written.
     #[serde(default)]
     pub judge: Option<JudgeConfig>,
+    /// Has a model give each chunk a vector, so that recall can find
+    /// chunks by meaning as well as by their words. Without it nothing is
+    /// embedded and recall searches the words.
+    #[serde(default)]
+    pub embedder: Option<EmbedderConfig>,
     /// The models the engine may call.
     #[serde(default, rename = "binding")]
     pub bindings: Vec<BindingConfig>,
@@ -108,6 +114,7 @@ pub struct Engine {
     pub(crate) reader: Option<CompiledReader>,
     pub(crate) tool_reader: Option<CompiledToolReader>,
     pub(crate) judge: Option<CompiledJudge>,
+    pub(crate) embedder: Option<CompiledEmbedder>,
     pub(crate) clock: Arc<dyn Clock>,
 }
 
@@ -148,6 +155,10 @@ impl Engine {
             .judge
             .map(|settings| CompiledJudge::compile(settings, &config.bindings))
             .transpose()?;
+        let embedder = config
+            .embedder
+            .map(|settings| CompiledEmbedder::compile(settings, &config.bindings))
+            .transpose()?;
         Ok(Self {
             registry,
             vocab,
@@ -155,6 +166,7 @@ impl Engine {
             reader,
             tool_reader,
             judge,
+            embedder,
             clock,
         })
     }
@@ -410,6 +422,9 @@ impl Engine {
             .as_ref()
             .filter(|_| beads == BeadsOf::Chunks)
             .map(|judge| captured_at.plus_millis(judge.settings.debounce_ms));
+        // A message's chunks are owed a vector. A tool call's text is
+        // never sent whole to a model, so it gets none.
+        let embed = self.embedder.is_some() && beads == BeadsOf::Chunks;
         loop {
             let chunks: Vec<ChunkWrite> = pieces
                 .iter()
@@ -455,6 +470,7 @@ impl Engine {
                 beads,
                 queue,
                 judge,
+                embed,
             })?;
             return match committed {
                 AdmissionCommit::Committed { checkpoint } => Ok(A::Accepted {

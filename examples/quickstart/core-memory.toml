@@ -45,6 +45,24 @@ types = [
 # window_ms, sets how far the judge looks. Raising it widens the reach and
 # costs tokens in proportion.
 #
+# To have recall find memories by what they mean as well as by their words,
+# add an embedder: a model that gives each chunk a vector. It speaks the
+# OpenAI-compatible /embeddings API, so it may be a hosted model or one on
+# this machine, and its binding needs no max_output_tokens. The database
+# needs the pgvector extension to compare vectors: CREATE EXTENSION vector;
+#
+# [embedder]
+# binding = "embed"
+# dimensions = 512           # optional: ask a model that can for shorter vectors
+# max_distance = 0.6         # optional: the farthest a match by meaning may be
+#
+# [[binding]]
+# id = "embed"
+# provider = "openai"                        # or "openai-compatible"
+# endpoint = "https://api.openai.com/v1"     # or a local server: http://localhost:11434/v1
+# model = "text-embedding-3-small"
+# api_key_env = "OPENAI_API_KEY"             # leave out for a local server that needs none
+#
 # [[binding]]
 # id = "small"
 # provider = "anthropic"

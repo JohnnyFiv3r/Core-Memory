@@ -109,6 +109,29 @@ table chunk_text
   index chunk_text_scope_idx (scope)
   index chunk_text_search_idx (to_tsvector('english'::regconfig, "left"(text, 100000)))
 
+table chunk_vectors
+  workspace_id text not null
+  seq bigint not null
+  chunk_id uuid not null
+  scope text not null
+  call_id uuid not null
+  embedder_rev bytea not null
+  binding_id text not null
+  model text not null
+  dimensions integer not null
+  input_bytes bigint not null
+  vector real[] not null
+  embedded_at timestamp with time zone not null
+  may: engine select insert
+  row security: on; policies: engine (all to core_memory_engine)
+  trigger chunk_vectors_fixed BEFORE UPDATE FOR EACH ROW EXECUTE FUNCTION core_memory.refuse_change()
+  trigger chunk_vectors_live BEFORE INSERT FOR EACH ROW EXECUTE FUNCTION core_memory.stored_only_with_a_live_event()
+  trigger chunk_vectors_no_truncate BEFORE TRUNCATE FOR EACH STATEMENT EXECUTE FUNCTION core_memory.refuse_change()
+  trigger chunk_vectors_only_erase BEFORE DELETE FOR EACH ROW EXECUTE FUNCTION core_memory.deleted_only_with_its_event()
+  unique chunk_vectors_chunk_id_embedder_rev_key (chunk_id, embedder_rev)
+  primary key chunk_vectors_pkey (workspace_id, seq)
+  index chunk_vectors_scope_idx (scope, embedder_rev)
+
 table chunks
   chunk_id uuid not null
   event_id uuid not null

@@ -11,15 +11,21 @@ use clap::{Parser, Subcommand};
 use core_memory_contract::schema::Contract;
 use core_memory_contract::{
     AdmissionOutcome, BusyCause, EventId, EventKey, FieldError, RECALL_DEFAULT_FOLLOW,
-    RECALL_DEFAULT_LIMIT, RecallRequest, Record, RecordKind, RefusalReason, Sha256Digest,
+    RECALL_DEFAULT_LIMIT, RecallRequest, RecallSearch, Record, RecordKind, RefusalReason,
+    Sha256Digest,
 };
 use core_memory_core::store::{Change, Purpose, ScopeState, Store};
-use core_memory_core::{Clock, EngineError, RecallQuery, ScopeGrants, StoreError, SystemClock};
+use core_memory_core::{
+    Clock, EngineError, RecallQuery, ScopeGrants, Search, StoreError, SystemClock,
+};
 use core_memory_sidecar::config::Loaded;
 use core_memory_sidecar::login;
 use core_memory_sidecar::reading::{self, Reader};
 use core_memory_sidecar::report::{self, Stop};
-use core_memory_sidecar::runtime::{Runtime, build_engine, check_binding, model_roots, open_store};
+use core_memory_sidecar::runtime::{
+    Runtime, build_engine, check_binding, check_embed_binding, model_roots,
+    open_question_transport, open_store,
+};
 use core_memory_sidecar::{openapi, server};
 use core_memory_source_jsonl::{JsonlSource, SourceItem};
 use core_memory_store_postgres::{Enrollment, EraseOutcome, QueuedReads, Reread};
@@ -35,11 +41,12 @@ const EXPORT_PAGE: u32 = 500;
 const ERASE_BATCH: u32 = 1_000;
 
 /// The kinds of work a model does, in the order they are reported.
-const PURPOSES: [Purpose; 4] = [
+const PURPOSES: [Purpose; 5] = [
     Purpose::ChunkRead,
     Purpose::ToolRead,
     Purpose::Judge,
     Purpose::SecondRead,
+    Purpose::Embed,
 ];
 
 /// Exit status when no event is stored under the ID that was named. 2 is a
@@ -139,6 +146,11 @@ enum Command {
         /// Also return matches that are no longer current, marked so.
         #[arg(long)]
         include_ended: bool,
+        /// Search one way only: `words`, which sends the query nowhere, or
+        /// `meaning`. Without it both are searched where an [embedder] is
+        /// configured, and the answer says which were.
+        #[arg(long, value_enum)]
+        search: Option<SearchArg>,
     },
     /// Erase whole messages. Their text and metadata are removed for good;
     /// their IDs stay and refuse the same messages if they are offered again.
@@ -280,6 +292,13 @@ struct Destination {
     destination: Option<String>,
 }
 
+/// One way to search.
+#[derive(Clone, Copy, clap::ValueEnum)]
+enum SearchArg {
+    Words,
+    Meaning,
+}
+
 #[derive(Subcommand)]
 enum ReadCommand {
     /// Do everything that is due now, then stop. Prints one line per
@@ -355,6 +374,7 @@ fn main() -> ExitCode {
             limit,
             follow,
             include_ended,
+            search,
         } => recall(
             config,
             RecallRequest {
@@ -363,6 +383,10 @@ fn main() -> ExitCode {
                 limit: Some(limit),
                 follow: Some(follow),
                 include_ended,
+                search: search.map(|search| match search {
+                    SearchArg::Words => RecallSearch::Words,
+                    SearchArg::Meaning => RecallSearch::Meaning,
+                }),
             },
         ),
         Command::Erase {
@@ -498,7 +522,8 @@ fn read(config_path: &Path, command: ReadCommand) -> Result<ExitCode, Stop> {
             let mut reader = Reader::open(&loaded, Arc::clone(&engine))?.ok_or(
                 "add a [reader] section to the config to have a model read chunks, \
                  a [tool_reader] section to have one read tool calls, \
-                 or a [judge] section to have one judge how beads relate",
+                 a [judge] section to have one judge how beads relate, \
+                 or an [embedder] section to have one give chunks vectors",
             )?;
             report::log(reader.describe());
             let stdout = io::stdout();
@@ -532,6 +557,7 @@ fn read(config_path: &Path, command: ReadCommand) -> Result<ExitCode, Stop> {
                     "stored": totals.stored,
                     "judged": totals.judged,
                     "verdicts": totals.verdicts,
+                    "embedded": totals.embedded,
                     "calls": totals.calls,
                     "input_tokens": totals.input_tokens,
                     "output_tokens": totals.output_tokens,
@@ -562,6 +588,10 @@ fn read(config_path: &Path, command: ReadCommand) -> Result<ExitCode, Stop> {
             // and only what was never read of it is queued.
             let mut again = Reread::default();
             let judge = engine.judge();
+            // A chunk with no vector of the embedder as it is configured
+            // now is owed one, whatever else is asked.
+            let embedder = engine.embedder();
+            again.vectors = embedder.map(|embedder| &embedder.embedder_ref.binding_rev);
             if reread {
                 if let (Some(reader), Some(vocabulary)) = (engine.reader(), engine.vocabulary()) {
                     again.chunks = Some((&reader.reader_ref, vocabulary.catalog()));
@@ -578,7 +608,11 @@ fn read(config_path: &Path, command: ReadCommand) -> Result<ExitCode, Stop> {
             let mut store = open_store(&loaded)?;
             store.check()?;
             let queued = |queued: QueuedReads| match queued {
-                QueuedReads::Queued { chunks, tool_calls } => Ok((chunks, tool_calls)),
+                QueuedReads::Queued {
+                    chunks,
+                    tool_calls,
+                    embeddings,
+                } => Ok((chunks, tool_calls, embeddings)),
                 QueuedReads::ScopeNotActive(None) => {
                     Err(Stop::Failed(format!("scope `{scope}` is not enrolled")))
                 }
@@ -587,12 +621,21 @@ fn read(config_path: &Path, command: ReadCommand) -> Result<ExitCode, Stop> {
                     state.as_str()
                 ))),
             };
-            let (chunks, tool_calls) = queued(store.queue_reads(&scope, again, now)?)?;
+            let (chunks, tool_calls, embeddings) = queued(store.queue_reads(&scope, again, now)?)?;
             for (purpose, queued) in [
                 (Purpose::ChunkRead, chunks),
                 (Purpose::ToolRead, tool_calls),
             ] {
                 report::print(json!({"scope": scope, "work": purpose.as_str(), "queued": queued}))?;
+            }
+            // Chunks are queued for an embedder only when one is
+            // configured, as beads are for a judge.
+            if embedder.is_some() {
+                report::print(json!({
+                    "scope": scope,
+                    "work": Purpose::Embed.as_str(),
+                    "queued": embeddings,
+                }))?;
             }
             // Beads are queued for a judge only when one is configured.
             // Nothing else would ever take them, and a judge added later
@@ -601,7 +644,7 @@ fn read(config_path: &Path, command: ReadCommand) -> Result<ExitCode, Stop> {
             // did, which is what a judge is shown of it.
             if let Some(judge) = judge {
                 let again = reread.then_some(&judge.reader_ref);
-                let (chunks, tool_calls) = queued(store.queue_judgments(&scope, again, now)?)?;
+                let (chunks, tool_calls, _) = queued(store.queue_judgments(&scope, again, now)?)?;
                 report::print(json!({
                     "scope": scope,
                     "work": Purpose::Judge.as_str(),
@@ -785,7 +828,24 @@ fn recall(config_path: &Path, request: RecallRequest) -> Result<ExitCode, Stop> 
     // scope: what narrows it is what it is asked.
     let query = RecallQuery::from_request(&request, &ScopeGrants::All)
         .map_err(|refusal| Stop::Failed(refusal.to_string()))?;
-    let mut store = governing_store(config_path)?;
+    let loaded = Loaded::read(config_path)?;
+    let engine = build_engine(&loaded)?;
+    // A search by the words alone opens no way to the embedder, and needs
+    // no key for it.
+    let ask = match query.search {
+        Search::Words => None,
+        Search::Both | Search::Meaning => open_question_transport(&loaded, &engine)
+            // Most often the embedder's key is not in this shell's
+            // environment. The words need neither.
+            .map_err(|stop| match stop {
+                Stop::Failed(why) => Stop::Failed(format!(
+                    "{why}. To search by the words alone, add --search words"
+                )),
+                busy => busy,
+            })?,
+    };
+    let mut store = open_store(&loaded)?;
+    store.check()?;
     if let Some(scopes) = &request.scopes {
         for scope in scopes {
             if store.scope(scope)?.is_none() {
@@ -793,12 +853,13 @@ fn recall(config_path: &Path, request: RecallRequest) -> Result<ExitCode, Stop> 
             }
         }
     }
-    let answer = store.recall(&query)?;
+    let answer = engine.recall(&mut store, ask.as_deref(), query)?;
     let line = serde_json::to_string(&answer).map_err(|e| e.to_string())?;
     report::print(line)?;
     // Counts only: the answer itself holds what sources said.
     report::log(json!({"recalled": {
         "found": answer.found,
+        "meaning": answer.meaning,
         "beads": answer.beads.len(),
         "arrows": answer.arrows.len(),
     }}));
@@ -1010,6 +1071,16 @@ fn check(config_path: &Path) -> Result<ExitCode, Stop> {
     }
     if let Some(judge) = engine.judge() {
         report::print(json!({"judge": reading::describe_judge(judge)}))?;
+    }
+    if let Some(embedder) = engine.embedder() {
+        check_embed_binding(&embedder.binding)?;
+        report::print(json!({"embedder": {
+            "binding": embedder.binding.id,
+            "model": embedder.binding.model,
+            "destination": embedder.destination,
+            "dimensions": embedder.settings.dimensions,
+            "revision": embedder.embedder_ref.binding_rev,
+        }}))?;
     }
     for p in engine.registry().iter() {
         report::print(json!({

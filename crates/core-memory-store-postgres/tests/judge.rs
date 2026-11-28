@@ -2077,6 +2077,7 @@ fn a_bead_waits_for_what_the_judge_is_shown_of_it() {
             core_memory_store_postgres::Reread {
                 chunks: None,
                 tool_calls: Some(&other),
+                vectors: None,
             },
             now,
         )
@@ -2214,7 +2215,8 @@ fn judging_waits_for_a_migration_holding_nothing_else() {
         queued.unwrap(),
         QueuedReads::Queued {
             chunks: 0,
-            tool_calls: 0
+            tool_calls: 0,
+            embeddings: 0
         }
     );
     // An export of what was judged waits the same way.
@@ -2573,11 +2575,13 @@ fn beads_stored_before_there_was_a_judge_are_queued_when_asked() {
     let queued = QueuedReads::Queued {
         chunks: 2,
         tool_calls: 0,
+        embeddings: 0,
     };
     assert_eq!(w.store.queue_judgments("acme", None, now).unwrap(), queued);
     let none = QueuedReads::Queued {
         chunks: 0,
         tool_calls: 0,
+        embeddings: 0,
     };
     assert_eq!(w.store.queue_judgments("acme", None, now).unwrap(), none);
     assert_eq!(handled(round(&mut w, &transport)).judged, 2);
@@ -2895,7 +2899,8 @@ fn what_another_judge_says_again_is_stored_once() {
         w.store.queue_judgments("acme", Some(&judge), now).unwrap(),
         QueuedReads::Queued {
             chunks: 4,
-            tool_calls: 0
+            tool_calls: 0,
+            embeddings: 0
         }
     );
     let second = handled(round(&mut w, &transport));
@@ -2957,7 +2962,8 @@ fn what_another_judge_says_again_is_stored_once() {
         w.store.queue_judgments("acme", Some(&judge), now).unwrap(),
         QueuedReads::Queued {
             chunks: 0,
-            tool_calls: 0
+            tool_calls: 0,
+            embeddings: 0
         }
     );
 }
@@ -3706,7 +3712,8 @@ fn beads_queued_after_later_ones_were_read_beside_them_are_not_read_with_them_ag
         queued,
         QueuedReads::Queued {
             chunks: 3,
-            tool_calls: 0
+            tool_calls: 0,
+            embeddings: 0
         }
     );
     let report = handled(round(&mut w, &transport));

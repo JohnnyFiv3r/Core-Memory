@@ -56,6 +56,7 @@ impl CompiledToolReader {
                 "tool_reader.binding is not the id of a configured [[binding]]".to_string()
             }));
         };
+        binding.replies()?;
         if settings.max_attempts == 0 {
             return Err(ConfigError::new(
                 "tool_reader.max_attempts must be 1 or more",

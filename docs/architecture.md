@@ -93,13 +93,14 @@ All tables are in the `core_memory` schema.
 | `chunk_reads` | What a model read in a chunk: a type of the vocabulary or why none, the reader that read it, `seq`. | Deleted. |
 | `chunk_read_spans` | Where a read found an entity, an action or an outcome: byte ranges of the chunk's text. | Deleted. |
 | `tool_outcomes` | What a model wrote about one tool call: a short action, a short outcome and a status, with the reader and the compressor that produced them, `seq`. | Deleted. |
+| `chunk_vectors` | The vector an embedding model gave a chunk's text, with the embedder's revision, how much of the text it was made from, `seq` (see [Finding the meaning](#finding-the-meaning)). | Deleted, in the statement that deletes the text. |
 | `judge_reads` | One row for each read by a judge that was stored: the beads it was shown, by ID, the rubric and binding revisions, `seq`. | Kept. |
 | `verdicts` | One row for every pair a judge was shown: the two beads and the scope of each, what it said, the direction, and what code computed about the pair at that moment (`columns`), `seq`. No text. | Deleted, for a pair with an erased bead. |
 | `arrows` | The arrows a judge may give: each one's type, forward and inverse names, whether it ends currency or disputes, and where its names come from (see [The arrows](#the-arrows)). | Not erased. |
 | `edges` | A relationship from one bead to another: its arrow and the arrow's type, the two IDs, `seq`. | Kept. They hold IDs. |
 | `pending_chains` | An arrow that replaces or withdraws, which a judge gave and which waits for a second read: IDs only. | Deleted. |
 | `name_links` | Two names for one entity, each as a byte range of its own chunk, with the scope of each chunk's bead, `seq`. | Deleted, for a link with an erased bead. |
-| `work` | What is still owed: chunks and tool calls to be read, beads to be judged, arrows to be read a second time. IDs, attempts, when to try next and a problem code. No text. | Deleted. |
+| `work` | What is still owed: chunks and tool calls to be read, beads to be judged, arrows to be read a second time, chunks to be given a vector. IDs, attempts, when to try next and a problem code. No text. | Deleted. |
 
 Text is kept in one place on purpose. Erasing a message deletes its
 `chunk_text` rows and every row derived from that text, in one transaction.
@@ -112,6 +113,14 @@ One table holds text that a source did not write. `tool_outcomes` holds two
 short lines a model wrote about a tool call (see [Tool calls](#tool-calls)).
 They say what the call's text says, so they are erased with it, and like
 source text they are kept out of the planner's statistics.
+
+One table holds numbers made from the text. `chunk_vectors` holds each
+chunk's vector, which is an index of the text as `chunk_text_search_idx`
+is, and from which the text can be guessed back. So a vector exists only
+while its text does. Its row has a key to `chunk_text` that deletes with
+it: the one key in the schema that deletes. Erasing a message deletes its
+text, and that statement takes the vectors with it. Nothing else deletes a
+vector and nothing changes one, and the planner keeps no sample of one.
 
 Two more columns are computed from what a source said and are treated as
 its text is. A verdict's `columns` say, among other things, how many
@@ -288,8 +297,8 @@ that restarts asks the engine for its checkpoint and resumes from there.
 ## Erasing
 
 `core_memory.erase_event(event_id, reason, actor)` erases one whole message.
-In one transaction it deletes the event's text and facets, what a model
-read in it and the work still queued for it, clears the event's key fields,
+In one transaction it deletes the event's text and facets, the vectors made
+from that text, what a model read in it and the work still queued for it, clears the event's key fields,
 hashes and metadata, marks its beads erased, and writes the journal. It
 also deletes what a judge computed from the message's content: see
 [what an erase does to relationships](#what-an-erase-does-to-relationships). IDs, ranges and links
@@ -504,6 +513,13 @@ each one it applies and refuses a database whose history differs.
 2.0.0 released migrations 1 and 2, and they no longer change. A database
 created by a build from before 2.0.0 must be recreated, not migrated.
 
+Migration 4 adds `chunk_vectors` and lets the queue and the receipts hold
+embedding work (see [Finding the meaning](#finding-the-meaning)). It needs
+no extension: vectors are stored as `real[]`, so it applies to every
+database, and it changes nothing for an engine with no `[embedder]`. It
+re-checks two constraints on `outbound_calls` and one on `work`, which
+reads each of those tables once.
+
 Migration 3 adds two views for a host that reads the engine's tables in
 place, `bead_state` and `bead_text`; [Reading in place](#reading-in-place)
 says what they hold. It changes no table.
@@ -519,6 +535,8 @@ A model reads each chunk once a reader is configured: a `[reader]` section
 that names a `[[binding]]`. A model reads each tool call once a tool reader
 is: a `[tool_reader]` section. A model judges how beads relate once a judge
 is: a `[judge]` section, described under [Relationships](#relationships).
+A model gives each chunk a vector once an embedder is: an `[embedder]`
+section, described under [Finding the meaning](#finding-the-meaning).
 Without any of them the engine calls no model, and everything else works
 the same.
 
@@ -1296,18 +1314,22 @@ The tables are the truth; records are how they are published outside SQL.
 
 ## Recall
 
-Recall answers one question: which stored text holds these words, and what
-did a judge say of it? `core-memory recall` asks it from the command line,
-and `POST /v1/recall` over HTTP. It makes no model call, so it works whether
-or not a reader or a judge is configured.
+Recall answers one question: which stored text holds these words, or says
+what this question asks, and what did a judge say of it? `core-memory
+recall` asks it from the command line, and `POST /v1/recall` over HTTP. By
+the words it makes no model call, so it works whether or not a reader, a
+judge or an embedder is configured. With an embedder it makes one, to give
+the query a vector; see [Finding the meaning](#finding-the-meaning).
 
 ### A query, not a store
 
 Recall reads `chunk_text`, the one copy of source text, through a full-text
 index on that table, and `edges`, which hold what a judge said as IDs. It
-keeps nothing of its own: no copy of the text, no vectors, no graph to keep
-in step with the tables. An erase therefore reaches everything recall could
-return, in the erase's own transaction, as it reaches everything else.
+keeps nothing of its own: no copy of the text, no graph to keep in step
+with the tables. The vectors it compares are rows of the same database,
+deleted by the statement that deletes their text. An erase therefore
+reaches everything recall could return, in the erase's own transaction, as
+it reaches everything else.
 
 A separate search engine or graph database would hold a second copy of what
 sources said. Erasing would then be a job across systems that can half
@@ -1337,6 +1359,105 @@ A query that holds no word to look for is answered `no_terms`, not
 punctuation only, and one that names only words to leave out or offers
 one as an alternative (`-draft`, `launch or -draft`). The index cannot
 answer those, and PostgreSQL would read every chunk to.
+
+### Finding the meaning
+
+Words find a chunk only if the chunk holds them. A question is often worded
+otherwise than its answer: "what do we charge" is answered by "the
+subscription fee goes up in March". An embedding model gives a text a
+vector, a list of numbers, such that texts that mean alike get vectors that
+point alike. With an `[embedder]` configured the engine has one give each
+chunk a vector, and recall compares the query's vector with them.
+
+**What a vector is, and is not.** A vector is an index of a chunk's text. It
+finds chunks; the answer is always their stored text. It is never evidence
+and never a relationship: no edge, verdict or type is written from a
+distance, and a judge is not shown one. Two chunks being near says only
+that a search for one may find the other.
+
+**Embedding.** Admission queues each chunk of a message, a document or a
+record for a vector (`embed` work); `core-memory read queue` queues what was
+stored before. A tool call's chunks get none: a tool call's text is never
+sent to a model whole. A call goes through [the four steps of a
+call](#the-four-steps-of-a-call) as a read does, with the same consent,
+budget and receipt: nothing is sent for a scope that has not allowed the
+embedder's destination. The reply is checked: a vector for each chunk, all
+of one length, of numbers, none all zeros. A call that fails is made again
+by [the queue](#the-queue), after a wait, at most `max_attempts` times,
+each attempt with a receipt of its own; the transport itself never retries.
+A chunk longer than `max_input_bytes` is embedded by its start, and its
+row says how many bytes that was, as the word index holds only a chunk's
+first 100,000 characters.
+
+A vector is stored once for a chunk and an embedder revision. The revision
+is a hash of what decides a text's vector: provider, endpoint, model,
+length asked for and the two prefixes. Changing any of them is another
+embedder: its vectors are never compared with the old ones, the old rows
+stay as every row does, and `core-memory read queue` queues every chunk for
+the new one.
+
+**Any provider.** The embedder speaks the OpenAI-compatible `/embeddings`
+API, which hosted providers and local servers alike speak (Ollama, LM
+Studio, text-embeddings-inference, vLLM, llama.cpp). A binding names the
+endpoint, so a model on the same machine is a matter of configuration, and
+its destination is `localhost` and its port: text leaves the engine and not
+the machine. Core has no code for any one of them.
+
+**Comparing needs pgvector.** Vectors are stored as `real[]`, which every
+PostgreSQL has, so the schema needs no extension. Comparing them needs the
+`vector` extension (pgvector). Recall asks the catalog where it is
+installed and names its type and operator with that schema, as every
+statement here names what it uses; it never relies on a search path.
+Without the extension, or without `USAGE` on its schema, vectors are still
+stored and recall answers from the words and says `not_installed`.
+
+The search is exact: every vector of the scopes searched is compared, by
+cosine distance. Its cost grows with what is stored. It is not an
+approximate index, and nothing is tuned or rebuilt. A comparison that runs
+past the store's statement timeout ends that search and not the recall: it
+runs inside a savepoint, the words answer, and the answer says
+`unavailable`. A recall that failed instead would be asked for again and
+time out again.
+
+**The query.** A query is the caller's own text, not stored text. It is
+sent to the embedder without a receipt, and it is never stored or logged.
+It is sent only when a scope that would be searched holds vectors of the
+current embedder and allows its destination now; otherwise it is sent
+nowhere and the answer says `no_vectors`. Asked for the words only
+(`"search": "words"`), it is sent nowhere. Only vectors of scopes that
+allow the destination now are compared, so a scope that takes its consent
+back is no longer searched by meaning, though its words still are.
+
+A recall waits for its query's vector, so each try has a short timeout of
+its own (`question_timeout_ms`), and no store connection is held while the
+embedder answers. A try that fails in a way that may pass, because the
+provider did not process the request or its reply did not come, is made
+again, `question_attempts` times in all. A failure that would repeat is
+not: a key the provider turns down, a provider that says when to come
+back, a reply of the wrong shape. Then the answer is made from the words
+alone and says `unavailable`. It never fails because the embedder did.
+
+**Putting the two searches together.** Asked plainly, recall runs both
+searches and merges their matches by reciprocal rank fusion: a bead's score
+is the sum, over the searches that found it, of 1 / (60 + its place in that
+search). Places are added, never the searches' own scores, which measure
+different things. A bead both searches found outranks one that either put
+first. Each match says which search found it (`by`: `words`, `meaning` or
+`both`) and, if by meaning, its cosine distance from the query. The answer
+says whether meaning was searched (`meaning`), and if not, why not.
+`"search": "meaning"` searches by meaning only; if that cannot be done the
+answer is `not_searched`, never `no_match`.
+
+By meaning something is always nearest, so a search by meaning returns the
+nearest chunks however far they are. `max_distance` sets a limit for an
+embedder whose distances are known; without it a caller reads each match's
+distance. What follows a match is the same whichever search found it: what
+is current, the arrows followed, the text returned.
+
+**A host reads the vectors in place.** memoriesQL may read `chunk_vectors`
+under grants and policies of its own, as it reads the other tables, and
+page new rows by `seq`. Vectors are not exported: they are an index, and
+can be made again from the text.
 
 ### What is current
 
@@ -1379,8 +1500,8 @@ answer.
 ### What an answer holds
 
 Each bead comes with its kind, its event's ID and key, its time, how it came
-into the answer (`match`, `successor` or `linked`), whether it is current
-and disputed, the type the latest read of its chunk gave, and its text
+into the answer (`match`, `successor` or `linked`), for a match which
+search found it and how near it is, whether it is current and disputed, the type the latest read of its chunk gave, and its text
 verbatim, chunk by chunk: one chunk for a message's bead, every chunk of a
 tool call. Nothing a model wrote stands in for the text. An answer carries
 at most 1 MiB of text, given to the beads in the answer's order; a bead
@@ -1407,7 +1528,9 @@ what takes text away.
 
 Every statement of a recall runs in one read-only transaction on one
 snapshot, which takes `schema_migrations` first, as every read of several
-statements does (see [Upgrading](#upgrading)).
+statements does (see [Upgrading](#upgrading)). A query's vector is asked
+for before that transaction starts, after one statement that says whether
+there is anything to compare it with.
 
 ## Crates
 
@@ -1433,6 +1556,12 @@ CORE_MEMORY_TEST_DATABASE_URL=postgresql://postgres:secret@127.0.0.1:5432/postgr
 Each test gets its own database, cloned from a migrated template. There is
 no in-memory store: the engine's guarantees are transactional, so they are
 tested where they hold.
+
+The tests of recall by meaning install the `vector` extension in their own
+database, so they need a server that has it, such as the
+`pgvector/pgvector` images CI uses. On a server without it they say so and
+pass without searching; with `CORE_MEMORY_TEST_PGVECTOR=required`, as in
+CI, they fail there instead. The embedder in tests is a stand-in.
 
 Two checked-in files pin what others depend on. A difference in either
 fails a test, and is read before it is accepted:

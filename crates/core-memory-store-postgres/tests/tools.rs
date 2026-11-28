@@ -918,14 +918,16 @@ fn tool_calls_stored_before_there_was_a_reader_are_queued_when_asked() {
         w.store.queue_reads("acme", Reread::default(), now).unwrap(),
         QueuedReads::Queued {
             chunks: 1,
-            tool_calls: 1
+            tool_calls: 1,
+            embeddings: 0
         }
     );
     assert_eq!(
         w.store.queue_reads("acme", Reread::default(), now).unwrap(),
         QueuedReads::Queued {
             chunks: 0,
-            tool_calls: 0
+            tool_calls: 0,
+            embeddings: 0
         }
     );
     assert_eq!(handled(round(&mut w, &transport)).stored, 1);
@@ -936,13 +938,15 @@ fn tool_calls_stored_before_there_was_a_reader_are_queued_when_asked() {
     let again = |reader| Reread {
         chunks: None,
         tool_calls: Some(reader),
+        vectors: None,
     };
     for reread in [Reread::default(), again(&same)] {
         assert_eq!(
             w.store.queue_reads("acme", reread, now).unwrap(),
             QueuedReads::Queued {
                 chunks: 0,
-                tool_calls: 0
+                tool_calls: 0,
+                embeddings: 0
             }
         );
     }
@@ -958,7 +962,8 @@ fn tool_calls_stored_before_there_was_a_reader_are_queued_when_asked() {
         w.store.queue_reads("acme", again(&changed), now).unwrap(),
         QueuedReads::Queued {
             chunks: 0,
-            tool_calls: 1
+            tool_calls: 1,
+            embeddings: 0
         }
     );
     // The second reading is a second record. The latest is the current one.

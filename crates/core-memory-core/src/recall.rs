@@ -9,16 +9,20 @@ use std::collections::BTreeSet;
 
 use core_memory_contract::{
     RECALL_DEFAULT_FOLLOW, RECALL_DEFAULT_LIMIT, RECALL_MAX_FOLLOW, RECALL_MAX_LIMIT,
-    RECALL_MAX_QUERY_BYTES, RECALL_MAX_SCOPES, RecallRequest,
+    RECALL_MAX_QUERY_BYTES, RECALL_MAX_SCOPES, RecallAnswer, RecallMeaning, RecallRequest,
+    RecallSearch, Sha256Digest,
 };
 
-use crate::engine::ScopeGrants;
+use crate::engine::{Engine, ScopeGrants};
+use crate::error::StoreError;
+use crate::model::EmbedTransport;
+use crate::store::{MeaningReady, Store};
 
 /// Longest scope name, as the store's own table allows.
 const MAX_SCOPE_BYTES: usize = 512;
 
 /// A request that may be answered.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct RecallQuery {
     /// The words, trimmed, read as a web search reads them.
     pub query: String,
@@ -28,6 +32,46 @@ pub struct RecallQuery {
     pub limit: u32,
     pub follow: u32,
     pub include_ended: bool,
+    /// Which ways the caller wants searched.
+    pub search: Search,
+    /// The query as a vector to search by meaning with, or why there is
+    /// none. A request never carries one: [`Engine::recall`] has the
+    /// engine's embedder make it.
+    pub meaning: MeaningLeg,
+}
+
+/// Which ways a query is searched.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Search {
+    /// By the words and by meaning, as far as meaning can be searched.
+    Both,
+    /// By the words only. The query is sent nowhere.
+    Words,
+    /// By meaning only.
+    Meaning,
+}
+
+/// The search by meaning a query gets.
+#[derive(Debug, Clone, PartialEq)]
+pub enum MeaningLeg {
+    /// Compare this vector with the stored ones.
+    Vector(QuestionVector),
+    /// None, and why. Never [`RecallMeaning::Used`].
+    Without(RecallMeaning),
+}
+
+/// A query as its embedder's vector.
+#[derive(Debug, Clone, PartialEq)]
+pub struct QuestionVector {
+    pub vector: Vec<f32>,
+    /// The embedder that made it. Only vectors it made are compared.
+    pub embedder_rev: Sha256Digest,
+    /// Where the embedder sends text. Only vectors of scopes that allow it
+    /// now are compared.
+    pub destination: String,
+    /// The farthest a chunk's vector may be and still match, as a cosine
+    /// distance, if the embedder sets a limit.
+    pub max_distance: Option<f32>,
 }
 
 /// Why a request is not answered.
@@ -128,13 +172,74 @@ impl RecallQuery {
                 ScopeGrants::Only(named.iter().cloned().collect::<BTreeSet<_>>())
             }
         };
+        let search = match request.search {
+            None => Search::Both,
+            Some(RecallSearch::Words) => Search::Words,
+            Some(RecallSearch::Meaning) => Search::Meaning,
+        };
         Ok(Self {
             query: query.to_string(),
             scopes,
             limit,
             follow,
             include_ended: request.include_ended,
+            search,
+            // Until an engine with an embedder says otherwise.
+            meaning: MeaningLeg::Without(match search {
+                Search::Words => RecallMeaning::NotAsked,
+                Search::Both | Search::Meaning => RecallMeaning::NotConfigured,
+            }),
         })
+    }
+}
+
+impl Engine {
+    /// Answers a query: by its words, and by its meaning where this engine
+    /// has an embedder, `ask` reaches it, and the scopes searched hold
+    /// vectors to compare with.
+    ///
+    /// The query is the caller's own text, not stored text, so it is sent
+    /// to the embedder without a receipt. It is sent only when a scope
+    /// that would be searched holds vectors of this embedder and allows
+    /// its destination now, and never when the caller asked for the words
+    /// only. An embedder that does not answer is asked again, up to
+    /// `embedder.question_attempts` times in all; then the answer is made
+    /// from the words alone and says so. A failure that would repeat, such
+    /// as a key the provider turns down, is not asked again.
+    pub fn recall(
+        &self,
+        store: &mut dyn Store,
+        ask: Option<&dyn EmbedTransport>,
+        mut query: RecallQuery,
+    ) -> Result<RecallAnswer, StoreError> {
+        if query.search != Search::Words {
+            query.meaning = match (&self.embedder, ask) {
+                (Some(embedder), Some(ask)) => {
+                    let ready = store.meaning_ready(
+                        &query.scopes,
+                        &embedder.destination,
+                        &embedder.embedder_ref.binding_rev,
+                    )?;
+                    match ready {
+                        MeaningReady::NoVectorType => {
+                            MeaningLeg::Without(RecallMeaning::NotInstalled)
+                        }
+                        MeaningReady::NoVectors => MeaningLeg::Without(RecallMeaning::NoVectors),
+                        MeaningReady::Ready => match embedder.question(ask, &query.query) {
+                            Some(vector) => MeaningLeg::Vector(QuestionVector {
+                                vector,
+                                embedder_rev: embedder.embedder_ref.binding_rev,
+                                destination: embedder.destination.clone(),
+                                max_distance: embedder.settings.max_distance,
+                            }),
+                            None => MeaningLeg::Without(RecallMeaning::Unavailable),
+                        },
+                    }
+                }
+                _ => MeaningLeg::Without(RecallMeaning::NotConfigured),
+            };
+        }
+        store.recall(&query)
     }
 }
 
@@ -151,6 +256,7 @@ mod tests {
             limit: None,
             follow: None,
             include_ended: false,
+            search: None,
         }
     }
 

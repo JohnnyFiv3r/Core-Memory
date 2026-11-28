@@ -32,7 +32,7 @@ use core_memory_contract::{
     SourceEvent,
 };
 use core_memory_core::store::Store;
-use core_memory_core::{Engine, EngineError, RecallQuery, ScopeGrants, StoreError};
+use core_memory_core::{EmbedTransport, Engine, EngineError, RecallQuery, ScopeGrants, StoreError};
 use core_memory_store_postgres::{CheckoutError, PostgresPool, SCHEMA_VERSION};
 use schemars::JsonSchema;
 use serde::de::{self, DeserializeSeed, MapAccess, SeqAccess, Visitor};
@@ -45,7 +45,7 @@ use crate::config::{HttpConfig, Loaded, grants_from};
 use crate::openapi;
 use crate::reading::Reader;
 use crate::report::{self, Stop};
-use crate::runtime::{CHECKOUT_WAIT, build_engine, open_pool};
+use crate::runtime::{CHECKOUT_WAIT, build_engine, open_pool, open_question_transport};
 
 /// A configured caller.
 #[derive(Debug)]
@@ -68,6 +68,8 @@ struct Recalls(ScopeGrants);
 pub struct AppState {
     engine: Arc<Engine>,
     pool: PostgresPool,
+    /// Embeds recall queries, if the engine has an embedder.
+    ask: Option<Box<dyn EmbedTransport>>,
     tokens: Vec<Token>,
     max_batch: usize,
     max_body_bytes: usize,
@@ -277,6 +279,7 @@ pub fn prepare(loaded: &Loaded) -> Result<Prepared, Stop> {
         engine.pin_profiles(&mut *store)?;
     }
     let reader = Reader::open(loaded, Arc::clone(&engine))?;
+    let ask = open_question_transport(loaded, &engine)?;
     let tokens = http
         .tokens
         .iter()
@@ -290,6 +293,7 @@ pub fn prepare(loaded: &Loaded) -> Result<Prepared, Stop> {
     let state = Arc::new(AppState {
         engine,
         pool,
+        ask,
         tokens,
         max_batch: http.max_batch_events,
         max_body_bytes: http.max_body_bytes,
@@ -821,8 +825,8 @@ async fn post_recall(State(state): State<Arc<AppState>>, request: Request) -> Re
         return error(
             StatusCode::BAD_REQUEST,
             "malformed",
-            "expected {\"query\": \"...\"} and, if wanted, scopes, limit, follow and \
-             include_ended, and nothing else",
+            "expected {\"query\": \"...\"} and, if wanted, scopes, limit, follow, \
+             include_ended and search, and nothing else",
         );
     };
     let query = match RecallQuery::from_request(&asked, &may) {
@@ -837,8 +841,11 @@ async fn post_recall(State(state): State<Arc<AppState>>, request: Request) -> Re
         }
     };
     let st = Arc::clone(&state);
+    // The query's vector is asked for between two reads of the store, with
+    // no store connection held while the embedder answers.
     let result = tokio::task::spawn_blocking(move || {
-        Ok::<_, Failure>(st.pool.store(CHECKOUT_WAIT).recall(&query)?)
+        let mut store = st.pool.store(CHECKOUT_WAIT);
+        Ok::<_, Failure>(st.engine.recall(&mut store, st.ask.as_deref(), query)?)
     })
     .await;
     match result {
