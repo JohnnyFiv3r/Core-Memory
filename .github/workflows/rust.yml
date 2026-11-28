@@ -57,7 +57,9 @@ jobs:
         postgres: ["15", "18"]
     services:
       postgres:
-        image: postgres:${{ matrix.postgres }}
+        # PostgreSQL with the pgvector extension available to install. The
+        # tests of recall by meaning install it in their own databases.
+        image: pgvector/pgvector:pg${{ matrix.postgres }}
         env:
           POSTGRES_PASSWORD: synthetic
         ports: ["5432:5432"]
@@ -67,6 +69,8 @@ jobs:
     env:
       # Each test creates and drops its own database on this server.
       CORE_MEMORY_TEST_DATABASE_URL: postgresql://postgres:synthetic@127.0.0.1:5432/postgres
+      # A server without pgvector would let those tests pass unsearched.
+      CORE_MEMORY_TEST_PGVECTOR: required
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable

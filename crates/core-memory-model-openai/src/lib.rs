@@ -1,10 +1,13 @@
-//! OpenAI-compatible chat completions transport: OpenAI, and servers that
-//! speak its API (Ollama, vLLM, OpenRouter, LM Studio).
+//! OpenAI-compatible transports: OpenAI, and servers that speak its API
+//! (Ollama, vLLM, OpenRouter, LM Studio). Chat completions here, and
+//! embeddings in [`OpenAiEmbedTransport`].
 //!
 //! One call is one `POST {endpoint}/chat/completions` with the request's
 //! JSON Schema as `response_format`. Provider `openai` sends
 //! `max_completion_tokens`; `openai-compatible` sends `max_tokens`, which
 //! most compatible servers expect.
+
+mod embeddings;
 
 use std::fmt;
 use std::time::Duration;
@@ -14,6 +17,8 @@ use core_memory_core::model::{
 };
 use core_memory_model_http::{ClientError, HttpClient, parse_body, status_error};
 use serde_json::{Value, json};
+
+pub use embeddings::OpenAiEmbedTransport;
 
 /// Which flavour of the API a binding speaks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

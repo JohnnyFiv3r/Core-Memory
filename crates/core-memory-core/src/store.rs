@@ -19,6 +19,7 @@ use core_memory_contract::{
     VerdictRecord,
 };
 
+use crate::engine::ScopeGrants;
 use crate::error::StoreError;
 use crate::model::{BudgetConfig, Usage};
 use crate::recall::RecallQuery;
@@ -98,6 +99,9 @@ pub struct AdmissionWrite<'a> {
     /// configured. A tool call's bead is queued for the judge later, by
     /// the transaction that stores what a model wrote about the call.
     pub judge: Option<Timestamp>,
+    /// Whether each chunk is owed a vector: an embedder is configured and
+    /// the event is not a tool call.
+    pub embed: bool,
 }
 
 /// How an event is represented among beads.
@@ -266,6 +270,8 @@ pub enum Purpose {
     Judge,
     /// Reading one held arrow that ends currency a second time, blind.
     SecondRead,
+    /// Turning chunks into vectors, for recall by meaning.
+    Embed,
 }
 
 impl Purpose {
@@ -275,6 +281,7 @@ impl Purpose {
             Purpose::ToolRead => "tool_read",
             Purpose::Judge => "judge",
             Purpose::SecondRead => "second_read",
+            Purpose::Embed => "embed",
         }
     }
 }
@@ -426,6 +433,8 @@ pub enum WorkItem {
     NewBead(BeadId),
     /// The source of an arrow that ends currency, held for its second read.
     HeldChain(BeadId),
+    /// A chunk to be given a vector.
+    Embedding(ChunkId),
 }
 
 impl WorkItem {
@@ -436,6 +445,7 @@ impl WorkItem {
             WorkItem::ToolCall(_) => Purpose::ToolRead,
             WorkItem::NewBead(_) => Purpose::Judge,
             WorkItem::HeldChain(_) => Purpose::SecondRead,
+            WorkItem::Embedding(_) => Purpose::Embed,
         }
     }
 }
@@ -495,6 +505,61 @@ pub struct CallFinished {
     /// Reads and tool outcomes not stored: the event was erased, or the
     /// scope stopped being active, while the model was reading.
     pub dropped: u32,
+}
+
+// ---- embedding ----
+
+/// Chunks of one scope that are owed a vector, reserved for one worker
+/// until the lease runs out.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EmbedBatch {
+    pub scope: String,
+    pub workspace: String,
+    pub chunks: Vec<LeasedChunk>,
+}
+
+/// The vector a model gave one chunk, to be stored.
+#[derive(Debug, Clone, PartialEq)]
+pub struct VectorWrite {
+    pub chunk_id: ChunkId,
+    /// Bytes of the chunk's text the vector was made from, counted from
+    /// its start: all of it, or as much as the embedder takes.
+    pub input_bytes: u64,
+    pub vector: Vec<f32>,
+}
+
+/// Records how an embedding call ended and what it produced, in one
+/// transaction.
+#[derive(Debug, Clone)]
+pub struct EmbedFinish<'a> {
+    pub call_id: CallId,
+    pub scope: &'a str,
+    pub result: CallResult,
+    /// Tokens the provider counted in what was sent, if it answered.
+    pub input_tokens: Option<u64>,
+    /// What to store. Empty unless the reply was valid.
+    pub vectors: &'a [VectorWrite],
+    /// The embedder that made them: its binding, its revision and its
+    /// model.
+    pub embedder: &'a ReaderRef,
+    /// What to do with the work of chunks that got no vector.
+    pub work: &'a [WorkUpdate],
+    pub at: Timestamp,
+}
+
+/// Whether a question can be compared with stored vectors at all.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MeaningReady {
+    /// The database can compare vectors, and a scope that would be
+    /// searched holds some of this embedder's and still allows its
+    /// destination.
+    Ready,
+    /// The database has no vector type: the `vector` extension is not
+    /// installed, or the engine may not use it.
+    NoVectorType,
+    /// No scope that would be searched holds a vector of this embedder's
+    /// while allowing its destination.
+    NoVectors,
 }
 
 // ---- judging ----
@@ -1003,6 +1068,37 @@ pub trait Store {
 
     /// Settles work that no call was made for: a permit was refused.
     fn update_work(&mut self, work: &[WorkUpdate]) -> Result<(), StoreError>;
+
+    // ---- embedding ----
+
+    /// Reserves up to `limit` chunks that are owed a vector, all of one
+    /// scope, until `lease_until`. `None` if nothing is due. A chunk is
+    /// handed out `max_attempts` times at most, as it is to be read.
+    fn claim_embeddings(
+        &mut self,
+        limit: u32,
+        max_attempts: u32,
+        now: Timestamp,
+        lease_until: Timestamp,
+    ) -> Result<Option<EmbedBatch>, StoreError>;
+
+    /// Records how an embedding call ended, stores its vectors and settles
+    /// the work of its chunks, in one transaction. A vector is stored only
+    /// for a chunk the call's receipt names, whose text still exists and
+    /// whose scope is still active. The end of a call is recorded once, as
+    /// [`Store::finish_call`] records it.
+    fn finish_embedding(&mut self, finish: &EmbedFinish<'_>) -> Result<CallFinished, StoreError>;
+
+    /// Whether a question asked of `scopes` could be compared with vectors
+    /// of the embedder `embedder_rev` at all, before anything is sent to
+    /// have the question embedded. Only vectors of scopes that allow
+    /// `destination` now are compared.
+    fn meaning_ready(
+        &mut self,
+        scopes: &ScopeGrants,
+        destination: &str,
+        embedder_rev: &Sha256Digest,
+    ) -> Result<MeaningReady, StoreError>;
 
     /// Settles a judge's work that no call was made for, or that a call
     /// made before did not judge, when no call is finished with it. Only

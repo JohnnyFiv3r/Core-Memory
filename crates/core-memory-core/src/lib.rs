@@ -11,14 +11,18 @@
 //! did and what came of it. [`Engine::judge_once`] has a judge model read
 //! new beads against the beads near them and say how they relate. Every
 //! model call is permitted and receipted by the store before anything is
-//! sent.
+//! sent. [`Engine::embed_once`] has a model give queued chunks a vector,
+//! on the same terms, and [`Engine::recall`] answers a query by its words
+//! and, with those vectors, by its meaning.
 //!
 //! This crate imports no database or model-provider crate. Those plug in
-//! through [`store::Store`] and [`model::ModelTransport`].
+//! through [`store::Store`], [`model::ModelTransport`] and
+//! [`model::EmbedTransport`].
 
 pub mod clock;
 pub mod compress;
 pub mod content;
+pub mod embed;
 pub mod engine;
 pub mod error;
 pub mod facets;
@@ -36,14 +40,15 @@ pub mod tool_reader;
 pub mod vocab;
 
 pub use clock::{Clock, ManualClock, SystemClock};
+pub use embed::{CompiledEmbedder, EmbedReport, EmbedRound, EmbedderConfig};
 pub use engine::{Engine, EngineConfig, Limits, ScopeGrants, StartupError};
 pub use error::{ConfigError, EngineError, StoreError};
 pub use ident::is_identifier;
 pub use judging::{CompiledJudge, JudgeReport, JudgeRound};
-pub use model::{BindingConfig, ModelTransport};
+pub use model::{BindingConfig, EmbedTransport, ModelTransport};
 pub use profile::{ProfileRegistry, SourceProfile};
 pub use reader::{CompiledReader, ReadReport, ReadRound};
-pub use recall::{RecallQuery, RecallRefusal};
+pub use recall::{MeaningLeg, QuestionVector, RecallQuery, RecallRefusal, Search};
 pub use store::Store;
 pub use tool_reader::CompiledToolReader;
 pub use vocab::{LoadedVocabulary, TypeDef, Vocabulary};

@@ -219,6 +219,7 @@ impl CompiledReader {
                 "reader.binding is not the id of a configured [[binding]]".to_string()
             }));
         };
+        binding.replies()?;
         if !(1..=64).contains(&settings.batch_size) {
             return Err(ConfigError::new("reader.batch_size must be 1 to 64"));
         }

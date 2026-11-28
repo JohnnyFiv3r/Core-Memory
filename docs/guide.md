@@ -486,9 +486,12 @@ curl -s localhost:7600/v1/recall -H "Authorization: Bearer $TOKEN" \
 Recall finds the chunks whose text holds the words, with PostgreSQL's own
 full-text search: words are compared as English stems, all are required,
 `"quoted words"` stand together, `or` takes either and `-word` leaves out
-what holds it. It makes no model call. The answer says `matched`,
-`no_match`, or `no_terms` when the query held no word to look for: only
-words too common to search for, or only words to leave out.
+what holds it. By the words it makes no model call. The answer says
+`matched`, `no_match`, or `no_terms` when the query held no word to look
+for: only words too common to search for, or only words to leave out.
+
+With an embedder configured, recall also finds chunks that say what the
+query asks in other words; see [Recalling by meaning](#recalling-by-meaning).
 
 What comes back is what was stored, verbatim, chunk by chunk, with each
 bead's event key, and what a judge said of it:
@@ -508,6 +511,135 @@ its text, marked `text_omitted`.
 
 Recall reads paused and revoked scopes too: they stop capture, not reading.
 Erasing a message removes it from recall in the same transaction.
+
+### Recalling by meaning
+
+Words find a chunk only if the chunk holds them. "What do we charge" does
+not find "the subscription fee goes up in March". An embedding model gives
+a text a vector such that texts that mean alike get vectors that point
+alike. Add an embedder and the engine has one give each chunk a vector, and
+compares a query's vector with them:
+
+```toml
+[embedder]
+binding = "embed"
+
+[[binding]]
+id = "embed"
+provider = "openai"                   # or "openai-compatible": any server that speaks /embeddings
+endpoint = "https://api.openai.com/v1"
+model = "text-embedding-3-small"
+api_key_env = "OPENAI_API_KEY"        # the variable that holds the key; never the key itself
+budget = { max_requests_per_day = 5000, max_tokens_per_day = 20000000 }
+```
+
+A binding that only embeds needs no `max_output_tokens`: an embedding has
+no reply to limit. The steps are those of a reader:
+
+```bash
+core-memory check                                 # prints the embedder and its destination
+core-memory scope allow acme --binding embed      # consent, for this scope and this destination
+core-memory read queue acme                       # queue what was stored before the embedder was
+core-memory read run                              # embed what is due now, then stop
+core-memory read status                           # the `embed` line: queued, in hand, failed
+```
+
+`core-memory serve` embeds in the background as it reads. Each call is
+permitted and receipted as a read is, and counts against the binding's
+budget. A call that fails is made again later, at most `max_attempts`
+times (5 unless set), each waiting `retry_backoff_ms` after the last; then
+the chunk is set aside as failed and `core-memory read retry` puts it back.
+A tool call's text gets no vector.
+
+**The database.** Vectors are stored in any PostgreSQL. Comparing them
+needs the [pgvector](https://github.com/pgvector/pgvector) extension, which
+most hosted PostgreSQL offers:
+
+```sql
+CREATE EXTENSION vector;   -- once, by a role that may; in any schema the engine's role may use
+```
+
+Without it vectors are still stored, and recall answers from the words and
+says so.
+
+**Asking.** Nothing changes in how you ask. The answer says how it was
+found:
+
+```bash
+core-memory recall what do we charge              # by the words and by meaning
+core-memory recall fee --search words             # the words only: the query is sent nowhere
+core-memory recall what do we charge --search meaning
+```
+
+Over HTTP the same choice is the request's `search`: leave it out, or send
+`"words"` or `"meaning"`. The command embeds the query itself, so it needs
+the embedder's key in its environment as `read run` does; `--search words`
+needs none.
+
+```json
+{"found": "matched", "meaning": "used",
+ "beads": [{"via": "match", "by": "meaning", "distance": 0.21, "rank": 0.016, "chunks": [...]}]}
+```
+
+- `meaning` says whether the query was searched for by meaning: `used`, or
+  why not: `not_asked` (you asked for the words), `not_configured` (no
+  embedder), `not_installed` (no pgvector), `no_vectors` (nothing in the
+  scopes searched is embedded, or those scopes no longer allow the
+  embedder's destination), `unavailable` (the embedder did not answer).
+- `by` says which search found a match: `words`, `meaning` or `both`. What
+  both found comes first. `distance` is how far a match's vector is from
+  the query's, from 0 for the same direction to 2 for the opposite.
+- Asked for `meaning` only, `found` is `not_searched` when that could not
+  be done. It is never `no_match` for a search that was not made.
+
+The query itself goes to the embedder, so that it can be given a vector. It
+is your caller's own text, and it is neither stored nor logged. It is sent
+only when a scope it searches holds vectors and allows the embedder's
+destination, and not at all with `--search words`. If the embedder does not
+answer, it is asked again, three times in all unless set, each try waiting
+at most `question_timeout_ms` (2 seconds); then the answer comes from the
+words and says `unavailable`.
+
+Something is always nearest, so by meaning the nearest chunks match however
+far they are. If you know your model's distances, set a limit:
+
+```toml
+[embedder]
+binding = "embed"
+max_distance = 0.6        # none by default
+```
+
+**A model on your own machine.** Any server that speaks the
+OpenAI-compatible `/embeddings` API will do, and then no text leaves the
+machine. With [Ollama](https://ollama.com):
+
+```toml
+[embedder]
+binding = "local"
+document_prefix = "search_document: "   # if the model is told what it embeds by a prefix
+query_prefix = "search_query: "
+
+[[binding]]
+id = "local"
+provider = "openai-compatible"
+endpoint = "http://localhost:11434/v1"
+model = "nomic-embed-text"
+```
+
+Its destination is `localhost:11434`, and a scope allows it as it allows
+any other.
+
+**Changing the model.** The model, its endpoint, `dimensions` and the two
+prefixes decide what vector a text gets. Change one and the engine has
+another embedder: the old vectors are no longer compared, and `core-memory
+read queue <scope>` queues every chunk for a new one. `dimensions` asks a
+model that can for shorter vectors, which are cheaper to store and compare.
+A chunk longer than `max_input_bytes` (8000) is embedded by its start.
+
+The search compares the query with every vector of the scopes searched. It
+is exact, and its cost grows with what is stored. If it runs past the
+store's `statement_timeout_ms`, the answer comes from the words and says
+`unavailable`.
 
 ## Erasing
 
@@ -694,6 +826,11 @@ schema.
 2.0.0 released migrations 1 and 2, and a released migration never changes.
 A database created by a build from before 2.0.0 must be recreated, not
 migrated.
+
+The migration that adds vectors (4) needs no extension and changes nothing
+for an engine with no `[embedder]`. To compare vectors, install pgvector
+once (`CREATE EXTENSION vector;`); see
+[Recalling by meaning](#recalling-by-meaning).
 
 ## Measured
 

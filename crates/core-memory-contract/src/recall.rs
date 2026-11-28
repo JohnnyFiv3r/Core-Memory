@@ -44,6 +44,9 @@ pub struct RecallRequest {
     /// two words takes either, and `-word` leaves out what holds it. Words
     /// are compared as English stems, so `deadlines` finds `deadline`, and
     /// common words such as `the` are ignored.
+    ///
+    /// Where the engine has an embedder, the same text is also the
+    /// question whose meaning is looked for, however it is worded.
     pub query: String,
     /// The scopes to search. Without it, every scope the caller may recall
     /// from.
@@ -61,6 +64,22 @@ pub struct RecallRequest {
     /// replaced or withdrew it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub include_ended: bool,
+    /// Search one way only: by the words, or by meaning. Without it the
+    /// engine searches both ways where it can and by the words where it
+    /// cannot, and the answer says which it did. `words` sends the query
+    /// nowhere.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub search: Option<RecallSearch>,
+}
+
+/// One way to search.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum RecallSearch {
+    /// Chunks whose text holds the query's words.
+    Words,
+    /// Chunks whose vector is nearest the query's, whatever their words.
+    Meaning,
 }
 
 /// Whether anything was found.
@@ -74,6 +93,42 @@ pub enum RecallFound {
     /// The query has no word to look for: only common words such as `the`,
     /// punctuation, or words to leave out. Nothing was searched.
     NoTerms,
+    /// The request asked for a search by meaning only, and that search
+    /// could not be made. `meaning` says why. Nothing was searched.
+    NotSearched,
+}
+
+/// Whether an answer was searched for by meaning, and if not, why not.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum RecallMeaning {
+    /// The query was embedded and compared with the vectors of the scopes
+    /// searched.
+    Used,
+    /// The request asked for the words only.
+    #[default]
+    NotAsked,
+    /// The engine has no embedder.
+    NotConfigured,
+    /// The database cannot compare vectors: the `vector` extension is not
+    /// installed, or the engine's role may not use it.
+    NotInstalled,
+    /// No scope searched holds a vector of the engine's embedder and still
+    /// allows text to be sent to it. The query was sent nowhere.
+    NoVectors,
+    /// The query could not be compared in time: the embedder did not give
+    /// it a vector, or comparing it ran past the store's statement timeout.
+    Unavailable,
+}
+
+/// Which search found a match.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum MatchedBy {
+    #[default]
+    Words,
+    Meaning,
+    Both,
 }
 
 /// An answer to a [`RecallRequest`].
@@ -89,15 +144,27 @@ pub struct RecallAnswer {
     /// Beads reached along arrows that were left out because the answer
     /// holds at most 100 of them.
     pub linked_omitted: u32,
+    /// Whether the query was also searched for by meaning.
+    #[serde(default)]
+    pub meaning: RecallMeaning,
 }
 
 /// How a bead came into an answer.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "via", rename_all = "snake_case")]
 pub enum RecallVia {
-    /// Its text holds the words. `rank` orders the matches of one answer
-    /// and means nothing across answers.
-    Match { rank: f32 },
+    /// Its text holds the words, or its vector is among the nearest to the
+    /// query's, as `by` says. `rank` orders the matches of one answer and
+    /// means nothing across answers. `distance` is the cosine distance
+    /// between its vector and the query's, from 0 for the same direction
+    /// to 2 for the opposite, when it was found by meaning.
+    Match {
+        rank: f32,
+        #[serde(default)]
+        by: MatchedBy,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        distance: Option<f32>,
+    },
     /// It is the current end of the chain that replaced or withdrew a
     /// match.
     Successor { of: BeadId },
@@ -184,6 +251,61 @@ mod tests {
             serde_json::from_value::<RecallRequest>(json!({"query": "x", "summary": true}))
                 .is_err()
         );
+    }
+
+    #[test]
+    fn a_request_may_ask_for_one_search_and_an_answer_says_which_were_made() {
+        let request: RecallRequest =
+            serde_json::from_value(json!({"query": "launch", "search": "meaning"})).unwrap();
+        assert_eq!(request.search, Some(RecallSearch::Meaning));
+        assert!(
+            serde_json::from_value::<RecallRequest>(json!({"query": "x", "search": "both"}))
+                .is_err()
+        );
+        // A request that names no search is written as it was before there
+        // was a choice.
+        let plain: RecallRequest = serde_json::from_value(json!({"query": "launch"})).unwrap();
+        assert_eq!(plain.search, None);
+        assert_eq!(
+            serde_json::to_value(&plain).unwrap(),
+            json!({"query": "launch"})
+        );
+
+        // A match says which search found it, and how near it was if by
+        // meaning. An answer written before either was said still reads.
+        let found = RecallVia::Match {
+            rank: 0.5,
+            by: MatchedBy::Both,
+            distance: Some(0.25),
+        };
+        assert_eq!(
+            serde_json::to_value(&found).unwrap(),
+            json!({"via": "match", "rank": 0.5, "by": "both", "distance": 0.25})
+        );
+        let older: RecallVia =
+            serde_json::from_value(json!({"via": "match", "rank": 0.5})).unwrap();
+        assert_eq!(
+            older,
+            RecallVia::Match {
+                rank: 0.5,
+                by: MatchedBy::Words,
+                distance: None
+            }
+        );
+        let answer: RecallAnswer = serde_json::from_value(json!({
+            "found": "not_searched", "beads": [], "arrows": [], "linked_omitted": 0,
+            "meaning": "unavailable",
+        }))
+        .unwrap();
+        assert_eq!(
+            (answer.found, answer.meaning),
+            (RecallFound::NotSearched, RecallMeaning::Unavailable)
+        );
+        let older: RecallAnswer = serde_json::from_value(json!({
+            "found": "matched", "beads": [], "arrows": [], "linked_omitted": 0,
+        }))
+        .unwrap();
+        assert_eq!(older.meaning, RecallMeaning::NotAsked);
     }
 
     #[test]

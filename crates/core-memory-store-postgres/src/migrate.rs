@@ -33,6 +33,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "read_views",
         sql: include_str!("../sql/0003_read_views.sql"),
     },
+    Migration {
+        version: 4,
+        name: "chunk_vectors",
+        sql: include_str!("../sql/0004_chunk_vectors.sql"),
+    },
 ];
 
 /// The schema version this build reads and writes.

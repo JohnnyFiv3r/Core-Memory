@@ -4,11 +4,11 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use core_memory_core::{BindingConfig, Engine, ModelTransport, SystemClock};
+use core_memory_core::{BindingConfig, EmbedTransport, Engine, ModelTransport, SystemClock};
 use core_memory_model_anthropic::AnthropicTransport;
 use core_memory_model_chatgpt::ChatGptTransport;
 use core_memory_model_http::{HttpClient, Roots};
-use core_memory_model_openai::{Dialect, OpenAiTransport};
+use core_memory_model_openai::{Dialect, OpenAiEmbedTransport, OpenAiTransport};
 use core_memory_store_postgres::{PostgresPool, PostgresStore};
 
 use crate::config::Loaded;
@@ -113,20 +113,7 @@ pub fn open_transport(
             client,
         )));
     }
-    let key = match &binding.api_key_env {
-        None => None,
-        Some(name) => Some(
-            std::env::var(name)
-                .ok()
-                .filter(|key| !key.trim().is_empty())
-                .ok_or_else(|| {
-                    format!(
-                        "binding `{}`: ${name} must hold the provider's API key",
-                        binding.id
-                    )
-                })?,
-        ),
-    };
+    let key = api_key(binding)?;
     match (Dialect::for_provider(&binding.provider), key) {
         // A server on this machine may need no key.
         (Some(dialect), key) => Ok(Box::new(OpenAiTransport::with_client(dialect, key, client))),
@@ -136,6 +123,82 @@ pub fn open_transport(
             binding.id
         ))),
     }
+}
+
+/// A binding's API key, read from the environment variable it names.
+/// `None` if it names none: a server on this machine may need no key.
+fn api_key(binding: &BindingConfig) -> Result<Option<String>, Stop> {
+    match &binding.api_key_env {
+        None => Ok(None),
+        Some(name) => Ok(Some(
+            std::env::var(name)
+                .ok()
+                .filter(|key| !key.trim().is_empty())
+                .ok_or_else(|| {
+                    format!(
+                        "binding `{}`: ${name} must hold the provider's API key",
+                        binding.id
+                    )
+                })?,
+        )),
+    }
+}
+
+/// Checks that a binding can embed: it names a provider whose API has
+/// embeddings and that this build can call. Reads no key and sends
+/// nothing.
+pub fn check_embed_binding(binding: &BindingConfig) -> Result<(), Stop> {
+    if Dialect::for_provider(&binding.provider).is_none() {
+        return Err(Stop::Failed(format!(
+            "binding `{}`: an embedder's provider must be `openai` or `openai-compatible`, \
+             the API every embedding server speaks",
+            binding.id
+        )));
+    }
+    if binding.credentials_file.is_some() {
+        return Err(Stop::Failed(format!(
+            "binding `{}`: an embedder takes api_key_env, not credentials_file",
+            binding.id
+        )));
+    }
+    Ok(OpenAiEmbedTransport::check_binding(binding)?)
+}
+
+/// The transport that embeds for a binding, with its key read from the
+/// environment. One call may take `timeout`: the binding's own for the
+/// queue's calls, and far less for a recall query, which a caller waits
+/// for. Nothing is sent here.
+pub fn open_embed_transport(
+    binding: &BindingConfig,
+    roots: Option<&Roots>,
+    timeout: Duration,
+) -> Result<Box<dyn EmbedTransport>, Stop> {
+    check_embed_binding(binding)?;
+    // Checked just above.
+    let dialect = Dialect::for_provider(&binding.provider).unwrap_or(Dialect::Compatible);
+    Ok(Box::new(OpenAiEmbedTransport::with_client(
+        dialect,
+        api_key(binding)?,
+        HttpClient::trusting(timeout, roots),
+    )))
+}
+
+/// The transport that embeds recall queries for `engine`, if it has an
+/// embedder. Each try may take `embedder.question_timeout_ms`.
+pub fn open_question_transport(
+    loaded: &Loaded,
+    engine: &Engine,
+) -> Result<Option<Box<dyn EmbedTransport>>, Stop> {
+    let Some(embedder) = engine.embedder() else {
+        return Ok(None);
+    };
+    let roots = model_roots(loaded)?;
+    open_embed_transport(
+        &embedder.binding,
+        roots.as_ref(),
+        Duration::from_millis(embedder.settings.question_timeout_ms),
+    )
+    .map(Some)
 }
 
 /// How long a request waits for a store connection before it is told to

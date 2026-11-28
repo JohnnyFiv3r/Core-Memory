@@ -29,7 +29,7 @@ Most memory layers summarize what they are given and keep the summary. Core Memo
 
 **Related by a judge:** A judge model says how each new memory relates to the ones near it in time, and to the ones its source names: what caused what, what replaced what, and what cannot both hold. It answers in the arrows of Mark Burgess's Semantic Spacetime. A replacement is written only after a second read gives it again, and a contradiction keeps both sides.
 
-**Recall what still holds:** `recall` returns the stored text that holds your words, verbatim. With it comes what replaced that text, what disputes it and what the judge's arrows lead to. All of it comes from the same tables, with no second store.
+**Recall what still holds:** `recall` returns the stored text that holds your words, verbatim. With it comes what replaced that text, what disputes it and what the judge's arrows lead to. All of it comes from the same tables, with no second store. Add an embedding model, from any provider or on your own machine, and `recall` also finds what answers a question in other words; each match says which search found it.
 
 ---
 

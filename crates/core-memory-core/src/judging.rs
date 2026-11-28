@@ -57,6 +57,7 @@ impl CompiledJudge {
                 "judge.binding is not the id of a configured [[binding]]".to_string()
             }));
         };
+        binding.replies()?;
         let within = |name: &str, value: u64, least: u64, most: u64| {
             if (least..=most).contains(&value) {
                 Ok(())

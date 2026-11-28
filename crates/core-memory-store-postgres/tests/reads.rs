@@ -328,14 +328,16 @@ fn chunks_stored_before_there_was_a_reader_are_queued_when_asked() {
         w.store.queue_reads("acme", Reread::default(), now).unwrap(),
         QueuedReads::Queued {
             chunks: 1,
-            tool_calls: 0
+            tool_calls: 0,
+            embeddings: 0
         }
     );
     assert_eq!(
         w.store.queue_reads("acme", Reread::default(), now).unwrap(),
         QueuedReads::Queued {
             chunks: 0,
-            tool_calls: 0
+            tool_calls: 0,
+            embeddings: 0
         }
     );
     assert_eq!(handled(round(&mut w, &transport)).stored, 1);
@@ -351,14 +353,16 @@ fn chunks_stored_before_there_was_a_reader_are_queued_when_asked() {
                     "acme",
                     Reread {
                         chunks: current,
-                        tool_calls: None
+                        tool_calls: None,
+                        vectors: None
                     },
                     now
                 )
                 .unwrap(),
             QueuedReads::Queued {
                 chunks: 0,
-                tool_calls: 0
+                tool_calls: 0,
+                embeddings: 0
             }
         );
     }
@@ -374,14 +378,16 @@ fn chunks_stored_before_there_was_a_reader_are_queued_when_asked() {
                 "acme",
                 Reread {
                     chunks: Some((&changed, &vocabulary)),
-                    tool_calls: None
+                    tool_calls: None,
+                    vectors: None
                 },
                 now
             )
             .unwrap(),
         QueuedReads::Queued {
             chunks: 1,
-            tool_calls: 0
+            tool_calls: 0,
+            embeddings: 0
         }
     );
 
@@ -554,7 +560,8 @@ fn reading_waits_for_a_migration_holding_nothing_else() {
         .unwrap(),
         QueuedReads::Queued {
             chunks: 0,
-            tool_calls: 0
+            tool_calls: 0,
+            embeddings: 0
         }
     );
     assert_eq!(

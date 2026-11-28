@@ -1121,6 +1121,7 @@ impl PostgresStore {
         Ok(QueuedReads::Queued {
             chunks: rows.len() as u64 - tool_calls,
             tool_calls,
+            embeddings: 0,
         })
     }
 }

@@ -1,10 +1,10 @@
 //! Having a model read what is queued: what `core-memory read run` does
 //! once, and what runs beside `core-memory serve` for as long as it serves.
 //!
-//! Three kinds of work are done: chunks are read, in batches; tool calls
-//! are read, one to a model call; and new beads are judged against the
-//! recent ones of their workspace. The engine does the work, one round at
-//! a time. This module gives each kind a lane: a thread, a store
+//! Four kinds of work are done: chunks are read, in batches; tool calls
+//! are read, one to a model call; new beads are judged against the recent
+//! ones of their workspace; and chunks are given vectors, in batches. The
+//! engine does the work, one round at a time. This module gives each kind a lane: a thread, a store
 //! connection and a transport of its own, so that a slow call of one kind
 //! holds no other back. Chunks get as many lanes as `reader.workers` says.
 //! The store hands each queued item to one lane at a time. What is logged
@@ -16,15 +16,15 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
 use core_memory_core::{
-    CompiledJudge, Engine, EngineError, JudgeReport, JudgeRound, ModelTransport, ReadReport,
-    ReadRound, StoreError,
+    CompiledJudge, EmbedReport, EmbedRound, EmbedTransport, Engine, EngineError, JudgeReport,
+    JudgeRound, ModelTransport, ReadReport, ReadRound, StoreError,
 };
 use core_memory_store_postgres::PostgresStore;
 use serde_json::json;
 
 use crate::config::Loaded;
 use crate::report::{self, Stop};
-use crate::runtime::{model_roots, open_store, open_transport};
+use crate::runtime::{model_roots, open_embed_transport, open_store, open_transport};
 
 /// How long a lane waits before it looks again when nothing is due.
 const IDLE_WAIT: Duration = Duration::from_millis(1_000);
@@ -47,22 +47,22 @@ const BINDING_FAULTS: [&str; 4] = [
     "plan_limit_reached",
 ];
 
-/// A kind of work.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Kind {
-    Chunks,
-    ToolCalls,
-    Judge,
+/// A kind of work, with the transport that makes its calls.
+#[derive(Debug)]
+enum Work {
+    Chunks(Box<dyn ModelTransport>),
+    ToolCalls(Box<dyn ModelTransport>),
+    Judge(Box<dyn ModelTransport>),
+    Embed(Box<dyn EmbedTransport>),
 }
 
 /// One kind of work, done by one thread with a store connection and a
 /// transport of its own.
 #[derive(Debug)]
 struct Lane {
-    kind: Kind,
+    work: Work,
     engine: Arc<Engine>,
     store: PostgresStore,
-    transport: Box<dyn ModelTransport>,
     /// Until when lanes of this kind start no call, after the provider
     /// turned their binding down. Shared by the lanes of one kind: once one
     /// call is turned down, no lane starts another. A lane already calling
@@ -85,6 +85,8 @@ pub enum Round {
     Read(ReadReport),
     /// New beads were judged, or one held arrow was read a second time.
     Judged(JudgeReport),
+    /// A batch of chunks was given vectors.
+    Embedded(EmbedReport),
 }
 
 /// What a run of the reader did, in total.
@@ -98,6 +100,8 @@ pub struct Totals {
     /// New beads whose judgment was stored.
     pub judged: u64,
     pub verdicts: u64,
+    /// Chunks whose vector was stored.
+    pub embedded: u64,
     pub calls: u64,
     pub input_tokens: u64,
     pub output_tokens: u64,
@@ -132,6 +136,10 @@ impl Totals {
                     report.cache_write_tokens,
                 )
             }
+            Round::Embedded(report) => {
+                self.embedded += u64::from(report.stored);
+                (report.calls, report.input_tokens, 0, 0, 0)
+            }
         };
         self.calls += u64::from(calls);
         self.input_tokens = self.input_tokens.saturating_add(input_tokens);
@@ -146,6 +154,7 @@ impl Round {
         match self {
             Round::Read(report) => report.problem,
             Round::Judged(report) => report.problem,
+            Round::Embedded(report) => report.problem,
         }
     }
 }
@@ -191,6 +200,15 @@ pub fn describe(round: &Round) -> serde_json::Value {
             "problem": report.problem,
             "reply_faults": report.reply_faults.iter().map(|fault| fault.as_str()).collect::<Vec<_>>(),
         }}),
+        Round::Embedded(report) => json!({"embedded": {
+            "scope": report.scope,
+            "chunks": report.chunks,
+            "stored": report.stored,
+            "dropped": report.dropped,
+            "calls": report.calls,
+            "input_tokens": report.input_tokens,
+            "problem": report.problem,
+        }}),
     }
 }
 
@@ -214,27 +232,41 @@ impl Reader {
     pub fn open(loaded: &Loaded, engine: Arc<Engine>) -> Result<Option<Self>, Stop> {
         let roots = model_roots(loaded)?;
         let mut lanes = Vec::new();
-        let mut add = |kind, binding, count: u32| -> Result<(), Stop> {
+        let mut add = |work: &dyn Fn(Box<dyn ModelTransport>) -> Work,
+                       binding,
+                       count: u32|
+         -> Result<(), Stop> {
             let rejected = Arc::new(Mutex::new(None));
             for _ in 0..count {
                 lanes.push(Lane {
-                    kind,
+                    work: work(open_transport(loaded, binding, roots.as_ref())?),
                     engine: Arc::clone(&engine),
                     store: open_store(loaded)?,
-                    transport: open_transport(loaded, binding, roots.as_ref())?,
                     rejected: Arc::clone(&rejected),
                 });
             }
             Ok(())
         };
         if let Some(reader) = engine.reader() {
-            add(Kind::Chunks, &reader.binding, reader.settings.workers)?;
+            add(&Work::Chunks, &reader.binding, reader.settings.workers)?;
         }
         if let Some(reader) = engine.tool_reader() {
-            add(Kind::ToolCalls, &reader.binding, 1)?;
+            add(&Work::ToolCalls, &reader.binding, 1)?;
         }
         if let Some(judge) = engine.judge() {
-            add(Kind::Judge, &judge.binding, 1)?;
+            add(&Work::Judge, &judge.binding, 1)?;
+        }
+        if let Some(embedder) = engine.embedder() {
+            lanes.push(Lane {
+                work: Work::Embed(open_embed_transport(
+                    &embedder.binding,
+                    roots.as_ref(),
+                    Duration::from_millis(embedder.binding.timeout_ms),
+                )?),
+                engine: Arc::clone(&engine),
+                store: open_store(loaded)?,
+                rejected: Arc::new(Mutex::new(None)),
+            });
         }
         if lanes.is_empty() {
             return Ok(None);
@@ -268,6 +300,17 @@ impl Reader {
         }
         if let Some(judge) = self.engine.judge() {
             said.insert("judge".into(), describe_judge(judge));
+        }
+        if let Some(embedder) = self.engine.embedder() {
+            said.insert(
+                "embedder".into(),
+                json!({
+                    "binding": embedder.binding.id,
+                    "model": embedder.binding.model,
+                    "destination": embedder.destination,
+                    "dimensions": embedder.settings.dimensions,
+                }),
+            );
         }
         serde_json::Value::Object(said)
     }
@@ -347,14 +390,32 @@ impl Lane {
         if rejected().is_some_and(|until| now < until) {
             return Ok(None);
         }
-        let transport = self.transport.as_ref();
-        let did = match self.kind {
-            Kind::Chunks => read(self.engine.read_once(&mut self.store, transport)?),
-            Kind::ToolCalls => read(self.engine.read_tool_once(&mut self.store, transport)?),
-            Kind::Judge => match self.engine.judge_once(&mut self.store, transport)? {
-                JudgeRound::Idle => None,
-                JudgeRound::Handled(report) => Some(Round::Judged(report)),
-            },
+        let did = match &self.work {
+            Work::Chunks(transport) => {
+                read(self.engine.read_once(&mut self.store, transport.as_ref())?)
+            }
+            Work::ToolCalls(transport) => read(
+                self.engine
+                    .read_tool_once(&mut self.store, transport.as_ref())?,
+            ),
+            Work::Judge(transport) => {
+                match self
+                    .engine
+                    .judge_once(&mut self.store, transport.as_ref())?
+                {
+                    JudgeRound::Idle => None,
+                    JudgeRound::Handled(report) => Some(Round::Judged(report)),
+                }
+            }
+            Work::Embed(transport) => {
+                match self
+                    .engine
+                    .embed_once(&mut self.store, transport.as_ref())?
+                {
+                    EmbedRound::Idle => None,
+                    EmbedRound::Handled(report) => Some(Round::Embedded(report)),
+                }
+            }
         };
         if did
             .as_ref()

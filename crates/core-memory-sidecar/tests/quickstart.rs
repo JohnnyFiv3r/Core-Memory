@@ -908,7 +908,8 @@ fn the_server_runs_and_stops_cleanly_with_no_one_reading_its_log() {
 /// a local port. For every chunk it is shown it answers with the first
 /// listed type and marks the chunk's first word as an entity. Of a tool
 /// call it says what the tool was and how its output ends. As a judge it
-/// goes by a few words in the memories it is shown: see [`judgment`].
+/// goes by a few words in the memories it is shown: see [`judgment`]. It
+/// speaks the embeddings API too: see [`embeddings`].
 struct StandIn {
     addr: std::net::SocketAddr,
     requests: std::sync::Arc<std::sync::Mutex<Vec<Value>>>,
@@ -1004,6 +1005,15 @@ impl StandIn {
         )
     }
 
+    /// The config lines for an embedder that calls this server. Its
+    /// binding limits no reply: an embedding has none.
+    fn config_with_embedder(&self, embedder: &str) -> String {
+        format!(
+            "\n[embedder]\nbinding = \"embed\"\n{embedder}\n\n[[binding]]\nid = \"embed\"\nprovider = \"openai-compatible\"\nendpoint = \"http://{}/v1\"\nmodel = \"stand-in-embed-1\"\ntimeout_ms = 5000\n",
+            self.addr
+        )
+    }
+
     /// The config lines for a reader of chunks and a judge that both call
     /// this server. A new bead is judged as soon as its chunk was read.
     fn config_with_judge(&self, judge: &str) -> String {
@@ -1073,7 +1083,38 @@ fn judgment(listing: &Value) -> Value {
 
 /// A chat completion that reads what the request shows: every chunk of a
 /// batch, one tool call, or the memories a judge is to compare.
+/// What the stand-in says as an embedder. A text's vector says which of
+/// two subjects its words are about, the billing cutover or the Northwind
+/// deal, with a last number so that no vector is all zeros.
+fn embeddings(inputs: &[Value]) -> Value {
+    const SUBJECTS: [&[&str]; 2] = [
+        &["billing", "cutover", "ledger", "export", "phase"],
+        &["northwind", "renewal", "amount", "closed won"],
+    ];
+    let data: Vec<Value> = inputs
+        .iter()
+        .enumerate()
+        .map(|(index, text)| {
+            let text = text.as_str().unwrap_or_default().to_lowercase();
+            let mut vector: Vec<f64> = SUBJECTS
+                .iter()
+                .map(|words| words.iter().filter(|word| text.contains(**word)).count() as f64)
+                .collect();
+            vector.push(0.05);
+            serde_json::json!({"object": "embedding", "index": index, "embedding": vector})
+        })
+        .collect();
+    serde_json::json!({
+        "object": "list",
+        "data": data,
+        "usage": {"prompt_tokens": 7 * inputs.len(), "total_tokens": 7 * inputs.len()},
+    })
+}
+
 fn completion(request: &Value) -> Value {
+    if let Some(inputs) = request["input"].as_array() {
+        return embeddings(inputs);
+    }
     let user = request["messages"][1]["content"]
         .as_str()
         .unwrap_or_default();
@@ -1710,13 +1751,13 @@ fn new_beads_are_judged_and_what_the_judge_said_is_exported() {
         )
     );
 
-    // Admission queues every bead for the judge. There are four kinds of
+    // Admission queues every bead for the judge. There are five kinds of
     // work, and a line for each.
     q.ok(&["ingest", "--input", "events.jsonl"]);
     let status = q.ok(&["read", "status"]);
     assert_eq!(
         status.iter().map(|line| &line["work"]).collect::<Vec<_>>(),
-        ["chunk_read", "tool_read", "judge", "second_read"]
+        ["chunk_read", "tool_read", "judge", "second_read", "embed"]
     );
     assert_eq!(queue_of(&status, "judge")["ready"], 4);
 
@@ -2172,4 +2213,203 @@ fn the_service_judges_what_it_admits_and_still_stops_cleanly() {
     assert!(log.contains("\"judged\":{"), "{log}");
     assert!(log.contains("\"verdicts\":1"), "{log}");
     assert!(!log.contains("Priya") && !log.contains("cutover"), "{log}");
+}
+
+// ---- vectors and recall by meaning ----
+
+#[test]
+#[allow(clippy::print_stderr)]
+fn chunks_are_given_vectors_and_recall_finds_them_by_meaning() {
+    let model = StandIn::start();
+    let destination = model.addr.to_string();
+    let q = Quickstart::ready();
+    q.configure(&model.config_with_embedder("batch_size = 3"));
+
+    // The config names the embedder, and where it would send text.
+    let checked = q.ok(&["check"]);
+    assert!(
+        checked.iter().any(|l| l["embedder"]["binding"] == "embed"
+            && l["embedder"]["destination"] == destination.as_str()
+            && l["embedder"]["revision"].is_string()),
+        "{checked:?}"
+    );
+
+    // Admission queues every chunk for a vector, and nothing is sent yet.
+    q.ok(&["ingest", "--input", "events.jsonl"]);
+    let chunks = of_kind(&q.ok(&["export"]), "chunk").len();
+    assert_eq!(
+        queue_of(&q.ok(&["read", "status"]), "embed")["ready"],
+        chunks
+    );
+    let put_off = q.ok(&["read", "run"]);
+    assert!(
+        !put_off.is_empty()
+            && put_off
+                .iter()
+                .all(|r| r["embedded"]["problem"] == "no_consent" && r["embedded"]["calls"] == 0),
+        "{put_off:?}"
+    );
+    assert!(model.requests().is_empty());
+
+    // With the scope's consent to the embedder's destination, every chunk
+    // gets a vector, a few to a call.
+    q.ok(&["scope", "allow", "acme", "--binding", "embed"]);
+    let rounds = q.ok(&["read", "run"]);
+    let stored: u64 = rounds
+        .iter()
+        .map(|r| r["embedded"]["stored"].as_u64().unwrap())
+        .sum();
+    assert_eq!(stored, chunks as u64, "{rounds:?}");
+    let sent = model.requests();
+    assert!(sent.len() >= chunks.div_ceil(3), "{sent:?}");
+    assert!(
+        sent.iter().all(|request| {
+            request["model"] == "stand-in-embed-1"
+                && request["input"].as_array().is_some_and(|i| i.len() <= 3)
+                && request.get("messages").is_none()
+        }),
+        "{sent:?}"
+    );
+    let status = q.ok(&["read", "status"]);
+    assert_eq!(
+        (
+            &queue_of(&status, "embed")["ready"],
+            &queue_of(&status, "embed")["failed"]
+        ),
+        (&Value::from(0), &Value::from(0))
+    );
+    // Every chunk has its vector, so there is nothing more to queue.
+    let queued = q.ok(&["read", "queue", "acme"]);
+    assert_eq!(queue_of(&queued, "embed")["queued"], 0, "{queued:?}");
+
+    // No chunk holds all of these words, so the words alone find nothing,
+    // and asked for the words only the query is sent nowhere.
+    let question = ["which", "ledger", "plan", "did", "they", "pick"];
+    let asked = |more: &[&str]| {
+        let args: Vec<&str> = ["recall"]
+            .iter()
+            .chain(question.iter())
+            .chain(more.iter())
+            .copied()
+            .collect();
+        q.ok(&args).remove(0)
+    };
+    let embedded = model.requests().len();
+    let words = asked(&["--search", "words"]);
+    assert_eq!(
+        (&words["found"], &words["meaning"]),
+        (&Value::from("no_match"), &Value::from("not_asked"))
+    );
+    assert_eq!(model.requests().len(), embedded);
+
+    // A database without the `vector` extension stores vectors and cannot
+    // compare them: recall says so, and still sends the query nowhere.
+    let plain = asked(&[]);
+    assert_eq!(
+        (&plain["found"], &plain["meaning"]),
+        (&Value::from("no_match"), &Value::from("not_installed"))
+    );
+    assert_eq!(model.requests().len(), embedded);
+
+    let mut owner = q.db.connect();
+    let available: bool = owner
+        .query_one(
+            "SELECT EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'vector')",
+            &[],
+        )
+        .unwrap()
+        .get(0);
+    if !available {
+        assert!(
+            std::env::var("CORE_MEMORY_TEST_PGVECTOR").is_ok_and(|v| v != "required"),
+            "this server has no `vector` extension, and the run requires it"
+        );
+        eprintln!("skipped: this server has no `vector` extension");
+        return;
+    }
+    owner.batch_execute("CREATE EXTENSION vector").unwrap();
+
+    // With it, the question finds what is about the ledger, however it is
+    // worded, and each match says how it was found and how near it is.
+    let found = asked(&[]);
+    assert_eq!(
+        (&found["found"], &found["meaning"]),
+        (&Value::from("matched"), &Value::from("used")),
+        "{found}"
+    );
+    let first = &found["beads"][0];
+    assert_eq!(
+        (&first["via"], &first["by"]),
+        (&json!("match"), &json!("meaning"))
+    );
+    assert!(first["distance"].as_f64().unwrap() < 0.3, "{first}");
+    let text = first["chunks"][0]["text"].as_str().unwrap().to_lowercase();
+    assert!(
+        ["billing", "cutover", "ledger", "export", "phase"]
+            .iter()
+            .any(|word| text.contains(word)),
+        "{text}"
+    );
+    // The query went to the embedder as one text.
+    let sent = model.requests();
+    assert_eq!(sent.len(), embedded + 1);
+    assert_eq!(
+        sent[embedded]["input"],
+        json!(["which ledger plan did they pick"])
+    );
+
+    // An embedder that is down is asked three times, and then the answer
+    // is made from the words and says so.
+    model.fail_with(503);
+    let down = asked(&[]);
+    assert_eq!(
+        (&down["found"], &down["meaning"]),
+        (&Value::from("no_match"), &Value::from("unavailable"))
+    );
+    assert_eq!(model.requests().len(), embedded + 4);
+    // Asked for meaning alone, it says nothing was searched.
+    let only = asked(&["--search", "meaning"]);
+    assert_eq!(
+        (&only["found"], &only["meaning"]),
+        (&Value::from("not_searched"), &Value::from("unavailable"))
+    );
+}
+
+#[test]
+fn recall_without_the_embedders_key_says_how_to_search_the_words() {
+    let q = Quickstart::ready();
+    q.configure(
+        "\n[embedder]\nbinding = \"embed\"\n\n[[binding]]\nid = \"embed\"\nprovider = \"openai\"\nendpoint = \"https://api.openai.com/v1\"\nmodel = \"m\"\napi_key_env = \"CORE_MEMORY_TEST_NO_SUCH_KEY\"\n",
+    );
+    q.ok(&["ingest", "--input", "events.jsonl"]);
+    let refused = q.run(&["recall", "Northwind"]);
+    assert_eq!(refused.status.code(), Some(1));
+    let said = stderr(&refused);
+    assert!(
+        said.contains("$CORE_MEMORY_TEST_NO_SUCH_KEY must hold the provider's API key")
+            && said.contains("--search words"),
+        "{said}"
+    );
+    // Asked for the words, the embedder is not opened and its key is not
+    // missed.
+    let answer = &q.ok(&["recall", "Northwind", "--search", "words"])[0];
+    assert_eq!(
+        (&answer["found"], &answer["meaning"]),
+        (&json!("matched"), &json!("not_asked"))
+    );
+}
+
+#[test]
+fn an_embedder_must_name_a_provider_that_embeds() {
+    let q = Quickstart::ready();
+    q.configure(
+        "\n[embedder]\nbinding = \"embed\"\n\n[[binding]]\nid = \"embed\"\nprovider = \"anthropic\"\nendpoint = \"https://api.anthropic.com\"\nmodel = \"m\"\nmax_output_tokens = 10\napi_key_env = \"NO_SUCH_KEY\"\n",
+    );
+    let refused = q.run(&["check"]);
+    assert_eq!(refused.status.code(), Some(1));
+    assert!(
+        stderr(&refused).contains("an embedder's provider must be `openai` or `openai-compatible`"),
+        "{}",
+        stderr(&refused)
+    );
 }

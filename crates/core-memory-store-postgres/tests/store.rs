@@ -458,6 +458,7 @@ fn stored_rows_cannot_be_changed_or_deleted() {
         "UPDATE core_memory.erasures SET reason = 'other'",
         "UPDATE core_memory.pins SET rev = 2",
         "TRUNCATE core_memory.chunk_text",
+        "TRUNCATE core_memory.chunk_text CASCADE",
         "TRUNCATE core_memory.events CASCADE",
         // A counter that went back would let a reader skip rows.
         "UPDATE core_memory.workspace_seq SET last_seq = last_seq - 1",
@@ -492,7 +493,10 @@ fn stored_rows_cannot_be_changed_or_deleted() {
         assert!(
             message.contains("cannot be")
                 || message.contains("violates")
-                || message.contains("only moves forward"),
+                || message.contains("only moves forward")
+                // PostgreSQL's own refusal, before the trigger is asked:
+                // chunk_vectors has a key to chunk_text.
+                || message.contains("cannot truncate a table referenced"),
             "{sql}: {message}"
         );
     }
@@ -884,6 +888,10 @@ fn every_call_waits_for_a_migration_holding_nothing_else() {
         limit: 10,
         follow: 2,
         include_ended: false,
+        search: core_memory_core::Search::Words,
+        meaning: core_memory_core::MeaningLeg::Without(
+            core_memory_contract::RecallMeaning::NotAsked,
+        ),
     };
     let recalled = behind_a_migration(db, "recall", || store.recall(&asked));
     assert_eq!(recalled.unwrap().beads.len(), 1);
@@ -1745,6 +1753,10 @@ fn reads_are_refused_too_once_the_schema_has_moved_on() {
         limit: 10,
         follow: 1,
         include_ended: false,
+        search: core_memory_core::Search::Words,
+        meaning: core_memory_core::MeaningLeg::Without(
+            core_memory_contract::RecallMeaning::NotAsked,
+        ),
     };
     for result in [
         w.store.checkpoint("acme", "session-a").map(|_| ()),

@@ -11,12 +11,12 @@ use core_memory_contract::{
 };
 use core_memory_core::store::{
     AdmissionCommit, AdmissionWrite, BeadsOf, CallFinish, CallFinished, Change, CheckpointAdvance,
-    CheckpointState, ExportedEvent, JudgeBatch, JudgeClaim, JudgePermit, JudgePermitRequest,
-    JudgeSettle, JudgmentFinish, JudgmentFinished, LeasedChunk, LeasedToolCall, Permit,
-    PermitRequest, PermittedChunk, PinKind, PinResult, Purpose, ReadBatch, ScopeInfo, ScopeState,
-    Sending, Store, StoredEvent, WorkCounts, WorkItem, WorkNext, WorkUpdate,
+    CheckpointState, EmbedBatch, EmbedFinish, ExportedEvent, JudgeBatch, JudgeClaim, JudgePermit,
+    JudgePermitRequest, JudgeSettle, JudgmentFinish, JudgmentFinished, LeasedChunk, LeasedToolCall,
+    MeaningReady, Permit, PermitRequest, PermittedChunk, PinKind, PinResult, Purpose, ReadBatch,
+    ScopeInfo, ScopeState, Sending, Store, StoredEvent, WorkCounts, WorkItem, WorkNext, WorkUpdate,
 };
-use core_memory_core::{RecallQuery, StoreError};
+use core_memory_core::{RecallQuery, ScopeGrants, StoreError};
 use postgres::types::{Json, ToSql};
 use postgres::{Client, GenericClient, IsolationLevel, Row, SimpleQueryMessage, Transaction};
 use time::OffsetDateTime;
@@ -66,13 +66,22 @@ pub struct Reread<'a> {
     /// Tool calls whose outcomes were all written by another reader than
     /// this one.
     pub tool_calls: Option<&'a ReaderRef>,
+    /// The embedder's revision, if an embedder is configured: chunks with
+    /// no vector of that revision are queued for one. Without it no
+    /// embedding is queued.
+    pub vectors: Option<&'a Sha256Digest>,
 }
 
 /// How [`PostgresStore::queue_reads`] ended.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum QueuedReads {
-    /// This many chunks and tool calls were added to the queue.
-    Queued { chunks: u64, tool_calls: u64 },
+    /// This many chunks and tool calls were added to the queue to be
+    /// read, and this many chunks to be given a vector.
+    Queued {
+        chunks: u64,
+        tool_calls: u64,
+        embeddings: u64,
+    },
     /// Nothing is read for a scope that is not active. `None` means it is
     /// not enrolled.
     ScopeNotActive(Option<ScopeState>),
@@ -413,8 +422,36 @@ impl PostgresStore {
                 &[&scope, &at.0, &tool_reader],
             )
             .map_err(backend)?;
+        // A chunk of a message is owed a vector of the embedder as it is
+        // now. One made by the embedder as it was is not compared with a
+        // query any more.
+        let embeddings = match reread.vectors {
+            None => 0,
+            Some(rev) => tx
+                .execute(
+                    "INSERT INTO core_memory.work
+                         (kind, item_id, event_id, workspace_id, scope, state, not_before,
+                          enqueued_at)
+                     SELECT 'embed', c.chunk_id, e.event_id, e.workspace_id, e.scope, 'ready',
+                            $2, $2
+                       FROM core_memory.events AS e
+                       JOIN core_memory.chunks AS c ON c.event_id = e.event_id
+                      WHERE e.scope = $1 AND e.state = 'live'
+                        AND e.info ->> 'content_kind' <> 'tool_call'
+                        AND NOT EXISTS (
+                            SELECT 1 FROM core_memory.chunk_vectors AS v
+                             WHERE v.chunk_id = c.chunk_id AND v.embedder_rev = $3)
+                     ON CONFLICT (kind, item_id) DO NOTHING",
+                    &[&scope, &at.0, &rev.as_bytes().as_slice()],
+                )
+                .map_err(backend)?,
+        };
         tx.commit().map_err(backend)?;
-        Ok(QueuedReads::Queued { chunks, tool_calls })
+        Ok(QueuedReads::Queued {
+            chunks,
+            tool_calls,
+            embeddings,
+        })
     }
 
     /// Puts reads that were set aside as failed back in the queue, with
@@ -666,7 +703,7 @@ pub(crate) fn read_transaction(client: &mut Client) -> Result<Transaction<'_>, S
 /// failure would be reported as the store's own. So before a failure that
 /// would repeat is reported, the version is read by itself. If the store
 /// has moved to another version, that is what went wrong.
-fn read_one<C: GenericClient>(
+pub(crate) fn read_one<C: GenericClient>(
     client: &mut C,
     sql: &str,
     params: &[&(dyn ToSql + Sync)],
@@ -886,6 +923,32 @@ impl Store for PostgresStore {
     fn update_work(&mut self, work: &[WorkUpdate]) -> Result<(), StoreError> {
         let updated = self.write_work(work, None);
         self.settled(updated)
+    }
+
+    fn claim_embeddings(
+        &mut self,
+        limit: u32,
+        max_attempts: u32,
+        now: Timestamp,
+        lease_until: Timestamp,
+    ) -> Result<Option<EmbedBatch>, StoreError> {
+        let claimed = self.write_claim_embeddings(limit, max_attempts, now, lease_until);
+        self.settled(claimed)
+    }
+
+    fn finish_embedding(&mut self, finish: &EmbedFinish<'_>) -> Result<CallFinished, StoreError> {
+        let finished = self.write_finish_embedding(finish);
+        self.settled(finished)
+    }
+
+    fn meaning_ready(
+        &mut self,
+        scopes: &ScopeGrants,
+        destination: &str,
+        embedder_rev: &Sha256Digest,
+    ) -> Result<MeaningReady, StoreError> {
+        let ready = self.read_meaning_ready(scopes, destination, embedder_rev);
+        self.settled(ready)
     }
 
     fn settle_judgment(&mut self, settle: &JudgeSettle<'_>) -> Result<(), StoreError> {
@@ -1108,11 +1171,23 @@ impl PostgresStore {
                 )
                 .map_err(backend)?;
             }
-            Some(Purpose::Judge | Purpose::SecondRead) => {
+            Some(Purpose::Judge | Purpose::SecondRead | Purpose::Embed) => {
                 return Err(corrupt(
-                    "an admission queues reads, and names the judge apart",
+                    "an admission queues reads, and names the judge and the embedder apart",
                 ));
             }
+        }
+        // Each chunk is owed a vector, as soon as a call may be made.
+        if w.embed {
+            tx.execute(
+                "INSERT INTO core_memory.work
+                     (kind, item_id, event_id, workspace_id, scope, state, not_before,
+                      enqueued_at)
+                 SELECT 'embed', c, $1, $2, $3, 'ready', $4, $4
+                   FROM UNNEST($5::uuid[]) AS u (c)",
+                &[&w.event_id.0, &w.workspace, &scope, &w.captured_at.0, &ids],
+            )
+            .map_err(backend)?;
         }
         // Each chunk's bead is owed to the judge, not before the given
         // time. A tool call's bead is owed once a model has written about
@@ -2235,7 +2310,7 @@ pub(crate) fn update_work<C: GenericClient>(
         return Ok(());
     }
     let item_id = |update: &WorkUpdate| match update.item {
-        WorkItem::Chunk(chunk_id) => chunk_id.0,
+        WorkItem::Chunk(chunk_id) | WorkItem::Embedding(chunk_id) => chunk_id.0,
         WorkItem::ToolCall(event_id) => event_id.0,
         WorkItem::NewBead(bead_id) | WorkItem::HeldChain(bead_id) => bead_id.0,
     };
